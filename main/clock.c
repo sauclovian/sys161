@@ -16,7 +16,7 @@
 #define inline
 #endif
 
-const char rcsid_clock_c[] = "$Id: clock.c,v 1.8 2001/04/19 05:07:14 dholland Exp $";
+const char rcsid_clock_c[] = "$Id: clock.c,v 1.9 2001/05/29 18:39:59 dholland Exp $";
 
 struct timed_action {
 	u_int32_t ta_when_secs;
@@ -268,7 +268,7 @@ clock_dowait(u_int32_t secs, u_int32_t nsecs)
 	 * approaching an expeditions manner. Also, on some systems,
 	 * select with small timeouts does timing loops to implement
 	 * usleep(), and we don't want that. The only point of
-	 * sleeping at all is to be nice to other users on the system.
+	 * sleeping at all is to be nice to other users on the system.)
 	 */
 	gettimeofday(&tv, NULL);
 	wsecs = now_secs - tv.tv_sec;

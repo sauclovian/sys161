@@ -17,7 +17,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.16 2001/04/19 04:51:40 dholland Exp $";
+    "$Id: dev_disk.c,v 1.18 2001/06/07 20:01:51 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -38,6 +38,7 @@ const char rcsid_dev_disk_c[] =
 
 /* Disk timing parameters */
 #define CACHE_READ_TIME      500       /* ns */
+#define CACHE_WRITE_TIME     500       /* ns */
 
 /* Number of tries after which we assume the timing code has lost its marbles*/
 #define MAX_WORKTRIES    10
@@ -108,8 +109,7 @@ struct disk_data {
 	int dd_current_track;
 	u_int32_t dd_trackarrival_secs;
 	u_int32_t dd_trackarrival_nsecs;
-	int dd_buffered_sector;		/* sector in track buffer */
-	int dd_sector_written;		/* sector we last wrote */
+	int dd_iostatus;
 	int dd_timedop;             /* nonzero if waiting for a timer event */
 
 	/*
@@ -426,7 +426,10 @@ static
 u_int32_t
 disk_seektime(struct disk_data *dd, int ntracks)
 {
-	double nt = ntracks;
+	double nt;
+	(void)dd;
+
+	nt = ntracks;
 	if (nt > 5) {
 		nt = sqrt(nt);
 	}
@@ -475,9 +478,8 @@ disk_readrotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 	 * sector and it's in our track buffer.
 	 */
 	if (targsecs < nowsecs ||
-	    (targsecs == nowsecs && targnsecs <= nowsecs)) {
-		dd->dd_buffered_sector = dd->dd_sect;
-		return CACHE_READ_TIME;
+	    (targsecs == nowsecs && targnsecs <= nownsecs)) {
+		return 0;
 	}
 
 	/*
@@ -508,6 +510,7 @@ disk_writerotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 	 * nsecs.)
 	 */
 	u_int32_t targnsecs = rotoffset * nsecs_per_sector;
+	u_int32_t delay;
 
 	clock_time(&nowsecs, &nownsecs);
 
@@ -516,11 +519,16 @@ disk_writerotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 	}
 
 	/*
-	 * Wait until that time plus how long it takes to do the write.
-	 * XXX adding in nsecs_per_sector makes it wait forever
+	 * Add in how long it takes to do the write.
 	 */
+	targnsecs += nsecs_per_sector;
 
-	return (targnsecs - nownsecs) + nsecs_per_sector;
+	/*
+	 * Wait until then.
+	 */
+	delay = targnsecs - nownsecs;
+
+	return delay;
 }
 
 ////////////////////////////////////////////////////////////
@@ -587,16 +595,14 @@ disk_init(int slot, int argc, char *argv[])
 
 	dd->dd_current_track = 0;
 	
-	dd->dd_trackarrival_secs = 0;
-	dd->dd_trackarrival_nsecs = 0;
+	clock_time(&dd->dd_trackarrival_secs, &dd->dd_trackarrival_nsecs);
 
 	dd->dd_stat = DISKSTAT_IDLE;
 	dd->dd_sect = 0;
 
 	dd->dd_paranoid = paranoid;
 
-	dd->dd_buffered_sector = -1;
-	dd->dd_sector_written = -1;
+	dd->dd_iostatus = -1;
 
 	dd->dd_worktries = 0;
 
@@ -638,35 +644,13 @@ disk_seekdone(void *data, u_int32_t cyl)
 	disk_update(dd);
 }
 
-
 static
 void
-disk_rotdelaydone(void *data, u_int32_t nothing)
+disk_waitdone(void *data, u_int32_t status)
 {
 	struct disk_data *dd = data;
-	(void)nothing;
 
-	dd->dd_timedop = 0;
-	disk_update(dd);
-}
-
-static
-void
-disk_cachereaddone(void *data, u_int32_t nothing)
-{
-	struct disk_data *dd = data;
-	(void)nothing;
-
-	dd->dd_timedop = 0;
-	disk_update(dd);
-}
-
-static
-void
-disk_writedone(void *data, u_int32_t sector)
-{
-	struct disk_data *dd = data;
-	dd->dd_sector_written = sector;
+	dd->dd_iostatus = status;
 
 	dd->dd_timedop = 0;
 	disk_update(dd);
@@ -696,6 +680,8 @@ disk_work(struct disk_data *dd)
 	}
 
 	if (dd->dd_sect >= dd->dd_totsectors) {
+		TRACE(DOTRACE_DISK, ("disk: slot %d: Invalid sector", 
+				     dd->dd_slot));
 		INVSECT(dd->dd_stat);
 		dd->dd_worktries = 0;
 		return;
@@ -703,7 +689,22 @@ disk_work(struct disk_data *dd)
 
 	dd->dd_worktries++;
 	if (dd->dd_worktries > MAX_WORKTRIES) {
-		msg("Geometry modeling fault! (Known bug, ignore...)");
+		msg("Geometry modeling fault! Please report to maintainer.)");
+		TRACE(DOTRACE_DISK, ("disk: slot %d: Too many loops through "
+				     "timing code!", dd->dd_slot));
+		TRACE(DOTRACE_DISK, ("disk: current track %d; arrival %u.%09u;"
+				     "iostatus %d",
+				     dd->dd_current_track,
+				     dd->dd_trackarrival_secs,
+				     dd->dd_trackarrival_nsecs,
+				     dd->dd_iostatus));
+
+		dd->dd_current_track = 0;
+		clock_time(&dd->dd_trackarrival_secs, 
+			   &dd->dd_trackarrival_nsecs);
+		dd->dd_iostatus = -1;
+		dd->dd_timedop = 0;
+
 		/* skip over all the timing crap */
 		goto forceio;
 	}
@@ -717,6 +718,9 @@ disk_work(struct disk_data *dd)
 		u_int32_t nsecs;
 		int distance;
 
+		TRACE(DOTRACE_DISK, ("disk: slot %d: seeking to track %d",
+				     dd->dd_slot, cyl));
+
 		distance = cyl - dd->dd_current_track;
 		if (distance<0) {
 			distance = -distance;
@@ -729,46 +733,60 @@ disk_work(struct disk_data *dd)
 		return;
 	}
 
-	
-	if (dd->dd_stat & DISKBIT_ISWRITE && dd->dd_sector_written != dd->dd_sect) {
-		rotdelay = disk_writerotdelay(dd, cyl, rotoffset);
+	if (dd->dd_stat & DISKBIT_ISWRITE && dd->dd_iostatus < 1) {
+		//TRACE(DOTRACE_DISK, ("disk: slot %d: write copy latency", 
+		//		     dd->dd_slot));
+		dd->dd_timedop = 1;
+		schedule_event(CACHE_WRITE_TIME, dd, 1, disk_waitdone);
+		return;
 	}
-	else if (dd->dd_buffered_sector != dd->dd_sect) {
-		rotdelay = disk_readrotdelay(dd, cyl, rotoffset);
-	} else {
-		rotdelay = 0;
+	
+	if (dd->dd_iostatus < 2) {
+		if (dd->dd_stat & DISKBIT_ISWRITE) {
+			rotdelay = disk_writerotdelay(dd, cyl, rotoffset);
+		}
+		else {
+			rotdelay = disk_readrotdelay(dd, cyl, rotoffset);
+		}
+		if (rotdelay > 0) {
+			TRACE(DOTRACE_DISK, ("disk: slot %d: rotdelay %u ns", 
+					     dd->dd_slot, rotdelay));
+			dd->dd_timedop = 1;
+			schedule_event(rotdelay, dd, 2, disk_waitdone);
+		}
+		else {
+			TRACE(DOTRACE_DISK, ("disk: slot %d: rotdelay 0 ns", 
+					     dd->dd_slot));
+			dd->dd_iostatus = 2;
+		}
 	}
 
-	if (dd->dd_buffered_sector == dd->dd_sect && rotdelay > 0) {
+	if ((dd->dd_stat & DISKBIT_ISWRITE)==0 && dd->dd_iostatus < 3) {
+		//TRACE(DOTRACE_DISK, ("disk: slot %d: read copy latency", 
+		//		     dd->dd_slot));
 		dd->dd_timedop = 1;
-		schedule_event(rotdelay, dd, 0, disk_cachereaddone);
-		return;
-	}
-	
-	if (rotdelay > 0) {
-		dd->dd_timedop = 1;
-		if (dd->dd_stat & DISKBIT_ISWRITE) {
-			schedule_event(rotdelay, dd, dd->dd_sect, disk_writedone);
-		} else {
-			schedule_event(rotdelay, dd, 0, disk_rotdelaydone);
-		}
-		return;
+		schedule_event(CACHE_WRITE_TIME, dd, 3, disk_waitdone);
 	}
 
  forceio:
+
 	/*
 	 * We're here.
 	 */
 	if (dd->dd_stat & DISKBIT_ISWRITE) {
-		dd->dd_sector_written = -1;
+		TRACE(DOTRACE_DISK, ("disk: slot %d: write sector %u", 
+				     dd->dd_slot, dd->dd_sect));
 		err = disk_writesector(dd);
 	}
 	else {
-		dd->dd_buffered_sector = -1;
+		TRACE(DOTRACE_DISK, ("disk: slot %d: read sector %u", 
+				     dd->dd_slot, dd->dd_sect));
 		err = disk_readsector(dd);
 	}
 
 	if (err) {
+		TRACE(DOTRACE_DISK, ("disk: slot %d: media error", 
+				     dd->dd_slot));
 		MEDIAERR(dd->dd_stat);
 		dd->dd_worktries = 0;
 	}
@@ -802,8 +820,18 @@ disk_setstatus(struct disk_data *dd, u_int32_t val)
 {
 	switch (val) {
 	    case DISKSTAT_IDLE:
+		TRACE(DOTRACE_DISK, ("disk: slot %d: idle", dd->dd_slot));
+		dd->dd_iostatus = -1;
+		break;
 	    case DISKSTAT_READING:
+		TRACE(DOTRACE_DISK, ("disk: slot %d: read starts",
+				     dd->dd_slot));
+		dd->dd_iostatus = 0;
+		break;
 	    case DISKSTAT_WRITING:
+		TRACE(DOTRACE_DISK, ("disk: slot %d: write starts", 
+				     dd->dd_slot));
+		dd->dd_iostatus = 0;
 		break;
 	    default:
 		hang("disk: Invalid write %u to status register", val);

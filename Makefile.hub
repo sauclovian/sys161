@@ -1,18 +1,19 @@
-CFLAGS+=-I$S/include
-SRCFILES+=bus     lamebus.c boot.c \
-                  dev_disk.c dev_emufs.c dev_net.c dev_random.c \
-                  dev_screen.c dev_serial.c dev_timer.c \
-          gdb     gdb_fe.c gdb_be.c \
-          main    main.c onsel.c clock.c console.c util.c
+include defs.mk
 
-tidy:
-	(find $S -name '*~' -print | xargs rm -f)
+all: $(PROG)
 
-distclean clean: #tidy
+include rules.mk
+include depend.mk
+
+CFLAGS+=-I.
+SRCFILES+=nethub  array.c nethub.c
+
+distclean clean:
 	rm -f *.o $(PROG)
 
 rules:
-	echo $(SRCFILES) | ../mk/makerules.sh > rules.mk
+	@echo Making rules...
+	@echo $(SRCFILES) | $S/makerules.sh > rules.mk
 
 depend:
 	$(MAKE) rules

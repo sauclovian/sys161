@@ -1,0 +1,8 @@
+all depend install tidy clean:
+	(cd build-sys161 && $(MAKE) $@)
+	(cd build-trace161 && $(MAKE) $@)
+	(cd build-hub161 && $(MAKE) $@)
+
+distclean:
+	rm -rf build-sys161 build-trace161 build-hub161
+	rm -f Makefile

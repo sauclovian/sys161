@@ -25,7 +25,7 @@
  * For now, 16M.
  */
 
-const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.21 2001/02/26 18:42:29 dholland Exp $";
+const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.22 2001/06/04 21:41:49 dholland Exp $";
 
 #define MAXMEM (16*1024*1024)
 
@@ -307,6 +307,7 @@ static struct lamebus_device_info lamebus_controller_info = {
 	lamebus_controller_init,
 	lamebus_controller_fetch,
 	lamebus_controller_store,
+	NULL,
 };
 
 

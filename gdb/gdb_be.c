@@ -16,7 +16,7 @@
 
 //#define SHOW_PACKETS
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.21 2001/02/26 18:42:41 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.22 2001/06/04 21:41:49 dholland Exp $";
 
 extern struct gdbcontext g_ctx;
 extern int g_ctx_inuse;
@@ -247,7 +247,7 @@ void
 debug_write_mem(struct gdbcontext *ctx, const char *spec)
 {
 	unsigned int start, length;
-	int i;
+	unsigned int i;
 	u_int32_t realaddr;
 	unsigned int val;
 
@@ -301,6 +301,8 @@ void
 debug_restart(struct gdbcontext *ctx, const char *addr)
 {
 	unsigned int realaddr;
+
+	(void)ctx;  /* ? */
 
 	if (*addr == '\0') {
 		return;

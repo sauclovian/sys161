@@ -15,7 +15,7 @@
 #include "lamebus.h"
 
 
-const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.7 2001/02/26 18:42:29 dholland Exp $";
+const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.8 2001/06/04 21:41:49 dholland Exp $";
 
 #define TIMER_REVISION      1
 
@@ -62,6 +62,10 @@ timer_init(int slot, int argc, char *argv[])
 	td->td_interrupted = 0;
 	td->td_count_usecs = 0;
 	td->td_generation = 0;
+
+	(void)argc;
+	(void)argv;
+
 	return td;
 }
 
@@ -172,5 +176,6 @@ const struct lamebus_device_info timer_device_info = {
 	timer_init,
 	timer_fetch,
 	timer_store,
+	NULL
 };
 

@@ -20,7 +20,7 @@ CS161 bus controller - see <A HREF=lamebus.html>LAMEbus spec</A>
 <tr><td>3</td><td>2</td><td><A HREF=#disk>Fixed disk</A></td></tr>
 <tr><td>4</td><td>1</td><td><A HREF=#serial>Serial console</A></td></tr>
 <tr><td>5</td><td>1</td><td><A HREF=#screen>Text screen</A></td></tr>
-<tr><td>6</td><td>1</td><td><A HREF=#nic>Network interface</A></td></tr>
+<tr><td>6</td><td>2</td><td><A HREF=#nic>Network interface</A></td></tr>
 <tr><td>7</td><td>1</td><td><A HREF=#emufs>Emulator filesystem</A></td></tr>
 <tr><td>8</td><td>1</td><td><em>(withdrawn)</em></td></tr>
 <tr><td>9</td><td>1</td><td><A HREF=#rand>Random number generator</A></td></tr>
@@ -216,40 +216,73 @@ in practice will not.
 <A NAME=nic>
 <h4>Network interface</h4>
 Device id: 6<br>
-Oldest revision: 1<br>
-Current revision: 1<br>
+Oldest revision: 2<br>
+Current revision: 2<br>
 Registers:
 <blockquote>
 <table width=100% border=0>
 <tr><th width=10%>Offset</th><th align=left>Description</th></tr>
-<tr><td>0-3</td><td>Start send</td></tr>
-<tr><td>4-7</td><td>Send completed (write 0 to clear)</td></tr>
-<tr><td>8-11</td><td>Receive completed (write 0 to clear)</td></tr>
+<tr><td>0-3</td><td>Receive interrupt register</td></tr>
+<tr><td>4-7</td><td>Transmit interrupt register</td></tr>
+<tr><td>8-11</td><td>Control register</td></tr>
 <tr><td>12-15</td><td>Status register</td></tr>
 </table>
 </blockquote>
 
 A 4k read buffer followed by a 4k write buffer is mapped at offset
-32768.
+32768. Packets may not exceed 4k.
 <p>
 
-Simple network interface. Writing the length of packet to send into
-the start-send register will transmit that many bytes of data from the
-send buffer. When the send is complete, the send completed register
-will be loaded with the number of bytes sent. When a receive is
-complete, the receive completed register will be loaded with the
-packet length. If either completion register contains a nonzero value,
-the IRQ line will be asserted. Writing zero back to either completion
-register clears it.
+Simple network interface.
 <p>
 
-The status register contains, in bit 0, the carrier detect flag, and
-in bit 1, the promiscuous mode flag. If the promiscuous mode flag is
-not set, incoming packets whose hardware address is not broadcast and
-is not the address of this card will be ignored. Bits 16-31 of the
-status register contain the hardware address of this card. Bits 2-15
-are reserved.
+Bit 0 of each interrupt register is set when a receive (or transmit)
+is complete. These bits may be cleared by writing 0 back. If either
+interrupt register is nonzero, the card's IRQ line is asserted.
 <p>
+
+The control register contains two bits: bit 0 controls promiscuous
+mode, and bit 1 controls packet sending. If the promiscuous mode bit
+is set, all packets seen will be received, even those whose
+destination is elsewhere. Setting bit 1 starts a packet transmit. 
+Do not set bit 1 while a transmit is already in progress; undefined
+behavior may result. The rest of the control register is reserved and
+should be set to 0.
+<p>
+
+The lower 16 bits of the status register report the device hardware
+address. The rest is reserved. The status register is read-only.
+<p>
+
+To transmit, a packet should first be assembled in the send buffer.
+The destination and length fields in the link-level header must be set
+correctly. (The source and frame fields will be set by the card during
+transmit.) Then bit 1 of the control register should be set to 1 to
+start transmission. An interrupt will occur when transmission is
+complete.
+<p>
+
+To receive, merely copy each packet out of the receive buffer as
+receive interrupts occur. Further packets arriving are discarded while
+the receive interrupt register is nonzero, so packets may be copied
+without being corrupted by further input.
+<p>
+
+The link-level packet header is 8 bytes long and has the following
+fields (always in network byte order):
+
+<blockquote>
+<table width=95% border=0>
+<tr><th>Offset</th><th>Size</th><th>Description</th></tr>
+<tr><td>0</td>	<td>2</td>	<td>Framing word (0xa4b3)</td></tr>
+<tr><td>2</td>	<td>2</td>	<td>Hardware from address</td></tr>
+<tr><td>4</td>	<td>2</td>	<td>Total packet length</td></tr>
+<tr><td>6</td>	<td>2</td>	<td>Hardware to address</td></tr>
+</table>
+</blockquote>
+
+The hardware address 0xffff is the broadcast address; the hardware
+address 0x0000 is reserved for sending keepalives to the network hub.
 
 <hr>
 

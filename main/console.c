@@ -12,13 +12,86 @@
 #include "main.h"
 
 
-const char rcsid_console_c[] = "$Id: console.c,v 1.5 2001/02/26 18:41:45 dholland Exp $";
+const char rcsid_console_c[] = "$Id: console.c,v 1.7 2001/06/06 15:43:18 dholland Exp $";
 
 static struct termios savetios;
 static int console_up=0;
 
 static void (*onkey)(void *data, int ch);
 static void *onkeydata;
+
+/*****************************************/
+
+struct output {
+	int at_bol;
+	int doclose;
+	int needcr;
+	FILE *f;
+};
+
+static struct output mainout;
+
+#ifdef USE_TRACE
+static struct output traceout;
+#endif
+
+static
+void
+init_output(struct output *o, FILE *f, int isfile)
+{
+	o->at_bol = 1;
+	o->doclose = isfile;
+	o->needcr = !isfile;
+	o->f = f;
+}
+
+#ifdef USE_TRACE
+static
+void
+close_output(struct output *o)
+{
+	if (!o->at_bol) {
+		if (o->needcr) {
+			fprintf(o->f, "\r");
+		}
+		fprintf(o->f, "\n");
+		o->at_bol = 1;
+	}
+	if (o->doclose) {
+		fclose(o->f);
+	}
+	init_output(o, stderr, 0);
+}
+#endif
+
+static
+void
+vmsg(struct output *o, const char *fmt, va_list ap)
+{
+	if (o->at_bol) {
+		fprintf(o->f, "sys161: ");
+	}
+	vfprintf(o->f, fmt, ap);
+	if (o->needcr) {
+		fprintf(o->f, "\r");
+	}
+	fprintf(o->f, "\n");
+	o->at_bol = 1;
+}
+
+static
+void
+vmsgl(struct output *o, const char *fmt, va_list ap)
+{
+	if (o->at_bol) {
+		fprintf(o->f, "sys161: ");
+	}
+	vfprintf(o->f, fmt, ap);
+	o->at_bol = 0;
+}
+
+/*****************************************/
+
 
 static
 int
@@ -92,7 +165,16 @@ console_beep(void)
 /*****************************************/
 
 void
-console_init(void)
+console_earlyinit(void)
+{
+	init_output(&mainout, stderr, 0);
+#ifdef USE_TRACE
+	init_output(&traceout, stderr, 0);
+#endif
+}
+
+void
+console_init(int pass_signals)
 {
 	struct termios t;
 
@@ -117,7 +199,12 @@ console_init(void)
 #endif
 	t.c_lflag &= ~(ECHONL|NOFLSH); 
 	t.c_lflag &= ~(ICANON | ECHO); 
-	t.c_lflag |= ISIG;
+	if (pass_signals) {
+		t.c_lflag &= ~ISIG;
+	}
+	else {
+		t.c_lflag |= ISIG;
+	}
 	t.c_iflag &= ~(ICRNL | INLCR);
 	t.c_cflag |= CREAD;
 	t.c_cc[VTIME] = 0;
@@ -133,13 +220,16 @@ console_cleanup(void)
 {
 	if (console_up) {
 		console_up = 0;
+		fflush(mainout.f);
+#ifdef USE_TRACE
+		fflush(traceout.f);
+		close_output(&traceout);
+#endif
 		tcsetattr(STDIN_FILENO, TCSADRAIN, &savetios);
 	}
 }
 
 /*****************************************/
-
-static int at_bol = 1;
 
 void
 die(void)
@@ -148,35 +238,12 @@ die(void)
 	exit(1);
 }
 
-static
-void
-vmsg(const char *fmt, va_list ap)
-{
-	if (at_bol) {
-		fprintf(stderr, "sys161: ");
-	}
-	vfprintf(stderr, fmt, ap);
-	fprintf(stderr, "\r\n");
-	at_bol = 1;
-}
-
-static
-void
-vmsgl(const char *fmt, va_list ap)
-{
-	if (at_bol) {
-		fprintf(stderr, "sys161: ");
-	}
-	vfprintf(stderr, fmt, ap);
-	at_bol = 0;
-}
-
 void
 msg(const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	vmsg(fmt, ap);
+	vmsg(&mainout, fmt, ap);
 	va_end(ap);
 }
 
@@ -185,9 +252,54 @@ msgl(const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	vmsgl(fmt, ap);
+	vmsgl(&mainout, fmt, ap);
 	va_end(ap);
 }
+
+#ifdef USE_TRACE
+
+void
+set_tracefile(const char *filename)
+{
+	FILE *f;
+
+	close_output(&traceout);
+
+	if (filename && !strcmp(filename, "-")) {
+		init_output(&traceout, stdout, 0);
+	}
+	else if (filename) {
+		f = fopen(filename, "w");
+		if (!f) {
+			msg("Cannot open tracefile %s", filename);
+			die();
+		}
+		init_output(&traceout, f, 1);
+	}
+	else {
+		init_output(&traceout, stderr, 0);
+	}
+}
+
+void
+trace(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vmsg(&traceout, fmt, ap);
+	va_end(ap);
+}
+
+void
+tracel(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vmsgl(&traceout, fmt, ap);
+	va_end(ap);
+}
+
+#endif
 
 void
 smoke(const char *fmt, ...)
@@ -195,7 +307,7 @@ smoke(const char *fmt, ...)
 	va_list ap;
 	
 	va_start(ap, fmt);
-	vmsg(fmt, ap);
+	vmsg(&mainout, fmt, ap);
 	va_end(ap);
 	
 	msg("The hardware has failed.");
@@ -211,7 +323,7 @@ hang(const char *fmt, ...)  // was crash()
 	va_list ap;
 	
 	va_start(ap, fmt);
-	vmsg(fmt, ap);
+	vmsg(&mainout, fmt, ap);
 	va_end(ap);
 	
 	msg("You did something the hardware didn't like.");

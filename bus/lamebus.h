@@ -1,3 +1,4 @@
+#include "trace.h"
 
 #ifndef LAMEBUS_H
 #define LAMEBUS_H
@@ -32,8 +33,27 @@ extern const struct lamebus_device_info
  */
 extern u_int32_t bus_interrupts;
 
-#define RAISE_IRQ(slot) (bus_interrupts |= (1<<(u_int32_t)(slot)))
-#define LOWER_IRQ(slot) (bus_interrupts &= ~(1<<(u_int32_t)(slot)))
+#define RAISE_IRQ2(slot) (bus_interrupts |= (1<<(u_int32_t)(slot)))
+#define LOWER_IRQ2(slot) (bus_interrupts &= ~(1<<(u_int32_t)(slot)))
 #define CHECK_IRQ(slot) ((bus_interrupts & (1<<(u_int32_t)(slot))) != 0)
+
+#ifdef USE_TRACE
+
+#define RAISE_IRQ(slot) { \
+	RAISE_IRQ2(slot); \
+	TRACE(DOTRACE_IRQ, ("Slot %2d: irq ON", (slot))); \
+}
+
+#define LOWER_IRQ(slot) { \
+	LOWER_IRQ2(slot); \
+	TRACE(DOTRACE_IRQ, ("Slot %2d: irq OFF", (slot))); \
+}
+
+#else /* not USE_TRACE */
+
+#define RAISE_IRQ(slot) RAISE_IRQ2(slot)
+#define LOWER_IRQ(slot) LOWER_IRQ2(slot)
+
+#endif /* USE_TRACE */
 
 #endif /* LAMEBUS_H */

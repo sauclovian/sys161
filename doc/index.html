@@ -60,12 +60,18 @@ files in it. Go into this directory by typing
 (substitute whatever version you have for the 1.0.)
 <p>
 
-Now run the configure script. In the simple case, you do this by just
-typing
+Now you need to know what processor type you want to use. For CS161
+this year, you want the "mipseb" processor. For other uses, consult
+the course staff, or choose from the list of supported processors,
+which you can get by running <tt>./configure --help</tt>.
+<p>
+
+Run the configure script. Specify the processor type you want as an
+argument. In the simple case, it looks like this:
 <pre>
-	./configure
+	./configure mipseb
 </pre>
-and letting it grind. If you want it to install the resulting programs
+It'll grind for a while. If you want it to install the resulting programs
 someplace other than <tt>~/cs161/root</tt>, pass configure the
 <tt>--installdir</tt> option, like this:
 <pre>
@@ -75,32 +81,22 @@ Note that, because of the way the Unix shell handles ~, if you use
 <tt>~/bin</tt> instead of <tt>$HOME/bin</tt> it won't work.
 <p>
 
-Now go into the <tt>build</tt> directory, and from there into the
-subdirectory to build the simulator you want. There are two kinds: the
-"fast" simulator and the "trace" simulator. The "fast" simulator is
-the normal one; the "trace" simulator prints every CPU instruction as
-it's executed and some other info. (This can be useful if you suspect
-a bug in System/161.) There may also be more than one processor type
-supported.
-<p>
-
-Normally you want the "fast" simulator, and for CS161 this year, you
-want the "mipseb" processor. So go into the directory
-<tt>mipseb-fast</tt>.
-<p>
-
-Now type
+Now compile things by typing
 <pre>
 	make
 </pre>
-to compile, and
+and install them by typing
 <pre>
 	make install
 </pre>
-to install the simulator.
+
+This compiles and installs two programs: <tt>sys161</tt>, the normal
+or "fast" simulator, and <tt>trace161</tt>, which has lots of
+debugging and diagnostic support built in and thus doesn't run as
+quickly. You can run OS/161 in either.
 <p>
 
-If it bombs, contact the course staff.
+If the compilation bombs, contact the course staff.
 <p>
 
 System/161 has been tested on the following platforms:
@@ -115,8 +111,9 @@ System/161 has been tested on the following platforms:
 <h3>Running System/161</h3>
 
 There are two versions of System/161 that can be built: the normal
-one, <tt>sys161</tt>, and one compiled to print every processor
-instruction as it's executed, which is called <tt>trace161</tt>.
+one, <tt>sys161</tt>, and one compiled to be able to log information
+about what's happening and generally assist debugging, which is called
+<tt>trace161</tt>.
 <p>
 
 The general format for the command line for either of these is like
@@ -130,6 +127,7 @@ this:
 The <em>System/161 options</em> are:
 <blockquote>
 <dl>
+
 <dt>-c <em>configfile</em></dt>
 <dd>Specify alternate config file. Default is <tt>sys161.conf</tt>.</dd>
 
@@ -138,8 +136,41 @@ The <em>System/161 options</em> are:
 is to use the Unix-domain socket <tt>./.sockets/gdb</tt> for debugger
 connections.</dd>
 
+<dt>-s</dt>
+<dd>Pass signal-generating characters (^C, ^Z, etc.) through to the
+kernel instead of treating them as requests to sys161.</dd>
+
 <dt>-w</dt>
 <dd>Wait for a debugger connection immediately on startup.</dd>
+
+</dl>
+</blockquote>
+<p>
+
+The following additional options control trace161's tracing and are
+ignored by sys161:
+<blockquote>
+<dl>
+
+<dt>-f <em>tracefile</em></dt>
+<dd>Set the file trace information is logged to. By default, stderr is
+used. Specifying -f- sends output to stdout instead of stderr.</dd>
+
+<dt>-t <em>traceflags</em></dt>
+<dd>Tell System/161 what to trace. The following flags are available:
+   <table>
+   <tr><td>d</td>	<td>Trace disk I/O</td></tr>
+   <tr><td>e</td>	<td>Trace emufs I/O</td></tr>
+   <tr><td>k</td>	<td>Trace instructions in kernel mode</td></tr>
+   <tr><td>n</td>	<td>Trace network I/O</td></tr>
+   <tr><td>t</td>	<td>Trace TLB/MMU activity</td></tr>
+   <tr><td>u</td>	<td>Trace instructions in user mode</td></tr>
+   <tr><td>x</td>	<td>Trace exceptions</td></tr>
+   </table>
+   Caution: tracing instructions generates huge amounts of output
+   that may overwhelm smaller host systems.
+</dd>
+
 </dl>
 </blockquote>
 <p>

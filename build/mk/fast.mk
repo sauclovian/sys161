@@ -1,3 +1,0 @@
-CFLAGS+=$(OPT)
-#CFLAGS+=-g
-PROG=sys161

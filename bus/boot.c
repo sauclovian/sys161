@@ -8,11 +8,12 @@
 #include "console.h"
 #include "cpu.h"
 #include "elf.h"
+#include "cpu-elf.h"
 
 #include "ram.h"
 
 
-const char rcsid_boot_c[] = "$Id: boot.c,v 1.7 2001/01/27 01:43:15 dholland Exp $";
+const char rcsid_boot_c[] = "$Id: boot.c,v 1.8 2001/06/04 21:40:38 dholland Exp $";
 
 static
 void
@@ -86,7 +87,7 @@ load_elf(int fd)
 		die();
 	}
 
-	if (eh.e_machine!=EM_MIPS) {
+	if (eh.e_machine!=EM_CPU) {
 		msg("Boot image is for wrong processor type");
 		die();
 	}

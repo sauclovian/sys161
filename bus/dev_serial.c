@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <string.h>
 #include "config.h"
 
 #include "speed.h"
@@ -12,7 +13,7 @@
 
 
 
-const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.7 2001/01/27 01:43:16 dholland Exp $";
+const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.8 2001/06/04 21:41:49 dholland Exp $";
 
 #define SERREG_CHAR   0x0
 #define SERREG_WIRQ   0x4
@@ -155,6 +156,9 @@ serial_init(int slot, int argc, char *argv[])
 	sd->sd_wirq.si_on = 0;
 	sd->sd_wirq.si_ready = 0;
 
+	(void)argc;
+	(void)argv;
+
 	console_onkey(sd, serial_input);
 
 	return sd;
@@ -167,4 +171,5 @@ const struct lamebus_device_info serial_device_info = {
 	serial_init,
 	serial_fetch,
 	serial_store,
+	NULL
 };

@@ -7,6 +7,7 @@
 #include "config.h"
 
 #include "console.h"
+#include "trace.h"
 #include "gdb.h"
 #include "cpu.h"
 #include "bus.h"
@@ -20,7 +21,7 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.15 2001/04/19 05:07:14 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.19 2001/06/06 15:43:18 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -156,7 +157,8 @@ run(void)
 		    totcycles/(time*1000000.0));
 	}
 
-	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console %ur/%uw/%um emufs",
+	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console %ur/%uw/%um emufs"
+	    " %ur/%uw net",
 	    g_stats.s_irqs,
 	    g_stats.s_exns,
 	    g_stats.s_rsects,
@@ -165,7 +167,9 @@ run(void)
 	    g_stats.s_wchars,
 	    g_stats.s_remu,
 	    g_stats.s_wemu,
-	    g_stats.s_memu);
+	    g_stats.s_memu,
+	    g_stats.s_rpkts,
+	    g_stats.s_wpkts);
 }
 
 ////////////////////////////////////////////////////////////
@@ -256,6 +260,10 @@ main(int argc, char *argv[])
 	int j, opt;
 	size_t argsize=0;
 	int debugwait=0;
+	int pass_signals=0;
+
+	/* This must come absolutely first so msg() can be used. */
+	console_earlyinit();
 	
 	if (sizeof(u_int32_t)!=4) {
 		/*
@@ -265,10 +273,21 @@ main(int argc, char *argv[])
 		die();
 	}
 
-	while ((opt = mygetopt(argc, argv, "c:p:w"))!=-1) {
+	while ((opt = mygetopt(argc, argv, "c:f:p:st:w"))!=-1) {
 		switch (opt) {
 		    case 'c': config = myoptarg; break;
+		    case 'f':
+#ifdef USE_TRACE
+			set_tracefile(myoptarg);
+#endif
+			break;
 		    case 'p': port = atoi(myoptarg); usetcp=1; break;
+		    case 's': pass_signals = 1; break;
+		    case 't': 
+#ifdef USE_TRACE
+			set_traceflags(myoptarg); 
+#endif
+			break;
 		    case 'w': debugwait = 1; break;
 		    default: usage();
 		}
@@ -292,11 +311,11 @@ main(int argc, char *argv[])
 		if (j<argc-1) strcat(argstr, " ");
 	}
 	
+	console_init(pass_signals);
+	clock_init();
 	bus_config(config);
 
-	console_init();
 	cpu_init();
-	clock_init();
 
 	if (usetcp) {
 		gdb_inet_init(port);
@@ -310,6 +329,9 @@ main(int argc, char *argv[])
 	load_kernel(kernel, argstr);
 
 	msg("System/161 %s, compiled %s %s", VERSION, __DATE__, __TIME__);
+#ifdef USE_TRACE
+	print_traceflags();
+#endif
 
 	if (debugwait) {
 		stoploop();
@@ -317,9 +339,9 @@ main(int argc, char *argv[])
 	
 	run();
 
-	clock_cleanup();
 	bus_cleanup();
 	console_cleanup();
+	clock_cleanup();
 	
 	return 0;
 }

@@ -2,31 +2,82 @@
 #
 # We need the following stuff:
 #
-#     1. C compiler
-#     2. C compiler warning options
-#     3. Endianness
-#     4. CHAR_BIT
-#     5. sized integer types
+#     1. Source location
+#     2. CPU type
+#     3. C compiler
+#     4. C compiler warning options
+#     5. Endianness
+#     6. CHAR_BIT
+#     7. sized integer types
 #
+
+if [ -f doc/lamebus.html ]; then
+    SRCDIR=""
+else
+    SRCDIR=`echo "$0" | sed 's,[^/]*$,,`
+fi
 
 while [ "x$1" != x ]; do
     case "$1" in
 	--help) cat <<EOF
-Usage: ./configure [options]
+Usage: ./configure [options] cpu_architecture
 Options are:
     --help              Print this message
     --with-compiler=CC  Use CC as compiler [probed]
     --installdir=DIR    Install into DIR [$HOME/cs161/root]
     --devel             Turn on lots of warnings [default off]
+    --debug             Turn on debug symbols for sys161 itself [default off]
+Architectures are:
 EOF
+	cat ${SRCDIR}*/cpuinfo.txt
     exit 0
     ;;
 	--with-compiler=*) CC=`echo $1 | sed 's/^[^=]*=//'`;;
 	--installdir=*) INSTALLDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--devel) USEWARNS=1;;
+	--debug) USEDEBUG=1;;
+	--*) echo "Unknown option $1 (try --help)"; exit 1;;
+	*) 
+	    if [ "x$CPU" != x ]; then
+		echo "Cannot configure more than one architecture"
+		exit 1
+	    fi
+	    CPU="$1";
+	    ;;
     esac
 shift
 done
+
+############################################################
+
+echo -n 'Looking for source code... '
+
+if [ "x$SRCDIR" = "x" ]; then
+    echo 'here'
+else
+    if [ -f ${SRCDIR}doc/lamebus.html ]; then
+	echo $SRCDIR
+    else
+	echo 'missing'
+	echo "Cannot find source - please run $0 out of source tree"
+	exit 1
+    fi
+fi
+
+############################################################
+
+if [ "x$CPU" = x ]; then
+    echo "No architecture specified."
+    echo "Use --help to get a list of supported architectures."
+    exit 1
+fi
+
+if [ ! -f "${SRCDIR}$CPU/cpuinfo.txt" ]; then
+    echo "Invalid architecture $CPU (try --help for a list)"
+    exit 1
+fi
+
+echo "Checking architecture... $CPU"
 
 ############################################################
 
@@ -45,9 +96,9 @@ int main() {
 EOF
 
 OS=`uname || echo unknown`
-CPU=`uname -m || echo unknown`
+HCPU=`uname -m || echo unknown`
 
-if [ "x$OS" = xOSF1 -a "x$CPU" = xalpha ]; then
+if [ "x$OS" = xOSF1 -a "x$HCPU" = xalpha ]; then
     # Prefer DEC cc to gcc
     COMPILERS="cc gcc egcs"
 else
@@ -99,7 +150,7 @@ if [ x$DECC = x1 ]; then
     WARN="-std1 -check -msg_error level5 -warnprotos"
     OPT="-fast -O3"
 elif [ x$GCC = x1 ]; then
-    WARN="-Wall -Wwrite-strings -Werror"
+    WARN="-Wall -W -Wwrite-strings -Werror"
     OPT="-O3"
 else
     WARN=""
@@ -109,6 +160,10 @@ fi
 if [ "x$USEWARNS" != x ]; then
     echo "Checking warning options... $WARN"
     CFLAGS=`echo "$CFLAGS $WARN" | sed 's/^ *//;s/ *$//'`
+fi
+
+if [ "x$USEDEBUG" = x1 ]; then
+    OPT="-g"
 fi
 
 echo "Checking optimization options... $OPT"
@@ -365,23 +420,147 @@ echo "$INSTALLDIR"
 
 ############################################################
 
-echo 'Generating defs.mk'
+echo 'Creating build directories'
+
+for d in sys161 trace161 hub161; do
+    [ -d build-$d ] || mkdir build-$d
+done
+
+########################################
+
+echo 'Generating build-sys161/defs.mk'
 
 (
     echo '# Automatically generated file; do not edit'
     echo "CC=$CC"
-    echo "CFLAGS=$CFLAGS"
-    echo "OPT=$OPT"
+    echo "CFLAGS=$CFLAGS $OPT"
     echo "LDFLAGS=$LDFLAGS"
     echo "LIBS=$LIBS"
     echo
+    echo "PROG=sys161"
+    echo
     echo "INSTALLDIR=$INSTALLDIR"
-) > build/mk/defs.mk
+    echo
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo
+) > build-sys161/defs.mk
+
+########################################
+
+echo 'Generating build-trace161/defs.mk'
+
+(
+    echo '# Automatically generated file; do not edit'
+    echo "CC=$CC"
+    echo "CFLAGS=$CFLAGS $OPT -DUSE_TRACE"
+    echo "LDFLAGS=$LDFLAGS"
+    echo "LIBS=$LIBS"
+    echo
+    echo "PROG=trace161"
+    echo
+    echo "INSTALLDIR=$INSTALLDIR"
+    echo
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo
+) > build-trace161/defs.mk
+
+########################################
+
+echo 'Generating build-hub161/defs.mk'
+
+(
+    echo '# Automatically generated file; do not edit'
+    echo "CC=$CC"
+    echo "CFLAGS=$CFLAGS $OPT"
+    echo "LDFLAGS=$LDFLAGS"
+    echo "LIBS=$LIBS"
+    echo
+    echo "PROG=hub161"
+    echo
+    echo "INSTALLDIR=$INSTALLDIR"
+    echo
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo
+) > build-hub161/defs.mk
+
+########################################
+
+echo 'Generating cpu.mk'
+
+(
+    echo '# Automatically generated file - do not edit here'
+    cat ${SRCDIR}$CPU/cpu.mk
+) > build-sys161/cpu.mk
+
+cp -f build-sys161/cpu.mk build-trace161/cpu.mk
+
+########################################
+
+echo 'Generating Makefiles'
+
+(
+    echo '# Automatically generated file - do not edit here'
+    cat ${SRCDIR}Makefile.build
+) > build-sys161/Makefile
+
+cp -f build-sys161/Makefile build-trace161/Makefile
+
+(
+    echo '# Automatically generated file - do not edit here'
+    cat ${SRCDIR}Makefile.hub
+) > build-hub161/Makefile
+
+(
+    echo '# Automatically generated file - do not edit here'
+    cat ${SRCDIR}Makefile.top
+) > Makefile
+
+########################################
 
 echo 'Generating config.h'
 
-cp -f __config.h include/config.h
+cp -f __config.h build-sys161/config.h
+cp -f __config.h build-trace161/config.h
+cp -f __config.h build-hub161/config.h
 
 rm -f __conf*
+
+########################################
+
+echo 'Generating cpu-elf.h'
+
+(
+    echo '/* Automatically generated file - do not edit here */'
+    cat ${SRCDIR}$CPU/cpu-elf.h
+) > build-sys161/cpu-elf.h
+
+cp -f build-sys161/cpu-elf.h build-trace161/cpu-elf.h
+
+########################################
+
+echo 'Generating make rules'
+
+(
+    cd build-sys161 && touch depend.mk rules.mk && make rules
+)
+(
+    cd build-trace161 && touch depend.mk rules.mk && make rules
+)
+(
+    cd build-hub161 && touch depend.mk rules.mk && make rules
+)
+
+########################################
+
+echo 'Now do make; make install'
 
 exit 0

@@ -1,3 +1,6 @@
+#ifndef CONSOLE_H
+#define CONSOLE_H
+
 /* Tell GCC to check printf formats. */
 #ifdef __GNUC__
 #define PF(a,b) __attribute__((__format__(__printf__, a, b)))
@@ -5,7 +8,8 @@
 #define PF(a,b)
 #endif
 
-void console_init(void);
+void console_earlyinit(void);
+void console_init(int pass_sigs);
 void console_cleanup(void);
 
 void console_beep(void);
@@ -24,6 +28,7 @@ void console_pause(void);
 #define Assert(x) ((x) ? (void)0 : \
         smoke("Assertion failed: %s, line %d of %s", #x, __LINE__, __FILE__))
 
+#if 0
 #ifdef USE_DEBUG
 #define DEBUG(args) msg args
 #define DEBUGL(args) msgl args
@@ -33,3 +38,6 @@ void console_pause(void);
 #define DEBUGL(args)
 #define PAUSE()
 #endif
+#endif
+
+#endif /* CONSOLE_H */

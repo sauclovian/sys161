@@ -18,7 +18,7 @@
 
 #include "context.h"
 
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.10 2001/02/09 23:10:55 dholland Exp $";
+const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.11 2001/06/04 20:29:20 dholland Exp $";
 
 //#include "lamebus.h"
 
@@ -197,7 +197,7 @@ static
 int
 setup_inet(int port)
 {
-	int sfd;
+	int sfd, one=1;
 	struct sockaddr_in sn;
 	
 	sfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -205,6 +205,8 @@ setup_inet(int port)
 		msg("socket: %s", strerror(errno));
 		return -1;
 	}
+
+	setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 
 	memset(&sn, 0, sizeof(sn));
 	sn.sin_family = AF_INET;

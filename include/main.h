@@ -39,8 +39,10 @@ struct stats {
 	u_int32_t s_remu;     // emufs reads
 	u_int32_t s_wemu;     // emufs writes
 	u_int32_t s_memu;     // emufs other ops
-	//u_int32_t s_rpkts;    // network packets read
-	//u_int32_t s_wpkts;    // network packets written
+	u_int32_t s_rpkts;    // network packets read
+	u_int32_t s_wpkts;    // network packets written
+	u_int32_t s_dpkts;    // network packets dropped
+	u_int32_t s_epkts;    // network errors
 };
 
 extern struct stats g_stats;
