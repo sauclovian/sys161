@@ -11,12 +11,13 @@
 #include "clock.h"
 #include "speed.h"
 #include "onsel.h"
+#include "main.h"
 
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.3 2001/01/25 04:49:47 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.4 2001/01/27 00:41:13 dholland Exp $";
 
-/* Total cycles executed. */
-static int totcycles = 0;
+/* Global stats */
+struct stats g_stats;
 
 /* Cycles until poweroff, or -1 */
 static int shutofftime = -1;
@@ -26,7 +27,6 @@ static int continue_flag;
 
 /* Flag for interrupting runloop() */
 static int stop_flag;
-
 
 void
 main_poweroff(void)
@@ -55,7 +55,7 @@ stoploop(void)
 	gdb_startbreak();
 	stop_flag = 0;
 	while (!stop_flag) {
-		tryselect(0);
+		tryselect(0, 0, 0);
 	}
 }
 
@@ -71,7 +71,6 @@ onecycle(void)
 	if (!hitbp) {
 		clock_tick();
 		if (shutofftime > 0) shutofftime--;
-		totcycles++;
 	}
 	return hitbp;
 }
@@ -96,7 +95,7 @@ runloop(void)
 			rotor++;
 			if (rotor >= ROTOR) {
 				rotor = 0;
-				tryselect(1);
+				tryselect(1, 0, 0);
 			}
 		}
 
@@ -111,10 +110,10 @@ void
 run(void)
 {
 	struct timeval starttime, endtime;
+	u_int64_t totcycles;
 	double time;
 
 	gettimeofday(&starttime, NULL);
-	totcycles = 0;
 
 	runloop();
 
@@ -129,11 +128,24 @@ run(void)
 
 	time = endtime.tv_sec + endtime.tv_usec/1000000.0;
 
-	msg("%u cycles in %lu.%06lu seconds (%g mhz)", 
-	       totcycles, 
-	       endtime.tv_sec,
-	       endtime.tv_usec,
-	       totcycles/(time*1000000));
+	totcycles = g_stats.s_kcycles + g_stats.s_ucycles + g_stats.s_icycles;
+
+	msg("%llu cycles (%lluk, %lluu, %llui) in %lu.%06lu seconds (%g mhz)",
+	    totcycles,
+	    g_stats.s_kcycles,
+	    g_stats.s_ucycles,
+	    g_stats.s_icycles,
+	    endtime.tv_sec,
+	    endtime.tv_usec,
+	    totcycles/(time*1000000.0));
+
+	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console",
+	    g_stats.s_irqs,
+	    g_stats.s_exns,
+	    g_stats.s_rsects,
+	    g_stats.s_wsects,
+	    g_stats.s_rchars,
+	    g_stats.s_wchars);
 }
 
 static

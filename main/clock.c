@@ -6,9 +6,13 @@
 #include "console.h"
 #include "speed.h"
 #include "clock.h"
+#include "cpu.h"
+#include "bus.h"
+#include "onsel.h"
+#include "main.h"
 
 
-const char rcsid_clock_c[] = "$Id: clock.c,v 1.3 2001/01/25 04:49:47 dholland Exp $";
+const char rcsid_clock_c[] = "$Id: clock.c,v 1.4 2001/01/27 00:40:24 dholland Exp $";
 
 struct timed_action {
 	u_int32_t ta_when_secs;
@@ -173,13 +177,112 @@ clock_init(void)
 	now_nsecs = 1000*tv.tv_usec;
 }
 
+static
+inline
 void
-clock_tick(void)
+clock_advance(u_int32_t secs, u_int32_t nsecs)
 {
-	now_nsecs += NSECS_PER_CLOCK;
-	if (now_nsecs > 1000000000) {
+	now_secs += secs;
+	now_nsecs += nsecs;
+	if (now_nsecs >= 1000000000) {
 		now_nsecs -= 1000000000;
 		now_secs++;
 	}
 	check_queue();
+}
+
+void
+clock_tick(void)
+{
+	clock_advance(0, NSECS_PER_CLOCK);
+}
+
+static
+void
+report_idletime(u_int32_t secs, u_int32_t nsecs)
+{
+	u_int64_t idlensecs;
+	static u_int32_t slop;
+
+	idlensecs = secs * (u_int64_t)1000000000 + nsecs + slop;
+
+	g_stats.s_icycles += idlensecs / NSECS_PER_CLOCK;
+	slop = idlensecs % NSECS_PER_CLOCK;
+}
+
+static
+void
+clock_dowait(u_int32_t secs, u_int32_t nsecs)
+{
+	struct timeval tv;
+	int32_t wsecs, wnsecs;
+
+	clock_advance(secs, nsecs);
+	report_idletime(secs, nsecs);
+
+	/*
+	 * Figure out how far ahead of real wall time we are.  If we
+	 * aren't, don't sleep. If we are, sleep to synchronize, as
+	 * long as it's more than 10 ms. (If it's less than that,
+	 * we're not likely to return from select in anything
+	 * approaching an expeditions manner. Also, on some systems,
+	 * select with small timeouts does timing loops to implement
+	 * usleep(), and we don't want that. The only point of
+	 * sleeping at all is to be nice to other users on the system.
+	 */
+	gettimeofday(&tv, NULL);
+	wsecs = now_secs - tv.tv_sec;
+	wnsecs = now_nsecs - 1000*tv.tv_usec;
+	if (wnsecs < 0) {
+		wnsecs += 1000000000;
+		wsecs--;
+	}
+
+	if (wsecs >= 0 && wnsecs > 10000000) {
+		tryselect(1, wsecs, wnsecs);
+	}
+	else {
+		tryselect(1, 0, 0);
+	}
+}
+
+void
+clock_waitirq(void)
+{
+	while (cpu_irq_line==0) {
+		if (nqueue > 0) {
+			int32_t secs = queue[0]->ta_when_secs - now_secs;
+			int32_t nsecs = queue[0]->ta_when_nsecs - now_nsecs;
+			if (nsecs < 0) {
+				nsecs += 1000000000;
+				secs--;
+			}
+
+			if (secs < 0) {
+				/* ? */
+				check_queue();
+			}
+			else {
+				clock_dowait(secs, nsecs);
+			}
+
+			bus_forward_interrupts();
+		}
+		else {
+			struct timeval tv1, tv2;
+
+			gettimeofday(&tv1, NULL);
+			tryselect(0, 0, 0);
+			gettimeofday(&tv2, NULL);
+
+			tv2.tv_sec -= tv1.tv_sec;
+			if (tv2.tv_usec < tv1.tv_usec) {
+				tv2.tv_usec += 1000000;
+			}
+			tv2.tv_usec -= tv1.tv_usec;
+
+			clock_advance(tv2.tv_sec, tv2.tv_usec * 1000);
+			report_idletime(tv2.tv_sec, tv2.tv_usec * 1000);
+		}
+	}
 }

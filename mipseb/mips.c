@@ -1,22 +1,26 @@
 #include <sys/types.h>
-#include <sys/endian.h>
 #include <string.h>
+#include "config.h"
 
 #include "cpu.h"
 #include "bus.h"
 #include "console.h"
+#include "clock.h"
 #include "gdb.h"
+#include "main.h"
 
 #include "mips-insn.h"
 #include "mips-ex.h"
 #include "bootrom.h"
 
 
-const char rcsid_mips_c[] = "$Id: mips.c,v 1.20 2001/01/25 04:49:47 dholland Exp $";
+const char rcsid_mips_c[] =
+	"$Id: mips.c,v 1.23 2001/01/27 00:39:12 dholland Exp $";
 
-#ifndef _QUAD_HIGHWORD
-#error "Need _QUAD_HIGHWORD and _QUAD_LOWWORD"
-// (0/1 respectively on a big-endian system, reverse on a little-endian one)
+
+#ifndef QUAD_HIGHWORD
+#error "Need QUAD_HIGHWORD and QUAD_LOWWORD"
+// (1/0 respectively on a big-endian system, reverse on a little-endian one)
 #endif
 
 #define NTLB  64
@@ -93,6 +97,37 @@ struct mipscpu {
 
 /*************************************************************/
 
+#ifdef USE_DEBUG
+static const char *exception_names[13] = {
+	"interrupt",
+	"TLB modify",
+	"TLB miss - load",
+	"TLB miss - store",
+	"Address error - load",
+	"Address error - store",
+	"Bus error - code",
+	"Bus error - data",
+	"System call",
+	"Breakpoint",
+	"Illegal instruction",
+	"Coprocessor unusable",
+	"Arithmetic overflow",
+};
+
+static
+const char *
+exception_name(int code)
+{
+	if (code >= 0 && code < 13) {
+		return exception_names[code];
+	}
+	smoke("Name of invalid exception code requested");
+	return "???";
+}
+#endif /* USE_DEBUG */
+
+/*************************************************************/
+
 static
 void
 mips_init(struct mipscpu *cpu)
@@ -161,6 +196,14 @@ probetlb(struct mipscpu *cpu)
 
 static
 void
+do_wait(struct mipscpu *cpu)
+{
+	(void)cpu;
+	clock_waitirq();
+}
+
+static
+void
 do_rfe(struct mipscpu *cpu)
 {
 	u_int32_t bits;
@@ -198,9 +241,16 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 	u_int32_t bits;
 	int boot = (cpu->ex_status & 0x00400000)!=0;
 
-	DEBUG("exception: code %d, expc %x, vaddr %x", code, cpu->expc,
-	      vaddr);
+	DEBUG("exception: code %d (%s), expc %x, vaddr %x", 
+	      code, exception_name(code), cpu->expc, vaddr);
 	PAUSE();
+
+	if (code==EX_IRQ) {
+		g_stats.s_irqs++;
+	}
+	else {
+		g_stats.s_exns++;
+	}
 
 	// clear everything but pending interrupts from cause register
 	cpu->ex_cause &= 0x0000ff00;
@@ -573,7 +623,8 @@ const char *regname(unsigned reg)
 }
 #endif
 
-// mips opcode field to operation table
+// Map the 6-bit MIPS opcode field to operations.
+// The operations are listed in mips-insn.h.
 static short ops[64] = {
    OP_SPECIAL, OP_BCOND, OP_J,      OP_JAL,
    OP_BEQ,    OP_BNE,    OP_BLEZ,   OP_BGTZ,
@@ -593,7 +644,8 @@ static short ops[64] = {
    OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
 };
 
-// special function codes to operatiosn
+// When the opcode field contains "SPECIAL", this table is used to map
+// the 6-bit special function code to operations.
 static short sops[64] = {
    OP_SLL,    OP_ILL,    OP_SRL,    OP_SRA,
    OP_SLLV,   OP_ILL,    OP_SRLV,   OP_SRAV,
@@ -613,6 +665,11 @@ static short sops[64] = {
    OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
 };
 
+/*
+ * Note: OP_WAIT is not defined for mips r2000/r3000 - it's from later
+ * MIPS versions. However, we support it here anyway because spinning
+ * in an idle loop is just plain stupid.
+ */
 static
 int
 decode_copz(struct mipscpu *cpu, int cn, u_int32_t insn, int *ret)
@@ -637,6 +694,7 @@ decode_copz(struct mipscpu *cpu, int cn, u_int32_t insn, int *ret)
 			case 6: *ret = OP_TLBWR; break;
 			case 8: *ret = OP_TLBP; break;
 			case 16: *ret = OP_RFE; break;
+		        case 32: *ret = OP_WAIT; break;
 			default: *ret = OP_ILL; break;
 		}
 	}
@@ -692,10 +750,10 @@ getcop0reg(struct mipscpu *cpu, int reg)
 	switch (reg) {
 	    case 0: return &cpu->tlbindex;
 	    case 1: return &cpu->tlbrandom;
-	    case 2: return &((u_int32_t *)(&cpu->tlbentry))[_QUAD_LOWWORD];
+	    case 2: return &((u_int32_t *)(&cpu->tlbentry))[QUAD_LOWWORD];
 	    case 4: return &cpu->ex_context;
 	    case 8: return &cpu->ex_vaddr;
-	    case 10: return &((u_int32_t *)(&cpu->tlbentry))[_QUAD_HIGHWORD];
+	    case 10: return &((u_int32_t *)(&cpu->tlbentry))[QUAD_HIGHWORD];
 	    case 12: return &cpu->ex_status;
 	    case 13: return &cpu->ex_cause;
 	    case 14: return &cpu->ex_epc;
@@ -809,7 +867,13 @@ mips_run(struct mipscpu *cpu)
 			cpu->expc = cpu->pc;
 		}
 	}
-	
+
+	if (IS_USERMODE(cpu)) {
+		g_stats.s_ucycles++;
+	}
+	else {
+		g_stats.s_kcycles++;
+	}
 	
 	/*
 	 * Fetch instruction.
@@ -1249,6 +1313,10 @@ mips_run(struct mipscpu *cpu)
 		DEBUG("at %08x: tlbwr", cpu->expc);
 		cpu->tlb[TLBIX(cpu->tlbrandom)] = cpu->tlbentry;
 		break;
+	    case OP_WAIT:
+		DEBUG("at %08x: wait", cpu->expc);
+		do_wait(cpu);
+		break;
 	    case OP_XOR:
 		DEBUG("at %08x: xor %s, %s, %s", cpu->expc, regname(rd), 
 		      regname(rs), regname(rt));
@@ -1377,20 +1445,10 @@ cpudebug_get_bp_region(u_int32_t *start, u_int32_t *end)
 }
 
 int
-cpudebug_translate_address(u_int32_t va, u_int32_t *pa)
+cpudebug_translate_address(u_int32_t va, u_int32_t size, u_int32_t *pa)
 {
-	/*
-	 * Allow kseg0 and kseg1 only.
-	 */
-	if (va >= KSEG0 && va < KSEG1) {
-		*pa = va - KSEG0;
-		return 0;
-	}
-	if (va >= KSEG1 && va < KSEG2) {
-		*pa = va - KSEG1;
-		return 0;
-	}
-	return -1;
+	/* Same behavior as cpu_get_load_paddr wanted. */
+	return cpu_get_load_paddr(va, size, pa);
 }
 
 static

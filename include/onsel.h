@@ -16,4 +16,4 @@ void onselect(int fd, void *data, int (*func)(void *data),
  * If do_poll is true, tryselect will return immediately. Otherwise
  * it will block until something happens.
  */
-void tryselect(int do_poll);
+void tryselect(int do_timeout, u_int32_t secs, u_int32_t nsecs);

@@ -14,7 +14,7 @@
 #include "context.h"
 
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.15 2001/01/25 04:49:46 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.16 2001/01/25 07:35:57 dholland Exp $";
 
 // XXX
 #define debug printf
@@ -206,7 +206,7 @@ debug_read_mem(struct gdbcontext *ctx, const char *spec)
 
 	buf[0] = 0;
 	for (i = 0; i < length; i+=4) {
-		if (cpudebug_translate_address(start + i, &realaddr)) {
+		if (cpudebug_translate_address(start + i, 4, &realaddr)) {
 			// XXX should just error (what error?)
 			smoke("debug_read_mem: Invalid address");
 		}
@@ -237,7 +237,7 @@ debug_write_mem(struct gdbcontext *ctx, const char *spec)
 	curptr++;
 
 	for (i = 0; i < length; i+=4) {
-		if (cpudebug_translate_address(start + i, &realaddr)) {
+		if (cpudebug_translate_address(start + i, 4, &realaddr)) {
 			// XXX should just error
 			smoke("debug_write_mem: Invalid address");
 		}

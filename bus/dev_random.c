@@ -9,7 +9,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.4 2001/01/25 04:49:46 dholland Exp $";
+const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.5 2001/01/25 07:34:34 dholland Exp $";
 
 static
 void *
@@ -28,7 +28,7 @@ rand_init(int slot, int argc, char *argv[])
 			seed = tv.tv_sec ^ (tv.tv_usec << 8);
 		}
 		else {
-			msg("random: slot %d: invalid opion %s",
+			msg("random: slot %d: invalid option %s",
 			    slot, argv[i]);
 			die();
 		}

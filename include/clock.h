@@ -8,3 +8,5 @@ void clock_time(u_int32_t *secs, u_int32_t *nsecs);
 void clock_setsecs(u_int32_t secs);
 void clock_setnsecs(u_int32_t nsecs);
 
+
+void clock_waitirq(void);

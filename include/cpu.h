@@ -17,7 +17,7 @@ void cpu_set_stack(u_int32_t stackaddr, u_int32_t argument);
 
 /* Functions used by the remote gdb support */
 void cpudebug_get_bp_region(u_int32_t *start, u_int32_t *end);
-int cpudebug_translate_address(u_int32_t va, u_int32_t *pa_ret);
+int cpudebug_translate_address(u_int32_t va, u_int32_t size, u_int32_t *paddr);
 void cpudebug_getregs(u_int32_t *regs, int maxregs, int *nregs);
 
 #endif /* CPU_H */

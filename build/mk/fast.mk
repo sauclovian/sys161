@@ -1,3 +1,2 @@
-#CFLAGS+=-O2  # XXX
-CFLAGS+=-g
+CFLAGS+=$(OPT)
 PROG=sys161

@@ -1,4 +1,6 @@
-// warning: these are not actual mips opcodes
+// Warning: these are not actual MIPS opcodes.
+// The tables in mips.c translate from MIPS opcodes to these numbers.
+// This is because MIPS instruction decoding is a little screwy.
 
 #define OP_ADD          0
 #define OP_ADDI         1
@@ -73,5 +75,6 @@
 #define OP_TLBR         70
 #define OP_TLBWI        71
 #define OP_TLBWR        72
-#define OP_XOR          73
-#define OP_XORI         74
+#define OP_WAIT         73
+#define OP_XOR          74
+#define OP_XORI         75

@@ -1,16 +1,17 @@
 #include <sys/types.h>
 
-#include "util.h"
 #include "speed.h"
 #include "console.h"
 #include "clock.h"
+#include "main.h"
+#include "util.h"
 
 #include "busids.h"
 #include "lamebus.h"
 
 
 
-const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.5 2001/01/25 04:49:46 dholland Exp $";
+const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.6 2001/01/27 00:41:39 dholland Exp $";
 
 #define SERREG_CHAR   0x0
 #define SERREG_WIRQ   0x4
@@ -99,9 +100,16 @@ serial_fetch(void *d, u_int32_t offset, u_int32_t *val)
 {
 	struct ser_data *sd = d;
 	switch (offset) {
-	    case SERREG_CHAR: *val = sd->sd_readch; return 0;
-	    case SERREG_RIRQ: *val = fetchirq(&sd->sd_rirq); return 0;
-	    case SERREG_WIRQ: *val = fetchirq(&sd->sd_wirq); return 0;
+	    case SERREG_CHAR: 
+		*val = sd->sd_readch;
+		g_stats.s_rchars++; 
+		return 0;
+	    case SERREG_RIRQ:
+		*val = fetchirq(&sd->sd_rirq);
+		return 0;
+	    case SERREG_WIRQ:
+		*val = fetchirq(&sd->sd_wirq);
+		return 0;
 	}
 	return -1;
 }
@@ -115,6 +123,7 @@ serial_store(void *d, u_int32_t offset, u_int32_t val)
 	    case SERREG_CHAR: 
 		    if (!sd->sd_wbusy) {
 			    sd->sd_wbusy = 1;
+			    g_stats.s_wchars++;
 			    console_putc(val);
 			    schedule_event(SERIAL_NSECS, sd, 0, 
 					   serial_writedone);

@@ -8,7 +8,7 @@
 #include "onsel.h"
 
 
-const char rcsid_onsel_c[] = "$Id: onsel.c,v 1.3 2001/01/25 04:49:47 dholland Exp $";
+const char rcsid_onsel_c[] = "$Id: onsel.c,v 1.4 2001/01/27 00:39:30 dholland Exp $";
 
 #define MAXSELS 64
 
@@ -51,14 +51,14 @@ onselect(int fd, void *data, int (*func)(void *), void (*rfunc)(void *))
 }
 
 void
-tryselect(int polling)
+tryselect(int dotimeout, u_int32_t secs, u_int32_t nsecs)
 {
 	int i, r, hifd=-1;
 	fd_set myset;
 	struct timeval tv;
 
-	tv.tv_sec = 0;
-	tv.tv_usec = 0;
+	tv.tv_sec = secs;
+	tv.tv_usec = nsecs / 1000;
 
 	FD_ZERO(&myset);
 	for (i=0; i<nsels; i++) {
@@ -68,7 +68,7 @@ tryselect(int polling)
 		if (fd > hifd) hifd = fd;
 	}
 
-	r = select(hifd+1, &myset, NULL, NULL, polling ? &tv : NULL);
+	r = select(hifd+1, &myset, NULL, NULL, dotimeout ? &tv : NULL);
 	if (r<=0) {
 		return;
 	}

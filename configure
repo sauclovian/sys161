@@ -1,0 +1,288 @@
+#!/bin/sh
+#
+# We need the following stuff:
+#
+#     1. C compiler
+#     2. C compiler warning options
+#     3. Endianness
+#     4. CHAR_BIT
+#     5. sized integer types
+#
+
+while [ "x$1" != x ]; do
+    case "$1" in
+	--help) cat <<EOF
+Usage: ./configure [options]
+Options are:
+    --help              Print this message
+    --with-compiler=CC  Use CC as compiler [probed]
+    --installdir=DIR    Install into DIR [$HOME/cs161/root]
+    --devel             Turn on lots of warnings [default off]
+EOF
+    ;;
+	--with-compiler=*) CC=`echo $1 | sed 's/^[^=]*=//'`;;
+	--installdir=*) INSTALLDIR=`echo $1 | sed 's/^[^=]*=//'`;;
+	--devel) USEWARNS=1;;
+    esac
+shift
+done
+
+############################################################
+
+rm -f __config.h
+
+echo '/* Automatically generated file; do not edit */' > __config.h
+
+############################################################
+
+echo -n "Checking for C compiler... "
+
+cat >__conftest.c <<EOF
+int main() {
+    return 0;
+}
+EOF
+
+OS=`uname || echo unknown`
+CPU=`uname -m || echo unknown`
+
+if [ "x$OS" = xOSF1 -a "x$CPU" = xalpha ]; then
+    # Prefer DEC cc to gcc
+    COMPILERS="cc gcc egcs"
+else
+    COMPILERS="gcc egcs cc"
+fi
+
+for TRYCC in "$CC" $COMPILERS; do
+    if ($TRYCC __conftest.c -o __conftest) >/dev/null 2>&1; then
+	if (./__conftest) >/dev/null 2>&1; then
+	    GOTCC="$TRYCC"
+	    break;
+	fi
+    fi
+done
+
+if [ "x$GOTCC" = x ]; then
+    echo "not found"
+    echo "Cannot find C compiler - please use the --with-compiler option"
+    rm -f __conf*
+    exit 1
+fi
+
+CC="$GOTCC"
+echo "$CC"
+
+############################################################
+
+echo -n "Checking if $CC is DEC cc... "
+
+if $CC -V 2>&1 | grep "DEC C " >/dev/null 2>&1; then
+    DECC=1;
+    echo 'yes'
+else
+    echo 'no'
+fi
+
+echo -n "Checking if $CC is gcc... "
+if $CC -v 2>&1 | egrep 'gcc version' >/dev/null 2>&1; then
+    GCC=1;
+    echo 'yes'
+else
+    echo 'no'
+fi
+
+
+############################################################
+
+if [ x$DECC = x1 ]; then
+    WARN="-std1 -check -msg_error level5 -warnprotos"
+    OPT="-fast -O3"
+elif [ x$GCC = x1 ]; then
+    WARN="-Wall -Wwrite-strings -Werror"
+    OPT="-O3"
+else
+    WARN=""
+    OPT="-O"
+fi
+
+if [ "x$USEWARNS" != x ]; then
+    echo "Checking warning options... $WARN"
+    CFLAGS=`echo $CFLAGS $WARN | sed 's/^ *//;s/ *$//'`
+fi
+
+echo "Checking optimization options... $OPT"
+
+############################################################
+
+echo -n "Checking endianness... "
+
+cat >__conftest.c <<EOF
+#include <stdio.h>
+int main() {
+    unsigned long x = 1;
+    unsigned char *c = (unsigned char *)&x;
+    if (c[sizeof(x)-1]==1) {
+       printf("big\n");
+    }
+    else if (c[0]==1) {
+       printf("little\n");
+    }
+    else return 1;
+    return 0;
+}
+EOF
+
+$CC __conftest.c -o __conftest
+
+ENDIAN=`./__conftest || echo unknown`
+
+case $ENDIAN in
+     little)
+	echo 'little-endian'
+	echo '#define QUAD_HIGHWORD 1' >> __config.h
+	echo '#define QUAD_LOWWORD  0' >> __config.h
+	;;
+     big)
+	echo 'big-endian'
+	echo '#define QUAD_HIGHWORD 0' >> __config.h
+	echo '#define QUAD_LOWWORD  1' >> __config.h
+	;;
+     *) echo 'unknown'; 
+        echo 'Help!'; 
+	rm -f __conf*
+        exit 1
+	;;
+esac
+
+############################################################
+
+echo -n "Checking number of bits in a char... "
+
+cat > __conftest.c <<EOF
+#include <stdio.h>
+int main() {
+    unsigned char x=1;
+    int i;
+    for (i=0; i<128; i++) {
+        if ((unsigned char)(x << i) == 0) {
+	   printf("%d\n", i);
+	   return 0;
+        }
+    }
+    return 1;
+}
+EOF
+
+$CC __conftest.c -o __conftest
+
+CHARBIT=`./__conftest || echo unknown`
+
+if [ x"$CHARBIT" = xunknown ]; then
+    echo 'unknown'
+    echo 'Help!'
+    rm -f __conf*
+    exit 1
+fi
+
+echo $CHARBIT
+
+(
+    echo '#ifndef CHAR_BIT'
+    echo '#define CHAR_BIT '"$CHARBIT"
+    echo '#endif'
+) >> __config.h
+
+############################################################
+
+echo -n "Checking sized integer types... "
+
+cat > __conftest2.c <<EOF
+#include <stdlib.h>
+#include <stdio.h>
+int main(int argc, char *argv[]) {
+    size_t x = atoi(argv[1]);
+    size_t bits = atoi(argv[2]);
+    if (x==sizeof(char)*bits) printf("char\n");
+    else if (x==sizeof(short)*bits) printf("short\n");
+    else if (x==sizeof(int)*bits) printf("int\n");
+    else if (x==sizeof(long)*bits) printf("long\n");
+    else if (x==sizeof(long long)*bits) printf("long long\n");
+    else printf("unknown\n");
+    return 0;
+}
+EOF
+
+$CC __conftest2.c -o __conftest2
+
+for size in 8 16 32 64; do
+    for sign in u_int int; do
+	echo '#include <sys/types.h>' > __conftest.c
+	echo "${sign}${size}_t x;" >> __conftest.c
+
+	if $CC -c __conftest.c >/dev/null 2>&1; then
+	    break;
+	fi
+
+	if [ $sign = u_int ]; then
+	    echo '#include <sys/types.h>' > __conftest.c
+	    echo "uint${size}_t x;" >> __conftest.c
+
+	    if $CC -c __conftest.c >/dev/null 2>&1; then
+		echo "typedef uint${size}_t u_int${size}_t;" >> __config.h;
+		break;
+	    fi
+	fi
+
+	RESULT=`./__confest2 $size $CHARBIT || echo unknown`
+
+	if [ "x$RESULT" = xunknown ]; then
+	    echo 'oops'
+	    echo "Cannot determine type for ${sign}${size}_t"
+	    echo 'Help!'
+	    rm -f __conf*
+	    exit 1;
+	fi
+
+	if [ $size = 8 -a $sign = int -a "x$RESULT" = xchar ]; then
+	    RESULT="signed char"
+	fi
+
+	echo "typedef $RESULT ${sign}${size}_t;" >> __config.h;
+
+    done
+done
+
+echo 'ok'
+
+############################################################
+
+echo -n "Checking install directory... "
+
+if [ "x$INSTALLDIR" = x ]; then
+    INSTALLDIR='$(HOME)/cs161/root'
+fi
+
+echo "$INSTALLDIR"
+
+############################################################
+
+echo 'Generating defs.mk'
+
+(
+    echo '# Automatically generated file; do not edit'
+    echo "CC=$CC"
+    echo "CFLAGS=$CFLAGS"
+    echo "OPT=$OPT"
+    echo "LDFLAGS="
+    echo "LIBS="
+    echo
+    echo "INSTALLDIR=$INSTALLDIR"
+) > build/mk/defs.mk
+
+echo 'Generating config.h'
+
+cp -f __config.h include/config.h
+
+rm -f __conf*
+
+exit 0

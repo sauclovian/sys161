@@ -7,13 +7,14 @@
 
 #include "console.h"
 #include "clock.h"
+#include "main.h"
 #include "util.h"
 
 #include "lamebus.h"
 #include "busids.h"
 
 
-const char rcsid_dev_disk_c[] = "$Id: dev_disk.c,v 1.7 2001/01/25 04:49:45 dholland Exp $";
+const char rcsid_dev_disk_c[] = "$Id: dev_disk.c,v 1.8 2001/01/27 00:41:39 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -272,6 +273,8 @@ disk_readsector(struct disk_data *dd)
 	offset *= SECTSIZE;
 	offset += HEADERSIZE;
 
+	g_stats.s_rsects++;
+
 	return doread(dd->dd_fd, offset, dd->dd_buf, SECTSIZE);
 }
 
@@ -282,6 +285,8 @@ disk_writesector(struct disk_data *dd)
 	off_t offset = dd->dd_sect;
 	offset *= SECTSIZE;
 	offset += HEADERSIZE;
+
+	g_stats.s_wsects++;
 
 	return dowrite(dd->dd_fd, offset, dd->dd_buf, SECTSIZE,
 		       dd->dd_paranoid);
