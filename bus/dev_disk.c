@@ -16,7 +16,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.11 2001/02/02 03:24:52 dholland Exp $";
+    "$Id: dev_disk.c,v 1.12 2001/02/02 14:28:07 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -523,9 +523,10 @@ disk_writerotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 
 	/*
 	 * Wait until that time plus how long it takes to do the write.
+	 * XXX adding in nsecs_per_sector makes it wait forever
 	 */
 
-	return (targnsecs - nownsecs) + nsecs_per_sector;
+	return (targnsecs - nownsecs); // + nsecs_per_sector;
 }
 
 ////////////////////////////////////////////////////////////

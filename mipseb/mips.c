@@ -18,7 +18,7 @@
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.26 2001/01/31 19:43:59 dholland Exp $";
+	"$Id: mips.c,v 1.27 2001/02/02 11:11:45 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -444,6 +444,21 @@ doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
 	        break;
 
 	    case S_WORDL:
+	    {
+		u_int32_t val;
+		u_int32_t mask;
+		int shift;
+		if (domem(cpu, addr & 0xfffffffc, &val, 0, 0)) return;
+		switch (addr & 0x3) {
+		    case 0: mask = 0xffffffff; shift=0; break;
+		    case 1: mask = 0xffffff00; shift=8; break;
+		    case 2: mask = 0xffff0000; shift=16; break;
+		    case 3: mask = 0xff000000; shift=24; break;
+		}
+		val <<= shift;
+		*res = (*res & ~mask) | (val & mask);
+	    }
+	    break;
 	    case S_WORDR:
 	    {
 		u_int32_t val;
@@ -451,20 +466,13 @@ doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
 		int shift;
 		if (domem(cpu, addr & 0xfffffffc, &val, 0, 0)) return;
 		switch (addr & 0x3) {
-			case 0: mask = 0xffffffff; shift=0; break;
-			case 1: mask = 0xffffff00; shift=8; break;
-			case 2: mask = 0xffff0000; shift=16; break;
-			case 3: mask = 0xff000000; shift=24; break;
+			case 0: mask = 0x000000ff; shift=24; break;
+			case 1: mask = 0x0000ffff; shift=16; break;
+			case 2: mask = 0x00ffffff; shift=8; break;
+			case 3: mask = 0xffffffff; shift=0; break;
 		}
-		
-		if (ms==S_WORDR) {
-			*res = (*res & (~mask >> shift));
-			*res |= ((val & mask) >> shift);
-		}
-		else {
-			*res = (*res & (mask >> shift));
-			*res |= ((val & ~mask) << (32-shift));
-		}
+		val >>= shift;
+		*res = (*res & ~mask) | (val & mask);
 	    }
 	    break;
 	    default:
@@ -514,7 +522,6 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 		break;
 		
 	    case S_WORDL:
-	    case S_WORDR:
 	    {
 		u_int32_t wval;
 		u_int32_t mask;
@@ -522,19 +529,31 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 0)) return;
 		switch (addr & 0x3) {
 			case 0: mask = 0xffffffff; shift=0; break;
-			case 1: mask = 0xffffff00; shift=8; break;
-			case 2: mask = 0xffff0000; shift=16; break;
-			case 3: mask = 0xff000000; shift=24; break;
+			case 1: mask = 0x00ffffff; shift=8; break;
+			case 2: mask = 0x0000ffff; shift=16; break;
+			case 3: mask = 0x000000ff; shift=24; break;
 		}
-		
-		if (ms==S_WORDR) {
-			wval = (wval & (~mask >> shift));
-			wval |= ((val & mask) >> shift);
+		val >>= shift;
+		wval = (wval & ~mask) | (val & mask);
+
+		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 0)) return;
+	    }
+	    break;
+	    case S_WORDR:
+	    {
+		u_int32_t wval;
+		u_int32_t mask;
+		int shift;
+		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 0)) return;
+		switch (addr & 0x3) {
+			case 0: mask = 0xff000000; shift=24; break;
+			case 1: mask = 0xffff0000; shift=16; break;
+			case 2: mask = 0xffffff00; shift=8; break;
+			case 3: mask = 0xffffffff; shift=0; break;
 		}
-		else {
-			wval = (wval & (mask >> shift));
-			wval |= ((val & ~mask) << (32-shift));
-		}
+		val <<= shift;
+		wval = (wval & ~mask) | (val & mask);
+
 		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 0)) return;
 	    }
 	    break;

@@ -19,7 +19,7 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.9 2001/01/30 02:45:30 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.10 2001/02/02 11:40:11 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -193,7 +193,7 @@ main(int argc, char *argv[])
 	kernel = argv[i++];
 	
 	for (j=i; j<argc; j++) {
-		argsize += strlen(argv[i])+1;
+		argsize += strlen(argv[j])+1;
 	}
 	argstr = malloc(argsize+1);
 	if (!argstr) {
@@ -202,7 +202,7 @@ main(int argc, char *argv[])
 	}
 	*argstr = 0;
 	for (j=i; j<argc; j++) {
-		strcat(argstr, argv[i]);
+		strcat(argstr, argv[j]);
 		if (j<argc-1) strcat(argstr, " ");
 	}
 	
