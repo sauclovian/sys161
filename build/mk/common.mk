@@ -29,4 +29,4 @@ install:
 	mv -f $(INSTALLDIR)/$(PROG).new $(INSTALLDIR)/$(PROG)
 
 $(PROG): $(OBJS)
-	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $(PROG)
+	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -lm -o $(PROG)

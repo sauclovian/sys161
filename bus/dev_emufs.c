@@ -106,12 +106,15 @@
 
 #include "util.h"
 #include "console.h"
+#include "speed.h"
+#include "clock.h"
+#include "main.h"
 
 #include "lamebus.h"
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.8 2001/01/31 23:27:12 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.10 2001/03/19 21:25:37 dholland Exp $";
 
 
 #define MAXHANDLES     64
@@ -163,6 +166,10 @@ struct emufs_data {
 
 	/* Handles from ed_handle are indexes into here */
 	int ed_fds[MAXHANDLES];
+
+	/* Timing stuff */
+	int ed_busy;			/* true if operation in progress */
+	u_int32_t ed_busyresult;	/* result for ed_result when done */
 };
 
 static
@@ -254,6 +261,8 @@ emufs_openfirst(struct emufs_data *ed, const char *dir)
 		die();
 	}
 	ed->ed_fds[EMU_ROOTHANDLE] = fd;
+
+	g_stats.s_memu++;
 }
 
 static
@@ -306,6 +315,8 @@ emufs_open(struct emufs_data *ed, int flags)
 	ed->ed_handle = handle;
 	ed->ed_iolen = S_ISDIR(sbuf.st_mode)!=0;
 
+	g_stats.s_memu++;
+
 	return EMU_RES_SUCCESS;
 }
 
@@ -315,6 +326,7 @@ emufs_close(struct emufs_data *ed)
 {
 	close(ed->ed_fds[ed->ed_handle]);
 	ed->ed_fds[ed->ed_handle] = -1;
+	g_stats.s_memu++;
 	return EMU_RES_SUCCESS;
 }
 
@@ -325,7 +337,7 @@ emufs_read(struct emufs_data *ed)
 	int len;
 	int fd;
 
-	if (ed->ed_iolen >= EMU_BUF_SIZE) {
+	if (ed->ed_iolen > EMU_BUF_SIZE) {
 		return EMU_RES_BADSIZE;
 	}
 
@@ -340,6 +352,8 @@ emufs_read(struct emufs_data *ed)
 
 	ed->ed_offset += len;
 	ed->ed_iolen = len;
+
+	g_stats.s_remu++;
 
 	return EMU_RES_SUCCESS;
 }
@@ -362,7 +376,7 @@ emufs_write(struct emufs_data *ed)
 	int len;
 	int fd;
 
-	if (ed->ed_iolen >= EMU_BUF_SIZE) {
+	if (ed->ed_iolen > EMU_BUF_SIZE) {
 		return EMU_RES_BADSIZE;
 	}
 
@@ -377,6 +391,8 @@ emufs_write(struct emufs_data *ed)
 
 	ed->ed_offset += len;
 	ed->ed_iolen = len;
+
+	g_stats.s_wemu++;
 
 	return EMU_RES_SUCCESS;
 }
@@ -395,6 +411,8 @@ emufs_getsize(struct emufs_data *ed)
 
 	ed->ed_iolen = sb.st_size;
 
+	g_stats.s_memu++;
+
 	return EMU_RES_SUCCESS;
 }
 
@@ -408,6 +426,8 @@ emufs_trunc(struct emufs_data *ed)
 	if (ftruncate(fd, ed->ed_iolen)) {
 		return errno_to_code(errno);
 	}
+
+	g_stats.s_wemu++;
 
 	return EMU_RES_SUCCESS;
 }
@@ -445,6 +465,41 @@ emufs_op(struct emufs_data *ed, u_int32_t op)
 }
 
 static
+void
+emufs_done(void *d, u_int32_t gen)
+{
+	struct emufs_data *ed = d;
+	(void)gen;
+
+	if (ed->ed_busy != 1) {
+		smoke("Spurious call of emufs_done");
+	}
+	emufs_setresult(ed, ed->ed_busyresult);
+	ed->ed_busy = 0;
+	ed->ed_busyresult = 0;
+}
+
+static
+void
+emufs_do_op(struct emufs_data *ed, u_int32_t op)
+{
+	u_int32_t res;
+
+	if (ed->ed_busy != 0) {
+		hang("emufs operation started while an operation "
+		     "was already in progress");
+		return;
+	}
+
+	res = emufs_op(ed, op);
+
+	ed->ed_busy = 1;
+	ed->ed_busyresult = res;
+
+	schedule_event(EMUFS_NSECS, ed, 0, emufs_done);
+}
+
+static
 void *
 emufs_init(int slot, int argc, char *argv[])
 {
@@ -472,6 +527,9 @@ emufs_init(int slot, int argc, char *argv[])
 	for (i=0; i<MAXHANDLES; i++) {
 		ed->ed_fds[i] = -1;
 	}
+
+	ed->ed_busy = 0;
+	ed->ed_busyresult = 0;
 
 	emufs_openfirst(ed, dir);
 
@@ -520,7 +578,7 @@ emufs_store(void *data, u_int32_t offset, u_int32_t val)
 	    case EMUREG_HANDLE: ed->ed_handle = val; return 0;
 	    case EMUREG_OFFSET: ed->ed_offset = val; return 0;
 	    case EMUREG_IOLEN: ed->ed_iolen = val; return 0;
-	    case EMUREG_OPER: emufs_setresult(ed, emufs_op(ed, val)); return 0;
+	    case EMUREG_OPER: emufs_do_op(ed, val); return 0;
 	    case EMUREG_RESULT: emufs_setresult(ed, val); return 0;
 	}
 	return -1;

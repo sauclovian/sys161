@@ -20,7 +20,7 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.13 2001/02/26 19:07:14 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.14 2001/03/19 21:26:16 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -156,13 +156,16 @@ run(void)
 		    totcycles/(time*1000000.0));
 	}
 
-	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console",
+	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console %ur/%uw/%um emufs",
 	    g_stats.s_irqs,
 	    g_stats.s_exns,
 	    g_stats.s_rsects,
 	    g_stats.s_wsects,
 	    g_stats.s_rchars,
-	    g_stats.s_wchars);
+	    g_stats.s_wchars,
+	    g_stats.s_remu,
+	    g_stats.s_wemu,
+	    g_stats.s_memu);
 }
 
 ////////////////////////////////////////////////////////////

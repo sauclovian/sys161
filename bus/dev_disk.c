@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <math.h>
 #include "config.h"
 
 #include "console.h"
@@ -16,7 +17,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.13 2001/02/26 18:42:29 dholland Exp $";
+    "$Id: dev_disk.c,v 1.15 2001/03/15 20:34:58 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -25,15 +26,18 @@ const char rcsid_dev_disk_c[] =
 /* Disk physical parameters */
 #define SECTSIZE               512   /* bytes */
 #define SECTOR_FUDGE          1.06
-#define OUTER_DIAM              80   /* mm */
-#define INNER_DIAM              20   /* mm */
-#define PLATTER_AREA   (1500 * PI)  /* square mm */
-#define PI                 3.14159
+#define OUTER_DIAM				80
+#define INNER_DIAM				20
+#define PLATTER_AREA			((OUTER_DIAM)*(OUTER_DIAM) - \
+								(INNER_DIAM)*(INNER_DIAM)) \
+								*PI/4
+
+#define PI						3.14159
+
+#define NUMTRACKS				32
 
 /* Disk timing parameters */
-#define HEAD_SWITCH_TIME     1000000   /* ns */
-//#define CACHE_READ_TIME      500       /* ns */
-#define CACHE_READ_TIME    0   // XXX: if positive, I/O never completes
+#define CACHE_READ_TIME      500       /* ns */
 
 /* Register offsets */
 #define DISKREG_NSECT 0
@@ -87,10 +91,10 @@ struct disk_data {
 	 * Geometry:
 	 * dd_sectors[] has dd_cylinders entries. 
 	 * sum(dd_sectors) * dd_heads should give dd_totsectors.
+	 * sum(dd_sectors) should give dd_totsectors.
 	 */
 	u_int32_t *dd_sectors;
-	u_int32_t dd_cylinders;
-	u_int32_t dd_heads;
+	u_int32_t dd_tracks;	 	/* always is == NUMTRACKS */
 	u_int32_t dd_totsectors;
 	u_int32_t dd_rpm;
 	u_int32_t dd_nsecs_per_rev;
@@ -98,10 +102,11 @@ struct disk_data {
 	/* 
 	 * Timing status
 	 */
-	int dd_current_cyl;
-	int dd_current_head;
+	int dd_current_track;
 	u_int32_t dd_trackarrival_secs;
 	u_int32_t dd_trackarrival_nsecs;
+	int dd_buffered_sector;		/* sector in track buffer */
+	int dd_sector_written;		/* sector we last wrote */
 	int dd_timedop;             /* nonzero if waiting for a timer event */
 
 	/*
@@ -305,7 +310,6 @@ compute_sectors(struct disk_data *dd)
 {
 	u_int32_t physsectors;      // total number of actual sectors
 	u_int32_t sectorspertrack;  // average sectors per track
-	u_int32_t sectorspercyl;    // average sectors per cylinder
 	u_int32_t i, tot;
 
 	double sectors_per_area;
@@ -321,44 +325,21 @@ compute_sectors(struct disk_data *dd)
 	physsectors = (u_int32_t)(dd->dd_totsectors * SECTOR_FUDGE);
 	if (physsectors < dd->dd_totsectors) {
 		/* Overflow - didn't fit in u_int32_t */
+		smoke("gah");
 		return -1;
 	}
 
-	/*
-	 * Now, based on the number of sectors, heuristically write down
-	 * the number of heads and the average number of sectors per track.
-	 */
-	if (physsectors < 2048) {
-		dd->dd_heads = 1;
-		sectorspertrack = 8;
-	}
-	else if (physsectors < 64*1024*2) {  /* 64 megs */
-		sectorspertrack = (physsectors/2048)*9 - 1;
-		dd->dd_heads = 2;
-	}
-	else if (physsectors < 180*1024*2) { /* 180 megs */
-		sectorspertrack = ((physsectors-121953)/4096)*17 - 5;
-		dd->dd_heads = 4;
-	}
-	else {
-		sectorspertrack = 800 + (physsectors % 171);
-		dd->dd_heads = 6;
-	}
+	sectorspertrack = physsectors/NUMTRACKS;
+	dd->dd_tracks = NUMTRACKS;
 
-	/* average sectors per cylinder */
-	sectorspercyl = sectorspertrack * dd->dd_heads;
-
-	/* compute number of cylinders (rounding all fractions up) */
-	dd->dd_cylinders = (physsectors + sectorspercyl - 1) / sectorspercyl;
-
-	/* allocate space */
-	dd->dd_sectors = domalloc(dd->dd_cylinders*sizeof(dd->dd_sectors[0]));
+	/* allocate space for dd_tracks entries */
+	dd->dd_sectors = domalloc(dd->dd_tracks*sizeof(u_int32_t));
 
 	/* compute the width of each track */
-	trackwidth = ((OUTER_DIAM - INNER_DIAM)/2) / (double)dd->dd_cylinders;
-
+	trackwidth = ((OUTER_DIAM - INNER_DIAM)/2) / (double)dd->dd_tracks;
+	
 	/* compute the number of sectors per unit area of disk */
-	sectors_per_area = physsectors / (dd->dd_heads * PLATTER_AREA);
+	sectors_per_area = physsectors / (PLATTER_AREA);
 
 	/*
 	 * Now, figure out how many sectors are on each track.
@@ -366,37 +347,40 @@ compute_sectors(struct disk_data *dd)
 	 * by sectors_per_area, truncating to the next smallest integer.
 	 * We reserve one sector on each track.
 	 */
-	for (i=0; i<dd->dd_cylinders; i++) {
+	for (i=0; i<dd->dd_tracks; i++) {
 		double inside = INNER_DIAM/2.0 + i*trackwidth;
 		double outside = inside + trackwidth;
+
 		/* 
-		 * this track's area = pi*(outside^2 - inside^2)
-		 *                   = pi*(outside + inside)*(outside - inside)
-                 *                   = pi*(outside + inside)*(trackwidth)
+		 * this track's area = pi*(outside^2 - inside^2) = pi*(outside +
+		 * inside)*(outside - inside) = pi*(outside +
+		 * inside)*(trackwidth)
 		 */
+
 		double trackarea = (outside+inside)*trackwidth*PI;
-		double sectors = sectors_per_area * trackarea;
+		double sectors = sectors_per_area*trackarea;
+
 		if (sectors < 2.0) {
-			/* Too small */
+			/* too small */
 			return -1;
 		}
-		dd->dd_sectors[i] = ((int) sectors) - 1;
+
+		dd->dd_sectors[i] = ((int)sectors) - 1;
 	}
 
-	/* Now compute the total number of sectors available. */
-	tot = 0;
-	for (i=0; i<dd->dd_cylinders; i++) {
-		tot += dd->dd_sectors[i];
-	}
-	tot *= dd->dd_heads;
+    /* Now compute the total number of sectors available. */
+    tot = 0;
+    for (i=0; i<dd->dd_tracks; i++) {
+        tot += dd->dd_sectors[i];
+    }
 
-	/* Make sure we've got enough space. */
-	if (tot < dd->dd_totsectors) {
-		/* 
-		 * Shouldn't happen. If it does, increase SECTOR_FUDGE.
-		 */
-		return -1;
-	}
+    /* Make sure we've got enough space. */
+    if (tot < dd->dd_totsectors) {
+        /* 
+         * Shouldn't happen. If it does, increase SECTOR_FUDGE.
+         */
+        return -1;
+    }
 
 	return 0;
 }
@@ -404,7 +388,7 @@ compute_sectors(struct disk_data *dd)
 static
 void
 locate_sector(struct disk_data *dd,
-	      u_int32_t sector, int *track, int *head, int *rotoffset)
+	      u_int32_t sector, int *track, int *rotoffset)
 {
 	/* 
 	 * Assume sector has already been checked for being in bounds.
@@ -412,21 +396,21 @@ locate_sector(struct disk_data *dd,
 	 * Note that we start numbering sectors from the outermost
 	 * (fastest) track.
 	 */
+	
+	u_int32_t i;
+	u_int32_t start = 0;
 
-	u_int32_t start=0;
-	u_int32_t k;
-	for (k=dd->dd_cylinders; k>0; k--) {
-		u_int32_t cyl = k-1;
-		u_int32_t end = start + dd->dd_heads*dd->dd_sectors[cyl];
+	for (i = dd->dd_tracks; i > 0; i--) {
+		u_int32_t tr = i-1;
+		u_int32_t end = start + dd->dd_sectors[tr];
 		if (sector >= start && sector < end) {
-			*track = cyl;
-			sector -= start;
-			*head = sector % dd->dd_heads;
-			*rotoffset = sector / dd->dd_heads;
+			*track = tr;
+			*rotoffset = sector - start;
 			return;
 		}
+		start = end;
 	}
-
+	
 	smoke("Cannot locate sector %u\n", sector);
 }
 
@@ -434,10 +418,11 @@ static
 u_int32_t
 disk_seektime(struct disk_data *dd, int ntracks)
 {
-	/*
-	 * XXX - fix this.
-	 */
-	return ntracks * 2000000;
+	double nt = ntracks;
+	if (nt > 5) {
+		nt = sqrt(nt);
+	}
+	return nt * 200000;
 }
 
 static
@@ -483,6 +468,7 @@ disk_readrotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 	 */
 	if (targsecs < nowsecs ||
 	    (targsecs == nowsecs && targnsecs <= nowsecs)) {
+		dd->dd_buffered_sector = dd->dd_sect;
 		return CACHE_READ_TIME;
 	}
 
@@ -526,7 +512,7 @@ disk_writerotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 	 * XXX adding in nsecs_per_sector makes it wait forever
 	 */
 
-	return (targnsecs - nownsecs); // + nsecs_per_sector;
+	return (targnsecs - nownsecs) + nsecs_per_sector;
 }
 
 ////////////////////////////////////////////////////////////
@@ -578,11 +564,6 @@ disk_init(int slot, int argc, char *argv[])
 		die();
 	}
 
-	if (dd->dd_heads < 1 || dd->dd_heads > 16) {
-		msg("disk: slot %d: Computed geometry has invalid "
-		    "number of heads (%d)", slot, dd->dd_heads);
-		die();
-	}
 
 	if (rpm < 60) {
 		msg("disk: slot %d: RPM too low (%d)", slot, rpm);
@@ -596,8 +577,8 @@ disk_init(int slot, int argc, char *argv[])
 	dd->dd_rpm = rpm;
 	dd->dd_nsecs_per_rev = 1000000000 / (dd->dd_rpm / 60);
 
-	dd->dd_current_cyl = 0;
-	dd->dd_current_head = 0;
+	dd->dd_current_track = 0;
+	
 	dd->dd_trackarrival_secs = 0;
 	dd->dd_trackarrival_nsecs = 0;
 
@@ -605,6 +586,9 @@ disk_init(int slot, int argc, char *argv[])
 	dd->dd_sect = 0;
 
 	dd->dd_paranoid = paranoid;
+
+	dd->dd_buffered_sector = -1;
+	dd->dd_sector_written = -1;
 
 	if (filename==NULL) {
 		msg("disk: slot %d: No filename specified", slot);
@@ -637,25 +621,13 @@ disk_seekdone(void *data, u_int32_t cyl)
 {
 	struct disk_data *dd = data;
 
-	dd->dd_current_cyl = cyl;
+	dd->dd_current_track = cyl;
 	clock_time(&dd->dd_trackarrival_secs, &dd->dd_trackarrival_nsecs);
 
 	dd->dd_timedop = 0;
 	disk_update(dd);
 }
 
-static
-void
-disk_headswdone(void *data, u_int32_t head)
-{
-	struct disk_data *dd = data;
-
-	dd->dd_current_head = head;
-	clock_time(&dd->dd_trackarrival_secs, &dd->dd_trackarrival_nsecs);
-
-	dd->dd_timedop = 0;
-	disk_update(dd);
-}
 
 static
 void
@@ -670,9 +642,31 @@ disk_rotdelaydone(void *data, u_int32_t nothing)
 
 static
 void
+disk_cachereaddone(void *data, u_int32_t nothing)
+{
+	struct disk_data *dd = data;
+	(void)nothing;
+
+	dd->dd_timedop = 0;
+	disk_update(dd);
+}
+
+static
+void
+disk_writedone(void *data, u_int32_t sector)
+{
+	struct disk_data *dd = data;
+	dd->dd_sector_written = sector;
+
+	dd->dd_timedop = 0;
+	disk_update(dd);
+}
+
+static
+void
 disk_work(struct disk_data *dd)
 {
-	int cyl, head, rotoffset;
+	int cyl, rotoffset;
 	u_int32_t rotdelay;
 	int err;
 
@@ -696,16 +690,16 @@ disk_work(struct disk_data *dd)
 		return;
 	}
 
-	locate_sector(dd, dd->dd_sect, &cyl, &head, &rotoffset);
+	locate_sector(dd, dd->dd_sect, &cyl, &rotoffset);
 
-	if (dd->dd_current_cyl != cyl) {
+	if (dd->dd_current_track != cyl) {
 		/*
 		 * Need to seek.
 		 */
 		u_int32_t nsecs;
 		int distance;
 
-		distance = cyl - dd->dd_current_cyl;
+		distance = cyl - dd->dd_current_track;
 		if (distance<0) {
 			distance = -distance;
 		}
@@ -717,22 +711,29 @@ disk_work(struct disk_data *dd)
 		return;
 	}
 
-	if (dd->dd_current_head != head) {
-		dd->dd_timedop = 1;
-		schedule_event(HEAD_SWITCH_TIME, dd, head, disk_headswdone);
-		return;
-	}
-
-	if (dd->dd_stat & DISKBIT_ISWRITE) {
+	
+	if (dd->dd_stat & DISKBIT_ISWRITE && dd->dd_sector_written != dd->dd_sect) {
 		rotdelay = disk_writerotdelay(dd, cyl, rotoffset);
 	}
-	else {
+	else if (dd->dd_buffered_sector != dd->dd_sect) {
 		rotdelay = disk_readrotdelay(dd, cyl, rotoffset);
+	} else {
+		rotdelay = 0;
 	}
 
+	if (dd->dd_buffered_sector == dd->dd_sect && rotdelay > 0) {
+		dd->dd_timedop = 1;
+		schedule_event(rotdelay, dd, 0, disk_cachereaddone);
+		return;
+	}
+	
 	if (rotdelay > 0) {
 		dd->dd_timedop = 1;
-		schedule_event(rotdelay, dd, 0, disk_rotdelaydone);
+		if (dd->dd_stat & DISKBIT_ISWRITE) {
+			schedule_event(rotdelay, dd, dd->dd_sect, disk_writedone);
+		} else {
+			schedule_event(rotdelay, dd, 0, disk_rotdelaydone);
+		}
 		return;
 	}
 
@@ -740,9 +741,11 @@ disk_work(struct disk_data *dd)
 	 * We're here.
 	 */
 	if (dd->dd_stat & DISKBIT_ISWRITE) {
+		dd->dd_sector_written = -1;
 		err = disk_writesector(dd);
 	}
 	else {
+		dd->dd_buffered_sector = -1;
 		err = disk_readsector(dd);
 	}
 
@@ -752,6 +755,7 @@ disk_work(struct disk_data *dd)
 	else {
 		COMPLETE(dd->dd_stat);
 	}
+
 }
 
 

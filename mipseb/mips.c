@@ -18,7 +18,7 @@
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.35 2001/02/28 15:51:53 dholland Exp $";
+	"$Id: mips.c,v 1.38 2001/03/15 20:43:13 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -39,7 +39,7 @@ const char rcsid_mips_c[] =
 // Value to initialize TLB entries to at boot time.
 // (0 would be virtual page 0, which might cause unwanted matches.
 // So use a virtual page in one of the non-mapped segments.)
-#define JUNK_TLBENTRY           (0x8000000000000000ULL)
+#define JUNK_TLBENTRY           (0x8100000000000000ULL)
 
 
 // MIPS hardwired memory segments
@@ -160,6 +160,60 @@ mips_init(struct mipscpu *cpu)
 	cpu->ex_epc = 0;
 	cpu->ex_vaddr = 0;
 	cpu->ex_prid = 0xbeef;  // implementation 0xbe, revision 0xef (XXX)
+}
+
+static
+void
+tlbmsg(struct mipscpu *cpu, int index, const char *what)
+{
+	if (TLB_GLOBAL(cpu->tlb[index])) {
+		msg("%s: index %d, vpn 0x%08lx, global", what, index, 
+		    (unsigned long)(TLB_VPN(cpu->tlb[index])));
+	}
+	else {
+		msg("%s: index %d, vpn 0x%08lx, pid %ld", what, index,
+		    (unsigned long)(TLB_VPN(cpu->tlb[index])),
+		    (unsigned long)(TLB_PID(cpu->tlb[index])));
+	}
+}
+
+static
+void
+check_tlb_dups(struct mipscpu *cpu, int newix)
+{
+	u_int32_t vpn, pid;
+	int gbl, i;
+
+	vpn = TLB_VPN(cpu->tlb[newix]);
+	pid = TLB_PID(cpu->tlb[newix]);
+	gbl = TLB_GLOBAL(cpu->tlb[newix]);
+
+	for (i=0; i<NTLB; i++) {
+		if (i == newix) {
+			continue;
+		}
+		if (vpn != TLB_VPN(cpu->tlb[i])) {
+			continue;
+		}
+
+		/*
+		 * We've got two translations for the same virtual page.
+		 * If both translations would ever match at once, it's bad.
+		 * This is true if *either* is global or if the pids are
+		 * the same. Note that it doesn't matter if the valid bits
+		 * are set - translations that are not valid are still 
+		 * accessed.
+		 */
+
+		if (gbl ||
+		    TLB_GLOBAL(cpu->tlb[i]) ||
+		    pid == TLB_PID(cpu->tlb[i])) {
+			msg("Duplicate TLB entries!");
+			tlbmsg(cpu, newix, "New entry");
+			tlbmsg(cpu, i, "Old entry");
+			hang("Duplicate TLB entries for vpage ");
+		}
+	}
 }
 
 static
@@ -1423,10 +1477,12 @@ mips_run(struct mipscpu *cpu)
 	    case OP_TLBWI:
 		DEBUG(("at %08x: tlbwi", cpu->expc));
 		cpu->tlb[TLBIX(cpu->tlbindex)] = cpu->tlbentry;
+		check_tlb_dups(cpu, TLBIX(cpu->tlbindex));
 		break;
 	    case OP_TLBWR:
 		DEBUG(("at %08x: tlbwr", cpu->expc));
 		cpu->tlb[TLBIX(cpu->tlbrandom)] = cpu->tlbentry;
+		check_tlb_dups(cpu, TLBIX(cpu->tlbrandom));
 		break;
 	    case OP_WAIT:
 		DEBUG(("at %08x: wait", cpu->expc));

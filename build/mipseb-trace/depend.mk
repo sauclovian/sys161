@@ -16,7 +16,8 @@ dev_disk.o: ../../bus/dev_disk.c ../../include/config.h \
  ../../include/console.h ../../include/clock.h ../../include/main.h \
  ../../include/util.h ../../bus/lamebus.h ../../bus/busids.h
 dev_emufs.o: ../../bus/dev_emufs.c ../../include/config.h \
- ../../include/util.h ../../include/console.h ../../bus/lamebus.h \
+ ../../include/util.h ../../include/console.h ../../include/speed.h \
+ ../../include/clock.h ../../include/main.h ../../bus/lamebus.h \
  ../../bus/busids.h
 dev_net.o: ../../bus/dev_net.c ../../include/config.h \
  ../../include/console.h ../../bus/busids.h ../../bus/lamebus.h

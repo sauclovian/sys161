@@ -36,6 +36,9 @@ struct stats {
 	u_int32_t s_wsects;   // disk sectors written
 	u_int32_t s_rchars;   // console chars read
 	u_int32_t s_wchars;   // console chars written
+	u_int32_t s_remu;     // emufs reads
+	u_int32_t s_wemu;     // emufs writes
+	u_int32_t s_memu;     // emufs other ops
 	//u_int32_t s_rpkts;    // network packets read
 	//u_int32_t s_wpkts;    // network packets written
 };

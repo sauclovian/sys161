@@ -23,4 +23,7 @@
 #define SERIAL_FUDGE   25
 #define SERIAL_NSECS   (1000000000/((19200*(SERIAL_FUDGE))/10))
 
+// All emufs ops take 3ms.
+#define EMUFS_NSECS    (3000000)
+
 #endif /* SPEED_H */

@@ -229,6 +229,10 @@ Registers:
 </table>
 </blockquote>
 
+A 4k read buffer followed by a 4k write buffer is mapped at offset
+32768.
+<p>
+
 Simple network interface. Writing the length of packet to send into
 the start-send register will transmit that many bytes of data from the
 send buffer. When the send is complete, the send completed register
