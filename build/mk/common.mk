@@ -23,7 +23,10 @@ realdepend:
 
 install:
 	[ -d "$(INSTALLDIR)" ] || mkdir -p $(INSTALLDIR)
-	cp $(PROG) $(INSTALLDIR)/$(PROG)
+	cp $(PROG) $(INSTALLDIR)/$(PROG).new
+	chmod 755 $(INSTALLDIR)/$(PROG).new
+	mv -f $(INSTALLDIR)/$(PROG) $(INSTALLDIR)/$(PROG).old
+	mv -f $(INSTALLDIR)/$(PROG).new $(INSTALLDIR)/$(PROG)
 
 $(PROG): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $(PROG)

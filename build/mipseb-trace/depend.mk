@@ -41,7 +41,7 @@ gdb_be.o: ../../gdb/gdb_be.c ../../include/config.h \
 main.o: ../../main/main.c ../../include/config.h \
  ../../include/console.h ../../include/gdb.h ../../include/cpu.h \
  ../../include/bus.h ../../include/clock.h ../../include/speed.h \
- ../../include/onsel.h ../../include/main.h
+ ../../include/onsel.h ../../include/main.h ../../include/version.h
 onsel.o: ../../main/onsel.c ../../include/config.h \
  ../../include/console.h ../../include/onsel.h
 clock.o: ../../main/clock.c ../../include/config.h \

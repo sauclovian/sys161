@@ -16,7 +16,7 @@
 #define inline
 #endif
 
-const char rcsid_clock_c[] = "$Id: clock.c,v 1.5 2001/01/27 01:43:16 dholland Exp $";
+const char rcsid_clock_c[] = "$Id: clock.c,v 1.7 2001/02/08 22:56:36 dholland Exp $";
 
 struct timed_action {
 	u_int32_t ta_when_secs;
@@ -133,6 +133,14 @@ schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 	u_int32_t when_nsecs, when_secs;
 	struct timed_action *ta;
 
+
+	/*
+	 * RAND_MAX doesn't seem to be set correctly.  random ranges from 0 to
+	 * 2^31-1.
+	 */
+#define RANDMAX ((unsigned long)(1<<31)-1)
+	nsecs += ((float)random()/RANDMAX)*0.01*nsecs; 
+
 	nsecs += now_nsecs;
 	when_nsecs = nsecs % 1000000000;
 	when_secs = nsecs / 1000000000;
@@ -170,17 +178,6 @@ clock_setnsecs(u_int32_t nsecs)
 	now_nsecs = nsecs;
 }
 
-
-void
-clock_init(void)
-{
-	struct timeval tv;
-	acalloc_init();
-	gettimeofday(&tv, NULL);
-	now_secs = tv.tv_sec;
-	now_nsecs = 1000*tv.tv_usec;
-}
-
 static
 inline
 void
@@ -193,6 +190,22 @@ clock_advance(u_int32_t secs, u_int32_t nsecs)
 		now_secs++;
 	}
 	check_queue();
+}
+
+void
+clock_init(void)
+{
+	struct timeval tv;
+	u_int32_t offset;
+
+	acalloc_init();
+	gettimeofday(&tv, NULL);
+	now_secs = tv.tv_sec;
+	now_nsecs = 1000*tv.tv_usec;
+
+	/* Shift the clock ahead a random fraction of 10 ms. */
+	offset = random() % 10000000;
+	clock_advance(0, offset);
 }
 
 void

@@ -1,6 +1,0 @@
-Stuff to consider in the FUTURE when we have time to hack (as if):
-
-
-  - async disk and console I/O
-
-  - ^C -> NMI

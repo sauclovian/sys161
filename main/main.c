@@ -14,12 +14,13 @@
 #include "speed.h"
 #include "onsel.h"
 #include "main.h"
+#include "version.h"
 
 #ifndef __GNUC__
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.10 2001/02/02 11:40:11 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.11 2001/02/07 19:09:23 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -223,6 +224,7 @@ main(int argc, char *argv[])
 
 	load_kernel(kernel, argstr);
 
+	msg("System/161 %s, compiled %s %s", VERSION, __DATE__, __TIME__);
 
 	if (debugwait) {
 		stoploop();

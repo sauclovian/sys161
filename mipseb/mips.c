@@ -1,7 +1,7 @@
 #include <sys/types.h>
 #include <string.h>
 #include "config.h"
-
+ 
 #include "cpu.h"
 #include "bus.h"
 #include "console.h"
@@ -18,7 +18,7 @@
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.27 2001/02/02 11:11:45 dholland Exp $";
+	"$Id: mips.c,v 1.31 2001/02/08 22:46:55 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -958,14 +958,14 @@ mips_run(struct mipscpu *cpu)
 		      regname(rs), regname(rt)));
 		t64 = (int64_t)RS + (int64_t)RT;
 		CHKOVF(t64);
-		RD = (int32_t)t64;
+		RD = (int32_t)(int64_t)t64;
 		break;
 	    case OP_ADDI:
 		DEBUG(("at %08x: addi %s, %s, %u", cpu->expc, regname(rt), 
 		      regname(rs), smm));
 		t64 = (int64_t)RS + smm;
 		CHKOVF(t64);
-		RT = (int32_t)t64;
+		RT = (int32_t)(int64_t)t64;
 		break;
 	    case OP_ADDIU: 
 		DEBUG(("at %08x: addiu %s, %s, %d", cpu->expc, regname(rt), 
@@ -1227,7 +1227,7 @@ mips_run(struct mipscpu *cpu)
 		DEBUG(("at %08x: multu %s, %s", cpu->expc, 
 		      regname(rs), regname(rt)));
 		WHILO;
-		t64=(u_int64_t)RS*(u_int64_t)RT;
+		t64=(u_int64_t)RSU*(u_int64_t)RTU;
 		goto split64;
             split64:  
 		cpu->hi = (t64>>32);
@@ -1276,7 +1276,9 @@ mips_run(struct mipscpu *cpu)
 	    case OP_SLTIU:
 		DEBUG(("at %08x: sltiu %s, %s, %u", cpu->expc, regname(rt), 
 		      regname(rs), imm));
-		RT = RSU < imm;
+		// Yes, the immediate is sign-extended then treated as
+		// unsigned, according to my mips book. Blech.
+		RT = RSU < (u_int32_t) smm;
 		break;
 	    case OP_SLTU:
 		DEBUG(("at %08x: sltu %s, %s, %s", cpu->expc, regname(rd), 
@@ -1308,7 +1310,7 @@ mips_run(struct mipscpu *cpu)
 		      regname(rs), regname(rt)));
 		t64 = (int64_t)RS - (int64_t)RT;
 		CHKOVF(t64);
-		RD = (int32_t)t64;
+		RD = (int32_t)(int64_t)t64;
 		break;
 	    case OP_SUBU:
 		DEBUG(("at %08x: subu %s, %s, %s", cpu->expc, regname(rd), 
