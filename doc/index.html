@@ -33,9 +33,10 @@ and compile it yourself if you want to work elsewhere.
 <p>
 
 The source distribution for System/161 can be found on the CS161 web
-site, <A HREF=fixme_XXX>here</A>. It supports most Unix-like systems.
-Windows is not supported. (However, you might be able to compile it
-with cygwin or a similar toolset. If you do this, you're on your own.)
+site, <A HREF=http://www.courses.fas.harvard.edu/~cs161>here</A>. It
+supports most Unix-like systems. Windows is not supported. (However,
+you might be able to compile it with cygwin or a similar toolset. If
+you do this, you're on your own.)
 <p>
 
 All you need is sys161-1.0.tar.gz (or whatever the current version
@@ -105,7 +106,7 @@ If it bombs, contact the course staff.
 System/161 has been tested on the following platforms:
 <ul>
 <li> NetBSD on x86
-<!-- XXX expand this list -->
+<li> Digital Unix 4.0x on alpha
 </ul>
 
 <hr>
@@ -135,7 +136,7 @@ The <em>System/161 options</em> are:
 <dt>-p <em>port</em></dt>
 <dd>Listen for debugger connections on specified TCP port. The default
 is to use the Unix-domain socket <tt>./.sockets/gdb</tt> for debugger
-connections.</dd> <!-- XXX -->
+connections.</dd>
 
 <dt>-w</dt>
 <dd>Wait for a debugger connection immediately on startup.</dd>
@@ -318,7 +319,6 @@ Run gdb as you normally would:
 	gdb kernel
 </pre>
 
-<!-- XXX the syntax may be wrong -->
 After it finishes loading, attach to System/161 by typing this into gdb:
 <pre>
 	target remote unix:.sockets/gdb

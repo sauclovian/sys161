@@ -24,3 +24,4 @@
 #define DISK_REVISION      2
 #define EMUFS_REVISION     1
 #define RANDOM_REVISION    1
+#define NET_REVISION       1

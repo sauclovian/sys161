@@ -19,11 +19,11 @@ dev_emufs.o: ../../bus/dev_emufs.c ../../include/config.h \
  ../../include/util.h ../../include/console.h ../../bus/lamebus.h \
  ../../bus/busids.h
 dev_net.o: ../../bus/dev_net.c ../../include/config.h \
- ../../bus/lamebus.h
+ ../../include/console.h ../../bus/busids.h ../../bus/lamebus.h
 dev_random.o: ../../bus/dev_random.c ../../include/config.h \
  ../../include/console.h ../../bus/lamebus.h ../../bus/busids.h
 dev_screen.o: ../../bus/dev_screen.c ../../include/config.h \
- ../../bus/lamebus.h
+ ../../include/console.h ../../bus/busids.h ../../bus/lamebus.h
 dev_serial.o: ../../bus/dev_serial.c ../../include/config.h \
  ../../include/speed.h ../../include/console.h ../../include/clock.h \
  ../../include/main.h ../../include/util.h ../../bus/busids.h \

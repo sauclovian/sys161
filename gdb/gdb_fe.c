@@ -18,13 +18,13 @@
 
 #include "context.h"
 
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.9 2001/01/27 01:43:16 dholland Exp $";
+const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.10 2001/02/09 23:10:55 dholland Exp $";
 
 //#include "lamebus.h"
 
 static int g_listenfd = -1;
 struct gdbcontext g_ctx;
-static int g_ctx_inuse = 0;
+int g_ctx_inuse = 0;
 
 int
 gdb_canhandle(u_int32_t pcaddr)

@@ -18,7 +18,7 @@
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.31 2001/02/08 22:46:55 dholland Exp $";
+	"$Id: mips.c,v 1.32 2001/02/12 23:05:15 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -1458,7 +1458,8 @@ cpu_set_stack(u_int32_t stackaddr, u_int32_t argument)
 {
 	mycpu.r[29] = stackaddr;   /* register 29: stack pointer */
 	mycpu.r[4] = argument;     /* register 4: first argument */
-	/* XXX what about gp? */
+	
+	/* don't need to set $gp - in the ELF model it's start's problem */
 }
 
 void

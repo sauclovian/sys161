@@ -14,13 +14,12 @@
 
 #include "context.h"
 
+//#define SHOW_PACKETS
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.18 2001/02/02 03:25:10 dholland Exp $";
-
-// XXX
-#define debug printf
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.20 2001/02/12 23:05:00 dholland Exp $";
 
 extern struct gdbcontext g_ctx;
+extern int g_ctx_inuse;
 
 static void debug_notsupp(struct gdbcontext *);
 static void debug_send(struct gdbcontext *, const char *);
@@ -51,7 +50,9 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 	int i;
 	int check = 0, scheck;
 
-	debug("Got packet %s\n", pkt);
+#ifdef SHOW_PACKETS
+	msg("Got packet %s", pkt);
+#endif
 
 	if (pkt[0] != '$') {
 		return;
@@ -81,9 +82,16 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 		set_breakcond();
 		break;
 	    case 'D':
-	    case 'k':
 		debug_send(ctx, "OK");
 		unset_breakcond();
+		break;
+	    case 'k':
+		// don't do this - debugger hangs up and we get SIGPIPE
+		//debug_send(ctx, "OK");
+		msg("Debugger requested kill");
+		die();
+		// To continue running, one would need to do this
+		//unset_breakcond();
 		break;
 	    case 'q':
 		if(strcmp(pkt+2, "Offsets") == 0) {
@@ -131,6 +139,11 @@ debug_send(struct gdbcontext *ctx, const char *string)
 	int check=0;
 	int i;
 
+	if (ctx->myfd < 0) {
+		msg("Warning: sending debugger packet, no debugger");
+		msg("(please report what caused this to the course staff)");
+	}
+
 	for (i=0; string[i]; i++) {
 		check += string[i];
 	}
@@ -138,7 +151,9 @@ debug_send(struct gdbcontext *ctx, const char *string)
 	check %= 256;
 	snprintf(checkstr, sizeof(checkstr),  "#%02x", check);
 
-	debug("Sending $%s%s\n", string, checkstr);
+#ifdef SHOW_PACKETS
+	msg("Sending $%s%s", string, checkstr);
+#endif
 
 	write(ctx->myfd, "$", 1);
 	write(ctx->myfd, string, strlen(string)); 
@@ -156,8 +171,13 @@ debug_notsupp(struct gdbcontext *ctx)
 void
 gdb_startbreak(void)
 {
-	struct gdbcontext *ctx = &g_ctx;
-	debug_send(ctx, "S05");
+	if (g_ctx_inuse) {
+		/* If connected, tell the debugger we stopped */
+		debug_send(&g_ctx, "S05");
+	}
+	else {
+		msg("Waiting for debugger connection...");
+	}
 	set_breakcond();
 }
 
@@ -232,7 +252,7 @@ debug_write_mem(struct gdbcontext *ctx, const char *spec)
 	unsigned int val;
 
 	char *curptr;
-	// AAAAAAA,LLL:XXXX
+	// AAAAAAA,LLL:DDDD
 	// address,len,data
 	start = strtoul(spec, &curptr, 16);
 	length = strtoul(curptr + 1, &curptr, 16);
