@@ -17,7 +17,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.15 2001/03/15 20:34:58 dholland Exp $";
+    "$Id: dev_disk.c,v 1.16 2001/04/19 04:51:40 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -38,6 +38,9 @@ const char rcsid_dev_disk_c[] =
 
 /* Disk timing parameters */
 #define CACHE_READ_TIME      500       /* ns */
+
+/* Number of tries after which we assume the timing code has lost its marbles*/
+#define MAX_WORKTRIES    10
 
 /* Register offsets */
 #define DISKREG_NSECT 0
@@ -108,6 +111,11 @@ struct disk_data {
 	int dd_buffered_sector;		/* sector in track buffer */
 	int dd_sector_written;		/* sector we last wrote */
 	int dd_timedop;             /* nonzero if waiting for a timer event */
+
+	/*
+	 * Timing protection
+	 */
+	int dd_worktries;	/* # times dd_work called during this I/O */
 
 	/*
 	 * Registers
@@ -590,6 +598,8 @@ disk_init(int slot, int argc, char *argv[])
 	dd->dd_buffered_sector = -1;
 	dd->dd_sector_written = -1;
 
+	dd->dd_worktries = 0;
+
 	if (filename==NULL) {
 		msg("disk: slot %d: No filename specified", slot);
 		die();
@@ -687,7 +697,15 @@ disk_work(struct disk_data *dd)
 
 	if (dd->dd_sect >= dd->dd_totsectors) {
 		INVSECT(dd->dd_stat);
+		dd->dd_worktries = 0;
 		return;
+	}
+
+	dd->dd_worktries++;
+	if (dd->dd_worktries > MAX_WORKTRIES) {
+		msg("Geometry modeling fault! (Known bug, ignore...)");
+		/* skip over all the timing crap */
+		goto forceio;
 	}
 
 	locate_sector(dd, dd->dd_sect, &cyl, &rotoffset);
@@ -737,6 +755,7 @@ disk_work(struct disk_data *dd)
 		return;
 	}
 
+ forceio:
 	/*
 	 * We're here.
 	 */
@@ -751,9 +770,11 @@ disk_work(struct disk_data *dd)
 
 	if (err) {
 		MEDIAERR(dd->dd_stat);
+		dd->dd_worktries = 0;
 	}
 	else {
 		COMPLETE(dd->dd_stat);
+		dd->dd_worktries = 0;
 	}
 
 }

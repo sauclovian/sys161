@@ -18,7 +18,7 @@
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.38 2001/03/15 20:43:13 dholland Exp $";
+	"$Id: mips.c,v 1.39 2001/04/14 05:41:31 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -1124,7 +1124,7 @@ mips_run(struct mipscpu *cpu)
 		}
 		break;
 	    case OP_BLEZ:
-		DEBUG(("at %08x: blez %s, %d: %d<=0? ", cpu->expc, 
+		DEBUGL(("at %08x: blez %s, %d: %d<=0? ", cpu->expc, 
 		       regname(rs), smm, RS));
 		if (RS<=0) {
 			rbranch(cpu, smm<<2);
@@ -1399,13 +1399,13 @@ mips_run(struct mipscpu *cpu)
 		DEBUG(("0x%x", RD));
 		break;
 	    case OP_SLT:
-		DEBUG(("at %08x: slt %s, %s, %s: %d < %d -> ", cpu->expc,
+		DEBUGL(("at %08x: slt %s, %s, %s: %d < %d -> ", cpu->expc,
 		       regname(rd), regname(rs), regname(rt), RS, RT));
 		RD = RS < RT;
 		DEBUG(("0x%x", RD));
 		break;
 	    case OP_SLTI:
-		DEBUG(("at %08x: slti %s, %s, %d: %d < %d -> ", cpu->expc,
+		DEBUGL(("at %08x: slti %s, %s, %d: %d < %d -> ", cpu->expc,
 		       regname(rt), regname(rs), smm, RS, smm));
 		RT = RS < smm;
 		DEBUG(("%d", RT));

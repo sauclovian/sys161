@@ -20,7 +20,7 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.14 2001/03/19 21:26:16 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.15 2001/04/19 05:07:14 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -317,6 +317,7 @@ main(int argc, char *argv[])
 	
 	run();
 
+	clock_cleanup();
 	bus_cleanup();
 	console_cleanup();
 	

@@ -16,7 +16,7 @@
 #define inline
 #endif
 
-const char rcsid_clock_c[] = "$Id: clock.c,v 1.7 2001/02/08 22:56:36 dholland Exp $";
+const char rcsid_clock_c[] = "$Id: clock.c,v 1.8 2001/04/19 05:07:14 dholland Exp $";
 
 struct timed_action {
 	u_int32_t ta_when_secs;
@@ -28,6 +28,8 @@ struct timed_action {
 
 static u_int32_t now_secs;
 static u_int32_t now_nsecs;
+
+static u_int32_t start_secs, start_nsecs;
 
 /**************************************************************/
 
@@ -206,6 +208,27 @@ clock_init(void)
 	/* Shift the clock ahead a random fraction of 10 ms. */
 	offset = random() % 10000000;
 	clock_advance(0, offset);
+
+	start_secs = now_secs;
+	start_nsecs = now_nsecs;
+}
+
+void
+clock_cleanup(void)
+{
+	u_int32_t secs, nsecs;
+
+	secs = now_secs - start_secs;
+	if (now_nsecs < start_nsecs) {
+		nsecs = (1000000000 + now_nsecs) - start_nsecs;
+		secs--;
+	}
+	else {
+		nsecs = now_nsecs - start_nsecs;
+	}
+
+	msg("Elapsed virtual time: %lu.%09lu seconds", (unsigned long)secs, 
+	    (unsigned long)nsecs);
 }
 
 void
