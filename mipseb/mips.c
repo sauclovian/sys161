@@ -21,7 +21,7 @@
 
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.76 2002/01/17 22:10:02 dholland Exp $";
+	"$Id: mips.c,v 1.77 2002/03/21 20:13:26 dholland Exp $";
 
 
 /* number of tlb entries */
@@ -471,6 +471,7 @@ probetlb(struct mipscpu *cpu)
 		TLBTRP(&cpu->tlb[ix]);
 		TRACE(DOTRACE_TLB, (": [%d]", ix));
 		cpu->tlbindex = ix;
+		cpu->tlbpf = 0;
 	}
 }
 
@@ -689,6 +690,7 @@ translatemem(struct mipscpu *cpu, u_int32_t vaddr, int iswrite, u_int32_t *ret)
 		TRACEL(DOTRACE_TLB, ("tlblookup:  %05x/%03x -> ", 
 				     vpage >> 12, cpu->tlbentry.mt_pid));
 
+		cpu->tlbentry.mt_vpn = vpage;
 		ix = findtlb(cpu, vpage);
 
 		if (ix<0) {
