@@ -49,5 +49,5 @@ clock.o: ../../main/clock.c ../../include/config.h \
  ../../include/cpu.h ../../include/bus.h ../../include/onsel.h \
  ../../include/main.h
 console.o: ../../main/console.c ../../include/config.h \
- ../../include/onsel.h ../../include/console.h
+ ../../include/onsel.h ../../include/console.h ../../include/main.h
 util.o: ../../main/util.c ../../include/console.h ../../include/util.h

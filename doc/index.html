@@ -309,9 +309,10 @@ with the debugged code - even timing is unaffected.
 
 To do this, you need a copy of <tt>gdb</tt> compiled for the same
 processor that System/161 is simulating, and that understands the
-ELF kernel file format loaded by System/161. See
-<A HREF=fixme_XXX>the CS161 toolchain page</A> for more information.
-On the Science Center machines, you can use <tt>cs161-gdb</tt>.
+ELF kernel file format loaded by System/161. Get and compile
+<A HREF=http://www.courses.fas.harvard.edu/~cs161/download>the CS161
+toolchain</A>.
+On the Science Center machines, you can just run <tt>cs161-gdb</tt>.
 <p>
 
 Run gdb as you normally would:
@@ -350,6 +351,11 @@ Theoretically everything you can do with gdb normally should work with
 gdb connected this way. In practice, there are probably some problems.
 Bring them to the attention of the course staff and we'll see if we
 can get them fixed.
+<p>
+
+When System/161 is running, if you type ^G (control-G) into its
+window, it will immediately stop in gdb (if gdb is attached) or wait
+for a gdb connection (if gdb is not attached).
 <p>
 
 <hr>

@@ -25,7 +25,7 @@
  * For now, 16M.
  */
 
-const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.20 2001/01/30 02:43:15 dholland Exp $";
+const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.21 2001/02/26 18:42:29 dholland Exp $";
 
 #define MAXMEM (16*1024*1024)
 
@@ -255,6 +255,7 @@ lamebus_controller_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 		return 0;
 	    case LBC_OFFSET_POWER:
 		hang("Read from LAMEbus controller power register");
+		return 0;
 	}
 
 	return -1;

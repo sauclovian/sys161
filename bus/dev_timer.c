@@ -15,7 +15,7 @@
 #include "lamebus.h"
 
 
-const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.6 2001/01/27 01:43:16 dholland Exp $";
+const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.7 2001/02/26 18:42:29 dholland Exp $";
 
 #define TIMER_REVISION      1
 
@@ -126,6 +126,7 @@ timer_fetch(void *d, u_int32_t offset, u_int32_t *val)
 		 * say, start throwing lots of wild interrupts.
 		 */
 		hang("Illegal timer register read");
+		return 0;
 	}
 	return -1;
 }
@@ -159,6 +160,7 @@ timer_store(void *d, u_int32_t offset, u_int32_t val)
 		 * Again, mimic real hardware.
 		 */
 		hang("Illegal timer register write");
+		return 0;
 	}
 	return -1;
 }

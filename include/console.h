@@ -14,6 +14,7 @@ void console_onkey(void *, void (*func)(void *, int));
 
 void die(void);
 void msg(const char *fmt, ...) PF(1,2);    /* general messages */
+void msgl(const char *fmt, ...) PF(1,2);   /* msg w/o newline */
 void smoke(const char *fmt, ...) PF(1,2);  /* for internal errors */
 void hang(const char *fmt, ...) PF(1,2);   /* for errors programming the hw */
 
@@ -25,8 +26,10 @@ void console_pause(void);
 
 #ifdef USE_DEBUG
 #define DEBUG(args) msg args
+#define DEBUGL(args) msgl args
 #define PAUSE() console_pause()
 #else
 #define DEBUG(args)
+#define DEBUGL(args)
 #define PAUSE()
 #endif

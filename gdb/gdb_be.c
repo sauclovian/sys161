@@ -16,7 +16,7 @@
 
 //#define SHOW_PACKETS
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.20 2001/02/12 23:05:00 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.21 2001/02/26 18:42:41 dholland Exp $";
 
 extern struct gdbcontext g_ctx;
 extern int g_ctx_inuse;
@@ -302,10 +302,10 @@ debug_restart(struct gdbcontext *ctx, const char *addr)
 {
 	unsigned int realaddr;
 
-	if(*addr == '\0') {
+	if (*addr == '\0') {
 		return;
 	}
-	printf("whee!  changing address\n");
+	msg("whee!  gdb changed the restart address");
 	realaddr = strtoul(addr, NULL, 16);
 	cpu_set_entrypoint(realaddr);
 }

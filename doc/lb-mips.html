@@ -11,9 +11,9 @@
 <ul>
 <li> Physical RAM (up to 508 megabytes) starts at physical address 0.
 <li> The LAMEbus device mapping area is from physical address
-     0x1fc00000 to 0x1fdfffff.
+     0x1fe00000 to 0x1fffffff.
 <li> The LAMEbus device mapping area appears at kernel virtual
-     addresses 0xbfa00000 to 0xbfbfffff without requiring any
+     addresses 0xbfe00000 to 0xbfffffff without requiring any
      kernel setup.
 <li> Kernels should be linked to be loaded starting at or (generally)
      closely above virtual address 0x80000000.
@@ -45,6 +45,17 @@ Kernel virtual memory map:
 <tr>
 <td><tt>0xbfffffff</tt></td>
 <td rowspan=8>kseg1</td>
+<td rowspan=2>LAMEbus mapping area</td>
+<td>&nbsp;</td>
+</tr>
+
+<tr>
+<td><tt>0xbfe00000</tt></td>
+<td>&nbsp;</td>
+</tr>
+
+<tr>
+<td><tt>0xbfdfffff</tt></td>
 <td rowspan=4>Boot ROM area<br>(uncached)</td>
 <td>&nbsp;</td>
 </tr>
@@ -66,18 +77,7 @@ Kernel virtual memory map:
 
 <tr>
 <td><tt>0xbfbfffff</tt></td>
-<td rowspan=2>LAMEbus mapping area</td>
-<td>&nbsp;</td>
-</tr>
-
-<tr>
-<td><tt>0xbfa00000</tt></td>
-<td>&nbsp;</td>
-</tr>
-
-<tr>
-<td><tt>0xbf9fffff</tt></td>
-<td rowspan=2>First 506 MB of RAM<br>(uncached)</td>
+<td rowspan=2>First 508 MB of RAM<br>(uncached)</td>
 <td>&nbsp;</td>
 </tr>
 
@@ -89,6 +89,17 @@ Kernel virtual memory map:
 <tr>
 <td><tt>0x9fffffff</tt></td>
 <td rowspan=7>kseg0</td>
+<td rowspan=2>Cached LAMEbus<br>(not useful)</td>
+<td>&nbsp;</td>
+</tr>
+
+<tr>
+<td><tt>0x9fe00000</tt></td>
+<td>&nbsp;</td>
+</tr>
+
+<tr>
+<td><tt>0x9fdfffff</tt></td>
 <td rowspan=2>Boot ROM area<br>(cached)</td>
 <td>&nbsp;</td>
 </tr>
@@ -100,18 +111,7 @@ Kernel virtual memory map:
 
 <tr>
 <td><tt>0x9fbfffff</tt></td>
-<td rowspan=2>Cached LAMEbus<br>(not useful)</td>
-<td>&nbsp;</td>
-</tr>
-
-<tr>
-<td><tt>0x9fa00000</tt></td>
-<td>&nbsp;</td>
-</tr>
-
-<tr>
-<td><tt>0x9f9fffff</tt></td>
-<td rowspan=3>First 506 MB of RAM<br>(cached)</td>
+<td rowspan=3>First 508 MB of RAM<br>(cached)</td>
 <td>&nbsp;</td>
 </tr>
 
@@ -152,7 +152,7 @@ Physical memory map:
 
 <tr>
 <td><tt>0xffffffff</tt></td>
-<td rowspan=2>Upper physical RAM (above 506 MB)</td>
+<td rowspan=2>Upper physical RAM (above 508 MB)</td>
 </tr>
 
 <tr>
@@ -161,6 +161,15 @@ Physical memory map:
 
 <tr>
 <td><tt>0x1fffffff</tt></td>
+<td rowspan=2>LAMEbus devices</td>
+</tr>
+
+<tr>
+<td><tt>0x1fe00000</tt></td>
+</tr>
+
+<tr>
+<td><tt>0x1fdfffff</tt></td>
 <td rowspan=2>Boot ROM area</td>
 </tr>
 
@@ -170,16 +179,7 @@ Physical memory map:
 
 <tr>
 <td><tt>0x1fbfffff</tt></td>
-<td rowspan=2>LAMEbus devices</td>
-</tr>
-
-<tr>
-<td><tt>0x1fa00000</tt></td>
-</tr>
-
-<tr>
-<td><tt>0x1f9fffff</tt></td>
-<td rowspan=2>First 506 MB of physical RAM</td>
+<td rowspan=2>First 508 MB of physical RAM</td>
 </tr>
 
 <tr>
@@ -214,24 +214,24 @@ physical memory space.
 <p>
 
 Three of the hardwired addresses (the ones used for system
-initialization) are in the top 4 MB of kseg1. The other two are at the
+initialization) are 4 MB below the top of kseg1. The other two are at the
 bottom of kseg0. This means that, of the first 512 megabytes of
-physical memory space, the top 4M or so must be ROM, and the very
-bottom part at least must be RAM. This was clearly designed in an era
+physical memory space, at least part of the top 4M must be ROM, and the very
+bottom must be RAM. This was clearly designed in an era
 where 512 megs of memory was an unthinkably large amount.
 <p>
 
-We put the first 506 megs of physical RAM starting at physical address
-0. After this we put the 2-megabyte LAMEbus mapping area, and reserve
-the 4 megabyte space after that for a boot ROM. Then physical RAM
+We put the first 508 megs of physical RAM starting at physical address
+0. After this we reserve 2 megabytes for a boot ROM; after that we
+put the 2-megabyte LAMEbus mapping area. Then physical RAM
 resumes again at the 512-meg mark. Thus, if the RAMSZ register reports
-512 megs of RAM, it will appear from 0x0 to 0x1f9fffff and then from
-0x20000000 to 0x205fffff.
+512 megs of RAM, it will appear from 0x0 to 0x1fbfffff and then from
+0x20000000 to 0x203fffff.
 <p>
 
 (Note that the current implementation will not let you configure
 anywhere near 512 megs of physical RAM, and does not actually have a
-boot ROM, just 4 megs of empty space. If you get an exception before
+boot ROM, just 2 megs of empty space. If you get an exception before
 switching off the "bootstrap" flag, the system will hang trying to
 execute from nonexistent memory. This is suboptimal and may be
 corrected in a future release.)
@@ -262,7 +262,7 @@ places in case you change your mind later.
 This is also a concern for hardware devices that may do DMA into
 cached regions of memory. However, LAMEbus devices do not do DMA
 (instead they have memory-mapped buffers) and the LAMEbus mapping area
-is meant to be accessed through the uncached hardwired segment. (It
+is meant to be accessed through the uncached hardwired segment. It
 also appears in the cached hardwired segment, but as cached memory
 access is worse than useless for device registers, this area should
 not be used.

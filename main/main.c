@@ -20,7 +20,7 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.11 2001/02/07 19:09:23 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.13 2001/02/26 19:07:14 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -133,14 +133,28 @@ run(void)
 
 	totcycles = g_stats.s_kcycles + g_stats.s_ucycles + g_stats.s_icycles;
 
-	msg("%llu cycles (%lluk, %lluu, %llui) in %lu.%06lu seconds (%g mhz)",
-	    totcycles,
-	    g_stats.s_kcycles,
-	    g_stats.s_ucycles,
-	    g_stats.s_icycles,
-	    endtime.tv_sec,
-	    endtime.tv_usec,
-	    totcycles/(time*1000000.0));
+	if (sizeof(totcycles)==sizeof(long)) {
+		msg("%lu cycles (%luk, %luu, %lui) in %lu.%06lu seconds"
+		    " (%g mhz)",
+		    (unsigned long)totcycles,
+		    (unsigned long)g_stats.s_kcycles,
+		    (unsigned long)g_stats.s_ucycles,
+		    (unsigned long)g_stats.s_icycles,
+		    endtime.tv_sec,
+		    endtime.tv_usec,
+		    totcycles/(time*1000000.0));
+	}
+	else {
+		msg("%llu cycles (%lluk, %lluu, %llui) in %lu.%06lu seconds"
+		    " (%g mhz)",
+		    totcycles,
+		    g_stats.s_kcycles,
+		    g_stats.s_ucycles,
+		    g_stats.s_icycles,
+		    endtime.tv_sec,
+		    endtime.tv_usec,
+		    totcycles/(time*1000000.0));
+	}
 
 	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console",
 	    g_stats.s_irqs,
@@ -150,6 +164,75 @@ run(void)
 	    g_stats.s_rchars,
 	    g_stats.s_wchars);
 }
+
+////////////////////////////////////////////////////////////
+
+/*
+ * We don't use normal getopt because we need to stop on the
+ * first non-option argument, and normal getopt has no standard
+ * way to specify that.
+ */
+
+static const char *myoptarg;
+static int myoptind, myoptchr;
+
+static
+int
+mygetopt(int argc, char **argv, const char *myopts)
+{
+	int myopt;
+	const char *p;
+
+	if (myoptind==0) {
+		myoptind = 1;
+	}
+
+	do {
+		if (myoptind >= argc) {
+			return -1;
+		}
+		
+		if (myoptchr==0) {
+			if (argv[myoptind][0] != '-') {
+				return -1;
+			}
+			myoptchr = 1;
+		}
+
+		myopt = argv[myoptind][myoptchr];
+
+		if (myopt==0) {
+			myoptind++;
+			myoptchr = 0;
+		}
+		else {
+			myoptchr++;
+		}
+
+	} while (myopt == 0);
+
+	if (myopt == ':' || (p = strchr(myopts, myopt))==NULL) {
+		return '?';
+	}
+	if (p[1]==':') {
+		/* option takes argument */
+		if (strlen(argv[myoptind]+myoptchr)>0) {
+			myoptarg = argv[myoptind]+myoptchr;
+		}
+		else {
+			myoptarg = argv[++myoptind];
+			if (myoptarg==NULL) {
+				return '?';
+			}
+		}
+		myoptind++;
+		myoptchr = 0;
+	}
+
+	return myopt;
+}
+
+////////////////////////////////////////////////////////////
 
 static
 void
@@ -167,7 +250,7 @@ main(int argc, char *argv[])
 	const char *kernel = NULL;
 	int usetcp=0;
 	char *argstr = NULL;
-	int i,j;
+	int j, opt;
 	size_t argsize=0;
 	int debugwait=0;
 	
@@ -178,22 +261,21 @@ main(int argc, char *argv[])
 		msg("sys161 requires sizeof(u_int32_t)==4");
 		die();
 	}
-	
-	for (i=1; i<argc; i++) {
-		if (argv[i][0]!='-') break;
-		switch (argv[i][1]) {
-		    case 'c': config = argv[++i]; break;
-		    case 'p': port = atoi(argv[++i]); usetcp=1; break;
+
+	while ((opt = mygetopt(argc, argv, "c:p:w"))!=-1) {
+		switch (opt) {
+		    case 'c': config = myoptarg; break;
+		    case 'p': port = atoi(myoptarg); usetcp=1; break;
 		    case 'w': debugwait = 1; break;
 		    default: usage();
 		}
 	}
-	if (i==argc) {
+	if (myoptind==argc) {
 		usage();
 	}
-	kernel = argv[i++];
+	kernel = argv[myoptind++];
 	
-	for (j=i; j<argc; j++) {
+	for (j=myoptind; j<argc; j++) {
 		argsize += strlen(argv[j])+1;
 	}
 	argstr = malloc(argsize+1);
@@ -202,7 +284,7 @@ main(int argc, char *argv[])
 		die();
 	}
 	*argstr = 0;
-	for (j=i; j<argc; j++) {
+	for (j=myoptind; j<argc; j++) {
 		strcat(argstr, argv[j]);
 		if (j<argc-1) strcat(argstr, " ");
 	}

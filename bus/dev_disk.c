@@ -16,7 +16,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.12 2001/02/02 14:28:07 dholland Exp $";
+    "$Id: dev_disk.c,v 1.13 2001/02/26 18:42:29 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -782,6 +782,7 @@ disk_setstatus(struct disk_data *dd, u_int32_t val)
 		break;
 	    default:
 		hang("disk: Invalid write %u to status register", val);
+		return;
 	}
 
 	dd->dd_stat = val;

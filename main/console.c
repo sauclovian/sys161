@@ -9,9 +9,10 @@
 
 #include "onsel.h"
 #include "console.h"
+#include "main.h"
 
 
-const char rcsid_console_c[] = "$Id: console.c,v 1.3 2001/01/27 01:43:16 dholland Exp $";
+const char rcsid_console_c[] = "$Id: console.c,v 1.5 2001/02/26 18:41:45 dholland Exp $";
 
 static struct termios savetios;
 static int console_up=0;
@@ -45,7 +46,11 @@ console_sel(void *unused)
 	(void)unused;
 
 	ch = console_getc();
-	if (onkey) {
+	if (ch=='\a') {
+		/* ^G (BEL) - interrupt */
+		main_stop();
+	}
+	else if (onkey) {
 		onkey(onkeydata, ch);
 	}
 
@@ -134,6 +139,8 @@ console_cleanup(void)
 
 /*****************************************/
 
+static int at_bol = 1;
+
 void
 die(void)
 {
@@ -145,9 +152,23 @@ static
 void
 vmsg(const char *fmt, va_list ap)
 {
-	fprintf(stderr, "sys161: ");
+	if (at_bol) {
+		fprintf(stderr, "sys161: ");
+	}
 	vfprintf(stderr, fmt, ap);
 	fprintf(stderr, "\r\n");
+	at_bol = 1;
+}
+
+static
+void
+vmsgl(const char *fmt, va_list ap)
+{
+	if (at_bol) {
+		fprintf(stderr, "sys161: ");
+	}
+	vfprintf(stderr, fmt, ap);
+	at_bol = 0;
 }
 
 void
@@ -156,6 +177,15 @@ msg(const char *fmt, ...)
 	va_list ap;
 	va_start(ap, fmt);
 	vmsg(fmt, ap);
+	va_end(ap);
+}
+
+void
+msgl(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vmsgl(fmt, ap);
 	va_end(ap);
 }
 
@@ -187,16 +217,21 @@ hang(const char *fmt, ...)  // was crash()
 	msg("You did something the hardware didn't like.");
 	msg("In real life the machine would hang for no apparent reason,");
 	msg("or maybe start to act strangely.");
+
+	// wait for debugger connection
+	main_stop();
 	
-	console_cleanup();
-	exit(1);
+	//console_cleanup();
+	//exit(1);
 }
 
 void
 console_pause(void)
 {
-	fprintf(stderr, "sys161: PAUSE");
-	fflush(stderr);
-	console_getc();
-	fprintf(stderr, "\r\n");
+	if (isatty(1)) {
+		fprintf(stderr, "sys161: PAUSE");
+		fflush(stderr);
+		console_getc();
+		fprintf(stderr, "\r\n");
+	}
 }
