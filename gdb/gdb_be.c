@@ -15,7 +15,7 @@
 #include "context.h"
 
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.17 2001/01/27 01:43:16 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.18 2001/02/02 03:25:10 dholland Exp $";
 
 // XXX
 #define debug printf
@@ -205,11 +205,16 @@ debug_read_mem(struct gdbcontext *ctx, const char *spec)
 	start = strtoul(spec, &curptr, 16);
 	length = strtoul(curptr+1, NULL, 16);
 
+	if (start % 4 != 0) {
+		debug_send(ctx, "E04");
+		return;
+	}
+
 	buf[0] = 0;
 	for (i = 0; i < length; i+=4) {
 		if (cpudebug_translate_address(start + i, 4, &realaddr)) {
-			// XXX should just error (what error?)
-			smoke("debug_read_mem: Invalid address");
+			debug_send(ctx, "E03");
+			return;
 		}
 		bus_mem_fetch(realaddr, &memloc);
 		printval(buf, sizeof(buf), memloc);
@@ -232,6 +237,11 @@ debug_write_mem(struct gdbcontext *ctx, const char *spec)
 	start = strtoul(spec, &curptr, 16);
 	length = strtoul(curptr + 1, &curptr, 16);
 
+	if (start % 4 != 0) {
+		debug_send(ctx, "E04");
+		return;
+	}
+
 	// curptr now points to the ':' which 
 	// delimits the length from the data
 	// so we advance it a little
@@ -239,8 +249,8 @@ debug_write_mem(struct gdbcontext *ctx, const char *spec)
 
 	for (i = 0; i < length; i+=4) {
 		if (cpudebug_translate_address(start + i, 4, &realaddr)) {
-			// XXX should just error
-			smoke("debug_write_mem: Invalid address");
+			debug_send(ctx, "E03");
+			return;
 		}
 		val = hex_int_decode(curptr + 2*i, 8);
 		if (bus_mem_store(realaddr, val) != 0) {

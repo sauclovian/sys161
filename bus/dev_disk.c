@@ -16,7 +16,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.10 2001/01/31 02:34:17 dholland Exp $";
+    "$Id: dev_disk.c,v 1.11 2001/02/02 03:24:52 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -32,7 +32,8 @@ const char rcsid_dev_disk_c[] =
 
 /* Disk timing parameters */
 #define HEAD_SWITCH_TIME     1000000   /* ns */
-#define CACHE_READ_TIME      500       /* ns */
+//#define CACHE_READ_TIME      500       /* ns */
+#define CACHE_READ_TIME    0   // XXX: if positive, I/O never completes
 
 /* Register offsets */
 #define DISKREG_NSECT 0
@@ -127,7 +128,7 @@ doread(int fd, off_t offset, char *buf, size_t bufsize)
 	size_t tot=0;
 	int r;
 
-	if (lseek(fd, offset, SEEK_SET)) {
+	if (lseek(fd, offset, SEEK_SET)<0) {
 		return -1;
 	}
 
@@ -157,7 +158,7 @@ dowrite(int fd, off_t offset, const char *buf, size_t bufsize, int paranoid)
 	size_t tot=0;
 	int r;
 
-	if (lseek(fd, offset, SEEK_SET)) {
+	if (lseek(fd, offset, SEEK_SET)<0) {
 		return -1;
 	}
 
@@ -825,7 +826,7 @@ disk_store(void *data, u_int32_t offset, u_int32_t val)
 	}
 
 	switch (offset) {
-	    case DISKREG_STAT: disk_setstatus(dd, val); break;
+	    case DISKREG_STAT: disk_setstatus(dd, val); return 0;
 	    case DISKREG_SECT: dd->dd_sect = val; return 0;
 	}
 
