@@ -22,6 +22,7 @@ realdepend:
 	$(CC) $(CFLAGS) $(DEPINCLUDES) -MM $(SRCS) > depend.mk
 
 install:
+	[ -d "$(INSTALLDIR)" ] || mkdir -p $(INSTALLDIR)
 	cp $(PROG) $(INSTALLDIR)/$(PROG)
 
 $(PROG): $(OBJS)

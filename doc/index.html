@@ -134,7 +134,7 @@ The <em>System/161 options</em> are:
 
 <dt>-p <em>port</em></dt>
 <dd>Listen for debugger connections on specified TCP port. The default
-is to use the Unix-domain socket <tt>./.gdb/socket</tt> for debugger
+is to use the Unix-domain socket <tt>./.sockets/gdb</tt> for debugger
 connections.</dd> <!-- XXX -->
 
 <dt>-w</dt>
@@ -318,10 +318,10 @@ Run gdb as you normally would:
 	gdb kernel
 </pre>
 
-<!-- XXX fix if we don't get unix sockets working -->
+<!-- XXX the syntax may be wrong -->
 After it finishes loading, attach to System/161 by typing this into gdb:
 <pre>
-	target remote .gdb/socket
+	target remote unix:.sockets/gdb
 </pre>
 and gdb will connect up to the copy of System/161 you have running in
 the same directory and you can start debugging. (You can debug one in
@@ -334,7 +334,7 @@ called <tt>.gdbinit</tt> in the same directory you're working in.
 (gdb runs this file when you start it up.)
 <pre>
 	define db
-	target remote .gdb/socket
+	target remote unix:.sockets/gdb
 	end
 </pre>
 Then you can connect up to System/161 for debugging just by running

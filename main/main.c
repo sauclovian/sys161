@@ -18,7 +18,7 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.6 2001/01/27 02:13:52 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.7 2001/01/29 03:37:52 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -166,6 +166,7 @@ main(int argc, char *argv[])
 	int port = 2344;
 	const char *config = "sys161.conf";
 	const char *kernel = NULL;
+	int usetcp=0;
 	char *argstr = NULL;
 	int i,j;
 	size_t argsize=0;
@@ -183,7 +184,7 @@ main(int argc, char *argv[])
 		if (argv[i][0]!='-') break;
 		switch (argv[i][1]) {
 		    case 'c': config = argv[++i]; break;
-		    case 'p': port = atoi(argv[++i]); break;
+		    case 'p': port = atoi(argv[++i]); usetcp=1; break;
 		    case 'w': debugwait = 1; break;
 		    default: usage();
 		}
@@ -212,9 +213,14 @@ main(int argc, char *argv[])
 	console_init();
 	cpu_init();
 	clock_init();
- 	gdb_inet_init(port);
-	//mkdir(".gdb", 0700);
-	//gdb_unix_init(".gdb/socket");
+
+	if (usetcp) {
+		gdb_inet_init(port);
+	}
+	else {
+		mkdir(".sockets", 0700);
+		gdb_unix_init(".sockets/gdb");
+	}
 
 	load_kernel(kernel, argstr);
 

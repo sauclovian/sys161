@@ -1,6 +1,8 @@
-CPUS=mipseb
-TYPES=fast trace
+CPUS=
+CPUS+=mipseb
+
 MYCPU=mipseb
+TYPES=fast trace
 
 all depend tidy clean distclean:
 	@for c in $(CPUS); do for t in $(TYPES); do \
