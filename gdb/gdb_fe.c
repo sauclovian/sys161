@@ -2,6 +2,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include "config.h"
 
 #include <stdio.h>
@@ -18,13 +19,56 @@
 
 #include "context.h"
 
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.11 2001/06/04 20:29:20 dholland Exp $";
+const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.13 2001/07/20 18:54:18 dholland Exp $";
 
 //#include "lamebus.h"
 
 static int g_listenfd = -1;
 struct gdbcontext g_ctx;
 int g_ctx_inuse = 0;
+
+void
+gdb_dumpstate(void)
+{
+	struct sockaddr_un su;
+	struct sockaddr_in si;
+	socklen_t len;
+
+	msgl("gdb support: %sactive, ", g_ctx_inuse ? "" : "not ");
+
+	if (g_listenfd < 0) {
+		msg("not listening");
+		return;
+	}
+
+	msgl("listening at ");
+
+	len = sizeof(su);
+	if (getsockname(g_listenfd, (struct sockaddr *)&su, &len)<0) {
+		msg("[error: %s]", strerror(errno));
+		return;
+	}
+
+	if (su.sun_family == AF_UNIX || su.sun_family == AF_LOCAL) {
+		msg("%s", su.sun_path);
+		return;
+	}
+
+	if (su.sun_family != AF_INET) {
+		msg("[unknown address family %d]", su.sun_family);
+		return;
+	}
+
+	len = sizeof(si);
+	getsockname(g_listenfd, (struct sockaddr *)&si, &len);
+	if (si.sin_addr.s_addr == INADDR_ANY) {
+		msgl("* ");
+	}
+	else {
+		msgl("%s ", inet_ntoa(si.sin_addr));
+	}
+	msg("port %d", ntohs(si.sin_port));
+}
 
 int
 gdb_canhandle(u_int32_t pcaddr)
@@ -174,7 +218,15 @@ accepter(void *x)
 	}
 
 	if (g_ctx_inuse) {
-		/* XXX send error message */
+		/*
+		 * Hardcode the checksum; the code for sending these things
+		 * is file-static in gdb_be.c. :-|
+		 *
+		 * It doesn't appear to make much difference if we
+		 * send anything anyway.
+		 */
+		const char *errmsg = "$E99#b7";
+		write(remotefd, errmsg, strlen(errmsg));
 		close(remotefd);
 		return 0;
 	}

@@ -1,10 +1,12 @@
 #include <stdlib.h>
+#include <ctype.h>
 
 #include "console.h"
 #include "util.h"
 
 
-const char rcsid_util_c[] = "$Id: util.c,v 1.2 2001/01/25 04:49:47 dholland Exp $";
+const char rcsid_util_c[] = 
+    "$Id: util.c,v 1.3 2001/07/18 23:46:04 dholland Exp $";
 
 void *
 domalloc(size_t len)
@@ -14,4 +16,42 @@ domalloc(size_t len)
 		smoke("Out of memory");
 	}
 	return x;
+}
+
+void
+dohexdump(const char *buf, size_t len)
+{
+	static char zeros[16];
+	size_t x, i;
+	int c;
+	int skipping, saidanything;
+
+	memset(zeros, 0, sizeof(zeros));
+	skipping = 0;
+	saidanything = 0;
+
+	for (x=0; x<len; x += 16) {
+		if (!memcmp(buf+x, zeros, 16) && saidanything) {
+			if (!skipping) {
+				msg("       *");
+			}
+			skipping = 1;
+			continue;
+		}
+		skipping = 0;
+		saidanything = 1;
+		msgl("%6x:", x);
+		for (i=0; i<16 && x+i<len; i++) {
+			msgl("%02x ", (unsigned)(unsigned char)buf[x+i]);
+		}
+		for (i=0; i<16 && x+i<len; i++) {
+			c = buf[x+i];
+			if (!isprint(c) || !isascii(c)) {
+				c = '.';
+			}
+			msgl("%c", c);
+		}
+		msg(" ");
+	}
+	msg("%6x:", x);
 }

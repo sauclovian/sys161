@@ -6,24 +6,25 @@
 #include <unistd.h>
 #include "config.h"
 
+#include "util.h"
 #include "console.h"
 #include "gdb.h"
 #include "cpu.h"
 #include "bus.h"
+#include "memdefs.h"
 #include "main.h"
 
 #include "context.h"
 
 //#define SHOW_PACKETS
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.22 2001/06/04 21:41:49 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.25 2001/07/20 18:14:18 dholland Exp $";
 
 extern struct gdbcontext g_ctx;
 extern int g_ctx_inuse;
 
 static void debug_notsupp(struct gdbcontext *);
 static void debug_send(struct gdbcontext *, const char *);
-static unsigned hex_int_decode(const char *, unsigned int nybs);
 static void debug_register_print(struct gdbcontext *);
 static void debug_write_mem(struct gdbcontext *ctx, const char *spec);
 static void debug_read_mem(struct gdbcontext *ctx, const char *spec);
@@ -90,7 +91,7 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 		//debug_send(ctx, "OK");
 		msg("Debugger requested kill");
 		die();
-		// To continue running, one would need to do this
+		// To continue running instead of dying, do this instead
 		//unset_breakcond();
 		break;
 	    case 'q':
@@ -183,7 +184,17 @@ gdb_startbreak(void)
 
 static
 void
-printval(char *buf, size_t maxlen, u_int32_t val)
+printbyte(char *buf, size_t maxlen, u_int32_t val)
+{
+	size_t len = strlen(buf);
+	Assert(len < maxlen);
+
+	snprintf(buf+len, maxlen - len, "%02x", val);
+}
+
+static
+void
+printword(char *buf, size_t maxlen, u_int32_t val)
 {
 	size_t len = strlen(buf);
 	Assert(len < maxlen);
@@ -204,7 +215,7 @@ debug_register_print(struct gdbcontext *ctx)
 
 	buf[0] = 0;
 	for (i=0; i<nregs; i++) {
-		printval(buf, sizeof(buf), regs[i]);
+		printword(buf, sizeof(buf), regs[i]);
 	}
 
 	debug_send(ctx, buf);
@@ -214,86 +225,95 @@ static
 void
 debug_read_mem(struct gdbcontext *ctx, const char *spec)
 {
-	long start;
-	long length;
-	char *curptr;
+	u_int32_t vaddr, length, i;
+	u_int32_t word;
+	u_int8_t byte;
+	const char *curptr;
 	char buf[BUFLEN];
-	unsigned int memloc;
-	int i;
-	unsigned int realaddr;
 
-	start = strtoul(spec, &curptr, 16);
+	vaddr = strtoul(spec, (char **)&curptr, 16);
 	length = strtoul(curptr+1, NULL, 16);
 
-	if (start % 4 != 0) {
-		debug_send(ctx, "E04");
-		return;
-	}
-
 	buf[0] = 0;
-	for (i = 0; i < length; i+=4) {
-		if (cpudebug_translate_address(start + i, 4, &realaddr)) {
+
+	for (i=0; i<length && (vaddr+i)%4 != 0; i++) {
+		if (cpudebug_fetch_byte(vaddr+i, &byte)) {
 			debug_send(ctx, "E03");
 			return;
 		}
-		bus_mem_fetch(realaddr, &memloc);
-		printval(buf, sizeof(buf), memloc);
+		printbyte(buf, sizeof(buf), byte);
+	}
+	for (; i<length; i += 4) {
+		if (cpudebug_fetch_word(vaddr+i, &word)) {
+			debug_send(ctx, "E03");
+			return;
+		}
+		printword(buf, sizeof(buf), word);
 	}
 	debug_send(ctx, buf);
+}
+
+static
+u_int8_t
+hexbyte(const char *s, char **ret)
+{
+	char buf[3];
+	int i, j;
+
+	for (i=j=0; i<2 && s[i]; i++) {
+		buf[j++] = s[i];
+	}
+	buf[j] = 0;
+	*ret = (char *)&s[i];
+	return strtoul(buf, NULL, 16);
 }
 
 static
 void
 debug_write_mem(struct gdbcontext *ctx, const char *spec)
 {
-	unsigned int start, length;
-	unsigned int i;
-	u_int32_t realaddr;
-	unsigned int val;
+	u_int32_t vaddr, length, i;
+	u_int8_t *bytes;
+	const char *curptr;
 
-	char *curptr;
 	// AAAAAAA,LLL:DDDD
 	// address,len,data
-	start = strtoul(spec, &curptr, 16);
-	length = strtoul(curptr + 1, &curptr, 16);
-
-	if (start % 4 != 0) {
-		debug_send(ctx, "E04");
-		return;
-	}
+	vaddr = strtoul(spec, (char **) &curptr, 16);
+	length = strtoul(curptr + 1, (char **)&curptr, 16);
 
 	// curptr now points to the ':' which 
 	// delimits the length from the data
 	// so we advance it a little
 	curptr++;
 
-	for (i = 0; i < length; i+=4) {
-		if (cpudebug_translate_address(start + i, 4, &realaddr)) {
+	bytes = domalloc(length);
+	for (i=0; i<length; i++) {
+		bytes[i] = hexbyte(curptr, (char **) &curptr);
+	}
+
+	for (i=0; i<length && (vaddr+i)%4 != 0; i++) {
+		if (cpudebug_store_byte(vaddr+i, bytes[i])) {
 			debug_send(ctx, "E03");
 			return;
 		}
-		val = hex_int_decode(curptr + 2*i, 8);
-		if (bus_mem_store(realaddr, val) != 0) {
-			debug_send(ctx, "E02");
+	}
+	for (; i+4<=length; i+=4) {
+		u_int32_t word;
+		memcpy(&word, bytes+i, sizeof(u_int32_t));
+		if (cpudebug_store_word(vaddr+i, ntohl(word))) {
+			debug_send(ctx, "E03");
 			return;
 		}
 	}
-	debug_send(ctx, "OK");
-}
-
-static
-unsigned
-hex_int_decode(const char *in, unsigned int nybs)
-{
-	char buf[BUFLEN];
-
-	if(nybs >= BUFLEN) {
-		return 0;
+	for (; i<length; i++) {
+		if (cpudebug_store_byte(vaddr+i, bytes[i])) {
+			debug_send(ctx, "E03");
+			return;
+		}
 	}
-	
-	memcpy(buf, in, nybs);
-	buf[nybs] = '\0';
-	return(strtoul(buf, NULL, 16));
+
+	free(bytes);
+	debug_send(ctx, "OK");
 }
 
 static

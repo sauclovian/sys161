@@ -2,7 +2,7 @@
  * Event hooks for main loop.
  *
  * If func returns a nonzero value, the fd will be removed from the
- * select loop and removefunc will be called
+ * select loop and removefunc will be called.
  *
  * removefunc may be null.
  */

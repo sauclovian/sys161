@@ -1,80 +1,81 @@
-// Warning: these are not actual MIPS opcodes.
-// The tables in mips.c translate from MIPS opcodes to these numbers.
-// This is because MIPS instruction decoding is a little screwy.
+/*
+ * Opcodes in the main opcode field
+ */
 
-#define OP_ADD          0
-#define OP_ADDI         1
-#define OP_ADDIU        2
-#define OP_ADDU         3
-#define OP_AND          4
-#define OP_ANDI         5
-#define OP_BCF          6
-#define OP_BCOND        7
-#define OP_BCT          8
-#define OP_BEQ          9
-#define OP_BGEZ         10
-#define OP_BGEZAL       11
-#define OP_BGTZ         12
-#define OP_BLEZ         13
-#define OP_BLTZ         14
-#define OP_BLTZAL       15
-#define OP_BNE          16
-#define OP_BREAK        17
-#define OP_CF           18
-#define OP_COP          19
-#define OP_CT           20
-#define OP_DIV          21
-#define OP_DIVU         22
-#define OP_ILL          23
-#define OP_J            24
-#define OP_JAL          25
-#define OP_JALR         26
-#define OP_JR           27
-#define OP_LB           28
-#define OP_LBU          29
-#define OP_LH           30
-#define OP_LHU          31
-#define OP_LUI          32
-#define OP_LW           33
-#define OP_LWC          34
-#define OP_LWL          35
-#define OP_LWR          36
-#define OP_MF           37
-#define OP_MFHI         38
-#define OP_MFLO         39
-#define OP_MT           40
-#define OP_MTHI         41
-#define OP_MTLO         42
-#define OP_MULT         43
-#define OP_MULTU        44
-#define OP_NOR          45
-#define OP_OR           46
-#define OP_ORI          47
-#define OP_RFE          48
-#define OP_SB           49
-#define OP_SH           50
-#define OP_SLL          51
-#define OP_SLLV         52
-#define OP_SLT          53
-#define OP_SLTI         54
-#define OP_SLTIU        55
-#define OP_SLTU         56
-#define OP_SPECIAL      57
-#define OP_SRA          58
-#define OP_SRAV         59
-#define OP_SRL          60
-#define OP_SRLV         61
-#define OP_SUB          62
-#define OP_SUBU         63
-#define OP_SW           64
-#define OP_SWC          65
-#define OP_SWL          66
-#define OP_SWR          67
-#define OP_SYSCALL      68
-#define OP_TLBP         69
-#define OP_TLBR         70
-#define OP_TLBWI        71
-#define OP_TLBWR        72
-#define OP_WAIT         73
-#define OP_XOR          74
-#define OP_XORI         75
+#define OPM_SPECIAL     0
+#define OPM_BCOND       1
+#define OPM_J           2
+#define OPM_JAL         3
+#define OPM_BEQ         4
+#define OPM_BNE         5
+#define OPM_BLEZ        6
+#define OPM_BGTZ        7
+#define OPM_ADDI        8
+#define OPM_ADDIU       9
+#define OPM_SLTI        10
+#define OPM_SLTIU       11
+#define OPM_ANDI        12
+#define OPM_ORI         13
+#define OPM_XORI        14
+#define OPM_LUI         15
+#define OPM_COP0        16
+#define OPM_COP1        17
+#define OPM_COP2        18
+#define OPM_COP3        19
+#define OPM_LB          32
+#define OPM_LH          33
+#define OPM_LWL         34
+#define OPM_LW          35
+#define OPM_LBU         36
+#define OPM_LHU         37
+#define OPM_LWR         38
+#define OPM_SB          40
+#define OPM_SH          41
+#define OPM_SWL         42
+#define OPM_SW          43
+#define OPM_SWR         46
+#define OPM_LWC0        48
+#define OPM_LWC1        49
+#define OPM_LWC2        50
+#define OPM_LWC3        51
+#define OPM_SWC0        56
+#define OPM_SWC1        57
+#define OPM_SWC2        58
+#define OPM_SWC3        59
+
+/*
+ * Opcodes in alternate field when the main opcode field is OPM_SPECIAL
+ */
+#define OPS_SLL         0
+#define OPS_SRL         2
+#define OPS_SRA         3
+#define OPS_SLLV        4
+#define OPS_SRLV        6
+#define OPS_SRAV        7
+#define OPS_JR          8
+#define OPS_JALR        9
+#define OPS_SYSCALL     12
+#define OPS_BREAK       13
+#define OPS_MFHI        16
+#define OPS_MTHI        17
+#define OPS_MFLO        18
+#define OPS_MTLO        19
+#define OPS_MULT        24
+#define OPS_MULTU       25
+#define OPS_DIV         26
+#define OPS_DIVU        27
+#define OPS_ADD         32
+#define OPS_ADDU        33
+#define OPS_SUB         34
+#define OPS_SUBU        35
+#define OPS_AND         36
+#define OPS_OR          37
+#define OPS_XOR         38
+#define OPS_NOR         39
+#define OPS_SLT         42
+#define OPS_SLTU        43
+
+/*
+ * Complete opcode of RFE, which has some special-case crap.
+ */
+#define FULLOP_RFE      0x42000010

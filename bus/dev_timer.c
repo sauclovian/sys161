@@ -15,10 +15,7 @@
 #include "lamebus.h"
 
 
-const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.8 2001/06/04 21:41:49 dholland Exp $";
-
-#define TIMER_REVISION      1
-
+const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.10 2001/07/18 23:49:47 dholland Exp $";
 
 /***************************************************************/
 
@@ -47,7 +44,6 @@ const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.8 2001/06/04 21:41:49 dho
 struct timer_data {
 	int td_slot;
 	int td_restartflag;
-	int td_interrupted;
 	u_int32_t td_count_usecs; /* for restarting */
 	u_int32_t td_generation;  /* for discarding old events */
 };
@@ -59,7 +55,6 @@ timer_init(int slot, int argc, char *argv[])
 	struct timer_data *td = domalloc(sizeof(struct timer_data));
 	td->td_slot = slot;
 	td->td_restartflag = 0;
-	td->td_interrupted = 0;
 	td->td_count_usecs = 0;
 	td->td_generation = 0;
 
@@ -94,7 +89,7 @@ timer_start(struct timer_data *td)
 	u_int64_t nsecs = td->td_count_usecs;
 	nsecs *= 1000;
 	td->td_generation++;
-	schedule_event(nsecs, td, td->td_generation, timer_interrupt);
+	schedule_event(nsecs, td, td->td_generation, timer_interrupt, "timer");
 }
 
 static
@@ -169,6 +164,19 @@ timer_store(void *d, u_int32_t offset, u_int32_t val)
 	return -1;
 }
 
+static
+void
+timer_dumpstate(void *data)
+{
+	struct timer_data *td = data;
+	msg("CS161 timer device rev %d", TIMER_REVISION);
+	msg("    %lu microseconds, %s",
+	    (unsigned long) td->td_count_usecs,
+	    td->td_restartflag ? "restarting" : "one-shot");
+	msg("    Generation number: %lu",
+	    (unsigned long) td->td_generation);
+}
+
 const struct lamebus_device_info timer_device_info = {
 	LBVEND_CS161,
 	LBVEND_CS161_TIMER,
@@ -176,6 +184,7 @@ const struct lamebus_device_info timer_device_info = {
 	timer_init,
 	timer_fetch,
 	timer_store,
+	timer_dumpstate,
 	NULL
 };
 

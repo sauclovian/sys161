@@ -8,6 +8,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <string.h>
@@ -140,9 +141,24 @@ void
 opensock(const char *sockname)
 {
 	struct sockaddr_un sun;
+	struct stat st;
 	int one=1;
 
-	unlink(sockname);
+	/*
+	 * I know this isn't race-free. It's not meant to be - it's meant
+	 * to protect people from accidentally doing "hub161 source.c" and
+	 * losing their source file.
+	 */
+
+	if (lstat(sockname, &st)==0) {
+		if (S_ISSOCK(st.st_mode)) {
+			unlink(sockname);
+		}
+		else {
+			fprintf(stderr, "hub161: %s: File exists\n", sockname);
+			exit(1);
+		}
+	}
 
 	sock = socket(AF_UNIX, SOCK_DGRAM, 0);
 	if (sock < 0) {

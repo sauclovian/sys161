@@ -114,7 +114,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.11 2001/06/08 22:04:50 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.12 2001/07/18 23:49:47 dholland Exp $";
 
 
 #define MAXHANDLES     64
@@ -537,7 +537,7 @@ emufs_do_op(struct emufs_data *ed, u_int32_t op)
 	ed->ed_busy = 1;
 	ed->ed_busyresult = res;
 
-	schedule_event(EMUFS_NSECS, ed, 0, emufs_done);
+	schedule_event(EMUFS_NSECS, ed, 0, emufs_done, "emufs");
 }
 
 static
@@ -627,6 +627,31 @@ emufs_store(void *data, u_int32_t offset, u_int32_t val)
 
 static
 void
+emufs_dumpstate(void *data)
+{
+	struct emufs_data *ed = data;
+	msg("CS161 emufs rev %d", EMUFS_REVISION);
+	msg("    Registers: handle %lu  result %lu"
+	    "    offset %lu (0x%lx)  iolen %lu (0x%lx)",
+	    (unsigned long) ed->ed_handle,
+	    (unsigned long) ed->ed_result,
+	    (unsigned long) ed->ed_offset,
+	    (unsigned long) ed->ed_offset,
+	    (unsigned long) ed->ed_iolen,
+	    (unsigned long) ed->ed_iolen);
+	if (ed->ed_busy) {
+		msg("    Presently working; result will be %lu",
+		    (unsigned long) ed->ed_busyresult);
+	}
+	else {
+		msg("    Presently idle");
+	}
+	msg("    Buffer:");
+	dohexdump(ed->ed_buf, sizeof(ed->ed_buf));
+}
+
+static
+void
 emufs_cleanup(void *data)
 {
 	struct emufs_data *ed = data;
@@ -641,5 +666,6 @@ const struct lamebus_device_info emufs_device_info = {
 	emufs_init,
 	emufs_fetch,
 	emufs_store,
+	emufs_dumpstate,
 	emufs_cleanup,
 };

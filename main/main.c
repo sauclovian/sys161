@@ -21,7 +21,7 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.19 2001/06/06 15:43:18 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.24 2001/07/21 23:52:35 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -64,23 +64,26 @@ stoploop(void)
 	}
 }
 
+/*
+ * This is its own function because it's called from the gdb support
+ * to single-step. We only bill time if cpu_cycle reports it actually
+ * did something. (Which it always does, except if it hits a builtin
+ * breakpoint. It's essential to make the builtin breakpoints
+ * completely transparent, even to the extent of not wasting a single
+ * cycle, so it's possible to debug those race conditions where
+ * there's a two-instruction window for an interrupt to cause a crash.
+ */
 inline
-int
+void
 onecycle(void)
 {
-	int hitbp;
-
-	bus_forward_interrupts();
-
-	hitbp = cpu_cycle();
-	if (!hitbp) {
+	if (cpu_cycle()) {
 		clock_tick();
 	}
-	return hitbp;
 }
 
 /* number of cpu cycles between select polls */
-#define ROTOR 5000
+#define ROTOR 8192
 
 static
 void
@@ -88,25 +91,77 @@ runloop(void)
 {
 	int rotor=0;
 
-	while (!shutoff_flag) {
-		stop_flag = 0;
+	stop_flag = 0;
 
-		if (onecycle()) {
-			/* Hit breakpoint */
-			stop_flag = 1;
-		}
-		else {
-			rotor++;
-			if (rotor >= ROTOR) {
-				rotor = 0;
-				tryselect(1, 0, 0);
-			}
+	while (!shutoff_flag) {
+
+		onecycle();
+
+		rotor++;
+		if (rotor >= ROTOR) {
+			rotor = 0;
+			tryselect(1, 0, 0);
 		}
 
 		if (stop_flag) {
 			stoploop();
+			stop_flag = 0;
 		}
 	}
+}
+
+static
+u_int64_t
+showstats(void)
+{
+	u_int64_t totcycles;
+
+	totcycles = g_stats.s_kcycles + g_stats.s_ucycles + g_stats.s_icycles;
+	if (sizeof(totcycles)==sizeof(long)) {
+		msg("%lu cycles (%luk, %luu, %lui)",
+		    (unsigned long)totcycles,
+		    (unsigned long)g_stats.s_kcycles,
+		    (unsigned long)g_stats.s_ucycles,
+		    (unsigned long)g_stats.s_icycles);
+	}
+	else {
+		msg("%llu cycles (%lluk, %lluu, %llui)",
+		    totcycles,
+		    g_stats.s_kcycles, 
+		    g_stats.s_ucycles,
+		    g_stats.s_icycles);
+	}
+
+	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console %ur/%uw/%um emufs"
+	    " %ur/%uw net",
+	    g_stats.s_irqs,
+	    g_stats.s_exns,
+	    g_stats.s_rsects,
+	    g_stats.s_wsects,
+	    g_stats.s_rchars,
+	    g_stats.s_wchars,
+	    g_stats.s_remu,
+	    g_stats.s_wemu,
+	    g_stats.s_memu,
+	    g_stats.s_rpkts,
+	    g_stats.s_wpkts);
+
+	return totcycles;
+}
+
+void
+main_dumpstate(void)
+{
+	msg("mainloop: shutoff_flag %d continue_flag %d stop_flag %d",
+	    shutoff_flag, continue_flag, stop_flag);
+#ifdef USE_TRACE
+	print_traceflags();
+#endif
+	gdb_dumpstate();
+	showstats();
+	clock_dumpstate();
+	cpu_dumpstate();
+	bus_dumpstate();
 }
 
 static
@@ -132,44 +187,12 @@ run(void)
 
 	time = endtime.tv_sec + endtime.tv_usec/1000000.0;
 
-	totcycles = g_stats.s_kcycles + g_stats.s_ucycles + g_stats.s_icycles;
+	totcycles = showstats();
 
-	if (sizeof(totcycles)==sizeof(long)) {
-		msg("%lu cycles (%luk, %luu, %lui) in %lu.%06lu seconds"
-		    " (%g mhz)",
-		    (unsigned long)totcycles,
-		    (unsigned long)g_stats.s_kcycles,
-		    (unsigned long)g_stats.s_ucycles,
-		    (unsigned long)g_stats.s_icycles,
-		    endtime.tv_sec,
-		    endtime.tv_usec,
-		    totcycles/(time*1000000.0));
-	}
-	else {
-		msg("%llu cycles (%lluk, %lluu, %llui) in %lu.%06lu seconds"
-		    " (%g mhz)",
-		    totcycles,
-		    g_stats.s_kcycles,
-		    g_stats.s_ucycles,
-		    g_stats.s_icycles,
-		    endtime.tv_sec,
-		    endtime.tv_usec,
-		    totcycles/(time*1000000.0));
-	}
-
-	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console %ur/%uw/%um emufs"
-	    " %ur/%uw net",
-	    g_stats.s_irqs,
-	    g_stats.s_exns,
-	    g_stats.s_rsects,
-	    g_stats.s_wsects,
-	    g_stats.s_rchars,
-	    g_stats.s_wchars,
-	    g_stats.s_remu,
-	    g_stats.s_wemu,
-	    g_stats.s_memu,
-	    g_stats.s_rpkts,
-	    g_stats.s_wpkts);
+	msg("Elapsed real time: %lu.%06lu seconds (%g mhz)",
+	    endtime.tv_sec,
+	    endtime.tv_usec,
+	    totcycles/(time*1000000.0));
 }
 
 ////////////////////////////////////////////////////////////
@@ -245,7 +268,18 @@ static
 void
 usage(void)
 {
-	msg("Usage: sys161 [-c config] kernel [args...]");
+	msg("Usage: sys161 [sys161 options] kernel [kernel args...]");
+	msg("   sys161 options:");
+	msg("     -c config      Use alternate config file");
+#ifdef USE_TRACE
+	msg("     -f file        Trace to specified file");
+#endif
+	msg("     -p port        Listen for gdb over TCP on specified port");
+	msg("     -s             Pass signal-generating characters through");
+#ifdef USE_TRACE
+	msg("     -t[kujtxidne]  Set tracing flags");
+#endif
+	msg("     -w             Wait for debugger before starting");
 	die();
 }
 

@@ -22,7 +22,7 @@ CS161 bus controller - see <A HREF=lamebus.html>LAMEbus spec</A>
 <tr><td>5</td><td>1</td><td><A HREF=#screen>Text screen</A></td></tr>
 <tr><td>6</td><td>2</td><td><A HREF=#nic>Network interface</A></td></tr>
 <tr><td>7</td><td>1</td><td><A HREF=#emufs>Emulator filesystem</A></td></tr>
-<tr><td>8</td><td>1</td><td><em>(withdrawn)</em></td></tr>
+<tr><td>8</td><td>1</td><td><A HREF=#trace>Hardware trace control</td></tr>
 <tr><td>9</td><td>1</td><td><A HREF=#rand>Random number generator</A></td></tr>
 </table>
 
@@ -349,6 +349,46 @@ The result codes are:
 The rest of the documentation for this device is reserved, on the
 grounds that it is complicated, messy, unclean, and may be subject to
 frequent change.
+
+<hr>
+
+<A NAME=trace>
+<h4>Hardware trace controller</h4>
+Device id: 8<br>
+Oldest revision: 1<br>
+Current revision: 1<br>
+Registers:
+<blockquote>
+<table width=100% border=0>
+<tr><th width=10%>Offset</th><th align=left>Description</th></tr>
+<tr><td>0-3</td><td>Trace-on register</td></tr>
+<tr><td>4-7</td><td>Trace-off register</td></tr>
+<tr><td>8-11</td><td>Debugging printout register</td></tr>
+<tr><td>12-15</td><td>System state dump register</td></tr>
+</table>
+</blockquote>
+
+This device controls <tt>trace161</tt>'s trace flags, allowing them to
+be set or cleared on the fly. To set a trace flag, write the letter of
+its trace option to the trace-on register; to clear it, use the
+trace-off register. The letters are the same as those used on the
+<tt>trace161</tt> command line. If running <tt>sys161</tt> rather than
+<tt>trace161</tt>, this device may exist and be used, but the trace
+registers have no effect.
+<p>
+
+The debugging printout register, if written to, causes <tt>trace161</tt>
+or <tt>sys161</tt> to print a debug message, which includes the value
+written to the register.
+<p>
+
+The system state dump register, if written to, will cause a complete
+dump of the simulation state, tagged with the value written to the
+register. This feature is primarily intended for testing and debugging
+System/161 itself.
+<p>
+
+All these registers are write-only.
 
 <hr>
 

@@ -9,49 +9,99 @@
 #include "gdb.h"
 #include "main.h"
 #include "trace.h"
+#include "memdefs.h"
+#include "inlinemem.h"
 
 #include "mips-insn.h"
 #include "mips-ex.h"
 #include "bootrom.h"
+
+// XXX: For now, leave this off, as it isn't compatible with address space ids
+//#define USE_TLBMAP
 
 #ifndef __GNUC__
 #define inline
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.45 2001/06/21 21:09:24 dholland Exp $";
+	"$Id: mips.c,v 1.75 2001/07/22 01:08:15 dholland Exp $";
 
 
-#ifndef QUAD_HIGHWORD
-#error "Need QUAD_HIGHWORD and QUAD_LOWWORD"
-// (1/0 respectively on a big-endian system, reverse on a little-endian one)
-#endif
-
+/* number of tlb entries */
 #define NTLB  64
 
-#define TLB_GLOBAL(tlb)             (((tlb)&0x0000000000000100ULL)!=0)
-#define TLB_VALID(tlb)              (((tlb)&0x0000000000000200ULL)!=0)
-#define TLB_DIRTY(tlb)              (((tlb)&0x0000000000000400ULL)!=0)
-#define TLB_NOCACHE(tlb)            (((tlb)&0x0000000000000800ULL)!=0)
-#define TLB_PFN(tlb)     ((u_int32_t)((tlb)&0x00000000fffff000ULL))
-#define TLB_VPN(tlb)    ((u_int32_t)(((tlb)&0xfffff00000000000ULL)>>32))
-#define TLB_PID(tlb)    ((u_int32_t)(((tlb)&0x00000fc000000000ULL)>>38))
+/* tlb fields */
+#define TLBLO_GLOBAL		0x00000100
+#define TLBLO_VALID		0x00000200
+#define TLBLO_DIRTY		0x00000400
+#define TLBLO_NOCACHE		0x00000800
+#define TLBHI_PID		0x00000fc0
+#define TLB_PAGEFRAME		0xfffff000
 
-// Value to initialize TLB entries to at boot time.
-// (0 would be virtual page 0, which might cause unwanted matches.
-// So use a virtual page in one of the non-mapped segments.)
-#define JUNK_TLBENTRY           (0x8100000000000000ULL)
+/* status register fields */
+#define STATUS_BITS		0xf07ff800	/* these go in status_bits */
+/*				0x0f800000  	   RESERVED set to 0 */
+#define STATUS_HARDMASK		0x00000400	/* mask bit for lamebus irq */
+#define STATUS_SOFTMASK		0x00000300	/* mask bits for soft irqs */
+/*				0x000000c0  	   RESERVED set to 0 */
+#define STATUS_KUo		0x00000020	/* old_usermode */
+#define STATUS_IEo		0x00000010	/* old_irqon */
+#define STATUS_KUp		0x00000008	/* prev_usermode */
+#define STATUS_IEp		0x00000004	/* prev_irqon */
+#define STATUS_KUc		0x00000002	/* current_usermode */
+#define STATUS_IEc		0x00000001	/* current_irqon */
 
+/* cause register fields */
+#define CAUSE_BD		0x80000000	/* branch-delay flag */
+/*				0x40000000	   RESERVED set to 0 */
+#define CAUSE_CE		0x30000000	/* coprocessor # of exn */
+/*				0x0fff0000	   RESERVED set to 0 */
+/*				0x0000f800	   unused hardware irqs */
+#define CAUSE_HARDIRQ		0x00000400	/* lamebus hardware irq bit */
+#define CAUSE_SOFTIRQ		0x00000300	/* soft interrupt triggers */
+/*				0x000000c0	   RESERVED set to 0 */
+#define CAUSE_EXCODE		0x0000003c	/* exception code */
+/*				0x00000003	   RESERVED Set to 0 */
 
-// MIPS hardwired memory segments
+/* tlb random register parameters (it ranges from 8 to 63) */
+#define RANDREG_MAX		56
+#define RANDREG_OFFSET		8
+
+/* system coprocessor (cop0) registers */
+#define C0_INDEX   0
+#define C0_RANDOM  1
+#define C0_TLBLO   2
+#define C0_CONTEXT 4
+#define C0_VADDR   8
+#define C0_TLBHI   10
+#define C0_STATUS  12
+#define C0_CAUSE   13
+#define C0_EPC     14
+#define C0_PRID    15
+
+/* MIPS hardwired memory segments */
 #define KSEG2	0xc0000000
 #define KSEG1	0xa0000000
 #define KSEG0	0x80000000
 #define KUSEG	0x00000000
 
+#ifdef USE_TLBMAP
+/* tlbmap value for "nothing" */
+#define TM_NOPAGE    255
+#endif
 
 /* number of general registers */
 #define NREGS 32
+
+struct mipstlb {
+	int mt_global;		// 1: translation is global
+	int mt_valid;		// 1: translation is valid for use
+	int mt_dirty;		// 1: write enable
+	int mt_nocache;		// 1: cache disable
+	u_int32_t mt_pfn;	// page number part of physical address
+	u_int32_t mt_vpn;	// page number part of virtual address
+	u_int32_t mt_pid;	// address space id (note: shifted left 6)
+};
 
 struct mipscpu {
 	// general registers
@@ -80,28 +130,64 @@ struct mipscpu {
 	
 	u_int32_t pc;           // pc
 	u_int32_t nextpc;       // succeeding pc
+	u_int32_t pcoff;	// page offset of pc
+	u_int32_t nextpcoff;	// page offset of nextpc
+	const u_int32_t *pcpage;	// precomputed memory page of pc
+	const u_int32_t *nextpcpage;	// precomputed memory page of nextpc
 
 	// mmu
-	u_int64_t tlb[NTLB];
-	u_int64_t tlbentry;	// cop0 register 2 (lo) and 10 (hi)
+	struct mipstlb tlb[NTLB];
+	struct mipstlb tlbentry;	// cop0 register 2 (lo) and 10 (hi)
+#ifdef USE_TLBMAP
+	u_int8_t tlbmap[1024*1024];	// vpn -> tlbentry map
+#endif
 
-	u_int32_t tlbindex;	// cop0 register 0
-	u_int32_t tlbrandom;	// cop0 register 1
+	/*
+	 * tlb index register (cop0 register 0)
+	 */
+	int tlbindex;		// not shifted; 0-63
+	int tlbpf;		// true if a tlpb failed
+
+	/*
+	 * tlb random register (cop0 register 1)
+	 */
+	int tlbrandom;		// not shifted, not bounded, 0-based
 
 	// exception stuff
-	u_int32_t ex_status;	// cop0 register 12
-	u_int32_t ex_cause;	// cop0 register 13
+
+	/*
+	 * status register (cop0 register 12)
+	 */
+	int old_usermode;
+	int old_irqon;
+	int prev_usermode;
+	int prev_irqon;
+	int current_usermode;
+	int current_irqon;
+	int status_hardmask;		// true if lamebus irq is masked
+	u_int32_t status_softmask;	// soft interrupt masking bits
+	u_int32_t status_bits;  // unsplit bits from status register
+	
+	/*
+	 * cause register (cop0 register 13)
+	 */
+	int cause_bd;			// NOT shifted
+	u_int32_t cause_ce;		// already shifted
+	u_int32_t cause_softirq;	// already shifted
+	u_int32_t cause_code;		// already shifted
+
 	u_int32_t ex_context;	// cop0 register 4
 	u_int32_t ex_epc;	// cop0 register 14
 	u_int32_t ex_vaddr;	// cop0 register 8
 	u_int32_t ex_prid;	// cop0 register 15
 };
 
-#define IS_USERMODE(cpu) (((cpu)->ex_status & 0x2)!=0)
+#define IS_USERMODE(cpu) ((cpu)->current_usermode)
+
+static struct mipscpu mycpu;
 
 /*************************************************************/
 
-#ifdef USE_TRACE
 static const char *exception_names[13] = {
 	"interrupt",
 	"TLB modify",
@@ -128,9 +214,33 @@ exception_name(int code)
 	smoke("Name of invalid exception code requested");
 	return "???";
 }
-#endif /* USE_TRACE */
 
 /*************************************************************/
+
+/*
+ * These are further down.
+ */
+static int precompute_pc(struct mipscpu *cpu);
+static int precompute_nextpc(struct mipscpu *cpu);
+
+/*
+ * The MIPS doesn't clear the TLB on reset, so it's perfectly correct
+ * to do nothing here. However, let's initialize it to all entries that
+ * can't be matched.
+ */
+
+static
+void
+reset_tlbentry(struct mipstlb *mt, int index)
+{
+	mt->mt_global = 0;
+	mt->mt_valid = 0;
+	mt->mt_dirty = 0;
+	mt->mt_nocache = 0;
+	mt->mt_pfn = 0;
+	mt->mt_vpn = 0x81000000 + index*0x1000;
+	mt->mt_pid = 0;
+}
 
 static
 void
@@ -146,48 +256,134 @@ mips_init(struct mipscpu *cpu)
 	cpu->jumping = cpu->in_jumpdelay = 0;
 
 	cpu->expc = 0;
+
+	/* pc starts at 0xbfc00000; nextpc at 0xbfc00004 */
 	cpu->pc = 0xbfc00000;
 	cpu->nextpc = 0xbfc00004;
+	if (precompute_pc(cpu)) {
+		smoke("precompute_pc failed in mips_init");
+	}
+	if (precompute_nextpc(cpu)) {
+		smoke("precompute_nextpc failed in mips_init");
+	}
 
 	for (i=0; i<NTLB; i++) {
-		cpu->tlb[i] = JUNK_TLBENTRY;
+		reset_tlbentry(&cpu->tlb[i], i);
 	}
-	cpu->tlbentry = 0;
+	reset_tlbentry(&cpu->tlb[i], NTLB);
+#ifdef USE_TLBMAP
+	memset(cpu->tlbmap, TM_NOPAGE, sizeof(cpu->tlbmap));
+#endif
 	cpu->tlbindex = 0;
-	cpu->tlbrandom = 63 << 8;
-	cpu->ex_status = 0x00400000;
-	cpu->ex_cause = 0;
+	cpu->tlbrandom = RANDREG_MAX-1;
+
+	cpu->status_bits = 0x00400000;
+	cpu->status_hardmask = 0;
+	cpu->status_softmask = 0;
+	cpu->old_usermode = 0;
+	cpu->old_irqon = 0;
+	cpu->prev_usermode = 0;
+	cpu->prev_irqon = 0;
+	cpu->current_usermode = 0;
+	cpu->current_irqon = 0;
+
+	cpu->cause_bd = 0;
+	cpu->cause_ce = 0;
+	cpu->cause_softirq = 0;
+	cpu->cause_code = 0;
+
 	cpu->ex_context = 0;
 	cpu->ex_epc = 0;
 	cpu->ex_vaddr = 0;
-	cpu->ex_prid = 0xbeef;  // implementation 0xbe, revision 0xef (XXX)
+	cpu->ex_prid = 0x03ff;  // implementation 3, revision 0xff (XXX)
+}
+
+static
+u_int32_t
+tlbgetlo(const struct mipstlb *mt)
+{
+	u_int32_t val = mt->mt_pfn;
+	if (mt->mt_global) {
+		val |= TLBLO_GLOBAL;
+	}
+	if (mt->mt_valid) {
+		val |= TLBLO_VALID;
+	}
+	if (mt->mt_dirty) {
+		val |= TLBLO_DIRTY;
+	}
+	if (mt->mt_nocache) {
+		val |= TLBLO_NOCACHE;
+	}
+	return val;
+}
+
+static
+u_int32_t
+tlbgethi(const struct mipstlb *mt)
+{
+	u_int32_t val = mt->mt_vpn;
+	val |= mt->mt_pid;
+	return val;
 }
 
 static
 void
-tlbmsg(struct mipscpu *cpu, int index, const char *what)
+tlbsetlo(struct mipstlb *mt, u_int32_t val)
 {
-	if (TLB_GLOBAL(cpu->tlb[index])) {
-		msg("%s: index %d, vpn 0x%08lx, global, "
-		    "ppn 0x%08lx (%s%s%s)",
-		    what, index, 
-		    (unsigned long)(TLB_VPN(cpu->tlb[index])),
-		    (unsigned long)(TLB_PFN(cpu->tlb[index])),
-		    TLB_VALID(cpu->tlb[index]) ? "V" : "-",
-		    TLB_DIRTY(cpu->tlb[index]) ? "D" : "-",
-		    TLB_NOCACHE(cpu->tlb[index]) ? "N" : "-");
+	mt->mt_global = val & TLBLO_GLOBAL;
+	mt->mt_valid = val & TLBLO_VALID;
+	mt->mt_dirty = val & TLBLO_DIRTY;
+	mt->mt_nocache = val & TLBLO_NOCACHE;
+	mt->mt_pfn = val & TLB_PAGEFRAME;
+}
+
+static
+void
+tlbsethi(struct mipstlb *mt, u_int32_t val)
+{
+	mt->mt_vpn = val & TLB_PAGEFRAME;
+	mt->mt_pid = val & TLBHI_PID;
+}
+
+#define TLBTRP(t) TRACEL(DOTRACE_TLB, \
+			("%05x %s%s%s%s", \
+				(t)->mt_pfn >> 12, \
+				(t)->mt_global ? "G" : "-", \
+				(t)->mt_valid ? "V" : "-", \
+				(t)->mt_dirty ? "D" : "-", \
+				(t)->mt_nocache ? "N" : "-"))
+#define TLBTRV(t) TRACEL(DOTRACE_TLB, \
+			("%05x/%03x -> ", \
+				(t)->mt_vpn >> 12, (t)->mt_pid))
+#define TLBTR(t) {TLBTRV(t);TLBTRP(t);}
+
+static
+void
+tlbmsg(const char *what, int index, const struct mipstlb *t)
+{
+	msgl("%s: ", what);
+	if (index>=0) {
+		msgl("index %d, %s", index, index < 10 ? " " : "");
 	}
 	else {
-		msg("%s: index %d, vpn 0x%08lx, pid %-2ld, "
-		    "ppn 0x%08lx (%s%s%s) ", 
-		    what, index,
-		    (unsigned long)(TLB_VPN(cpu->tlb[index])),
-		    (unsigned long)(TLB_PID(cpu->tlb[index])),
-		    (unsigned long)(TLB_PFN(cpu->tlb[index])),
-		    TLB_VALID(cpu->tlb[index]) ? "V" : "-",
-		    TLB_DIRTY(cpu->tlb[index]) ? "D" : "-",
-		    TLB_NOCACHE(cpu->tlb[index]) ? "N" : "-");
+		msgl("tlbhi/lo, ");
 	}
+	msgl("vpn 0x%08lx, ", (unsigned long) t->mt_vpn);
+	     
+	if (t->mt_global) {
+		msgl("global, ");
+	}
+	else {
+		msgl("pid %d, %s", (int) t->mt_pid,
+		     t->mt_pid < 10 ? " " : "");
+	}
+
+	msg("ppn 0x%08lx (%s%s%s)",
+	    (unsigned long) t->mt_pfn,
+	    t->mt_valid ? "V" : "-",
+	    t->mt_dirty ? "D" : "-",
+	    t->mt_nocache ? "N" : "-");
 }
 
 static
@@ -197,15 +393,15 @@ check_tlb_dups(struct mipscpu *cpu, int newix)
 	u_int32_t vpn, pid;
 	int gbl, i;
 
-	vpn = TLB_VPN(cpu->tlb[newix]);
-	pid = TLB_PID(cpu->tlb[newix]);
-	gbl = TLB_GLOBAL(cpu->tlb[newix]);
+	vpn = cpu->tlb[newix].mt_vpn;
+	pid = cpu->tlb[newix].mt_pid;
+	gbl = cpu->tlb[newix].mt_global;
 
 	for (i=0; i<NTLB; i++) {
 		if (i == newix) {
 			continue;
 		}
-		if (vpn != TLB_VPN(cpu->tlb[i])) {
+		if (vpn != cpu->tlb[i].mt_vpn) {
 			continue;
 		}
 
@@ -219,31 +415,42 @@ check_tlb_dups(struct mipscpu *cpu, int newix)
 		 */
 
 		if (gbl ||
-		    TLB_GLOBAL(cpu->tlb[i]) ||
-		    pid == TLB_PID(cpu->tlb[i])) {
+		    cpu->tlb[i].mt_global ||
+		    pid == cpu->tlb[i].mt_pid) {
 			msg("Duplicate TLB entries!");
-			tlbmsg(cpu, newix, "New entry");
-			tlbmsg(cpu, i, "Old entry");
+			tlbmsg("New entry", newix, &cpu->tlb[newix]);
+			tlbmsg("Old entry", i, &cpu->tlb[i]);
 			hang("Duplicate TLB entries for vpage %x",
-			     TLB_VPN(cpu->tlb[i]));
+			     cpu->tlb[i].mt_vpn);
 		}
 	}
 }
 
 static
+inline
 int
-findtlb(struct mipscpu *cpu, u_int32_t vpage)
+findtlb(const struct mipscpu *cpu, u_int32_t vpage)
 {
+#ifdef USE_TLBMAP
+	u_int8_t tm;
+
+	tm = cpu->tlbmap[vpage >> 12];
+	if (tm == TM_NOPAGE) {
+		return -1;
+	}
+	return tm;
+#else
 	int i;
 	for (i=0; i<NTLB; i++) {
-		u_int64_t t = cpu->tlb[i];
-		if (TLB_VPN(t)!=vpage) continue;
-		if (TLB_GLOBAL(t) || TLB_PID(t)==TLB_PID(cpu->tlbentry)) {
+		const struct mipstlb *mt = &cpu->tlb[i];
+		if (mt->mt_vpn!=vpage) continue;
+		if (mt->mt_pid==cpu->tlbentry.mt_pid || mt->mt_global) {
 			return i;
 		}
 	}
 
 	return -1;
+#endif
 }
 
 static
@@ -253,26 +460,53 @@ probetlb(struct mipscpu *cpu)
 	u_int32_t vpage;
 	int ix;
 
-	vpage = TLB_VPN(cpu->tlbentry);
+	vpage = cpu->tlbentry.mt_vpn;
 	ix = findtlb(cpu, vpage);
 
-	TRACEL(DOTRACE_TLB, ("tlbp:       %05x/%03x -> ", vpage >> 12,
-			     TLB_PID(cpu->tlbentry)));
+	TRACEL(DOTRACE_TLB, ("tlbp:       "));
+	TLBTRV(&cpu->tlbentry);
 
 	if (ix<0) {
 		TRACE(DOTRACE_TLB, ("NOT FOUND"));
-		cpu->tlbindex |= 0x80000000;
+		cpu->tlbpf = 1;
 	}
 	else {
-		TRACE(DOTRACE_TLB, ("%05x %s%s%s%s: [%d]", 
-				    TLB_PFN(cpu->tlb[ix]) >> 12,
-				    TLB_GLOBAL(cpu->tlb[ix])?"G":"-",
-				    TLB_VALID(cpu->tlb[ix])?"V":"-",
-				    TLB_DIRTY(cpu->tlb[ix])?"D":"-",
-				    TLB_NOCACHE(cpu->tlb[ix])?"N":"-",
-				    ix));
-		cpu->tlbindex = (ix << 8);
+		TLBTRP(&cpu->tlb[ix]);
+		TRACE(DOTRACE_TLB, (": [%d]", ix));
+		cpu->tlbindex = ix;
 	}
+}
+
+static
+void
+writetlb(struct mipscpu *cpu, int ix, const char *how)
+{
+	(void)how;
+	TRACEL(DOTRACE_TLB,("%s: [%2d] ", how, ix));
+	TLBTR(&cpu->tlb[ix]);
+	TRACEL(DOTRACE_TLB, (" ==> "));
+	TLBTR(&cpu->tlbentry);
+	TRACE(DOTRACE_TLB, (" "));
+
+#ifdef USE_TLBMAP
+	cpu->tlbmap[cpu->tlb[ix].mt_vpn >> 12] = TM_NOPAGE;
+#endif
+
+	cpu->tlb[ix] = cpu->tlbentry;
+
+#ifdef USE_TLBMAP
+	cpu->tlbmap[cpu->tlb[ix].mt_vpn >> 12] = ix;
+#endif
+
+	check_tlb_dups(cpu, ix);
+
+	/* 
+	 * If the OS coder is a lunatic, the mapping for the pc might
+	 * have changed. If this causes an exception, we don't need
+	 * to do anything special, though.
+	 */
+	(void) precompute_pc(cpu);
+	(void) precompute_nextpc(cpu);
 }
 
 static
@@ -288,18 +522,33 @@ static
 void
 do_rfe(struct mipscpu *cpu)
 {
-	u_int32_t bits;
+	//u_int32_t bits;
 
 	if (IS_USERMODE(cpu)) {
 		smoke("RFE in usermode not caught by instruction decoder");
 	}
-	
-	bits = cpu->ex_status & 0x3f;
-	bits >>= 2;
-	cpu->ex_status = (cpu->ex_status & 0xfffffff0) | bits;
+
+	cpu->current_usermode = cpu->prev_usermode;
+	cpu->current_irqon = cpu->prev_irqon;
+	cpu->prev_usermode = cpu->old_usermode;
+	cpu->prev_irqon = cpu->old_irqon;
 	TRACE(DOTRACE_EXN, ("Return from exception: %s mode, interrupts %s",
-			    (cpu->ex_status & 0x2) ? "user" : "kernel",
-			    (cpu->ex_status & 0x1) ? "on" : "off"));
+			    (cpu->current_usermode) ? "user" : "kernel",
+			    (cpu->current_irqon) ? "on" : "off"));
+
+	/*
+	 * Re-lookup the translations for the pc, because we might have
+	 * changed to usermode.
+	 *
+	 * Furthermore, hack the processor state so the exception happens
+	 * with things pointing to the instruction after the rfe.
+	 */
+	
+	cpu->in_jumpdelay = 0;
+	cpu->expc = cpu->pc;
+
+	precompute_pc(cpu);
+	precompute_nextpc(cpu);
 }
 
 /*
@@ -317,14 +566,25 @@ phony_exception(struct mipscpu *cpu)
 	cpu->in_jumpdelay = 0;
 	cpu->pc = cpu->expc;
 	cpu->nextpc = cpu->pc + 4;
+
+	/*
+	 * These shouldn't fail because we were just executing with 
+	 * the same values.
+	 */
+	if (precompute_pc(cpu)) {
+		smoke("precompute_pc failed in phony_exception");
+	}
+	if (precompute_nextpc(cpu)) {
+		smoke("precompute_nextpc failed in phony_exception");
+	}
 }
 
 static
 void
 exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 {
-	u_int32_t bits;
-	int boot = (cpu->ex_status & 0x00400000)!=0;
+	//u_int32_t bits;
+	int boot = (cpu->status_bits & 0x00400000)!=0;
 
 	TRACE(DOTRACE_EXN, ("exception: code %d (%s), expc %x, vaddr %x", 
 	      code, exception_name(code), cpu->expc, vaddr));
@@ -336,22 +596,25 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 		g_stats.s_exns++;
 	}
 
-	// clear everything but pending interrupts from cause register
-	cpu->ex_cause &= 0x0000ff00;
-	cpu->ex_cause |= code << 2;   // or in code for exception
-	if (cpu->in_jumpdelay) {
-		cpu->ex_cause |= 0x80000000;
-	}
+	cpu->cause_bd = cpu->in_jumpdelay;
 	if (code==EX_CPU) {
-		cpu->ex_cause |= ((u_int32_t)cn_or_user << 28);
+		cpu->cause_ce = ((u_int32_t)cn_or_user << 28);
 	}
+	else {
+		cpu->cause_ce = 0;
+	}
+	cpu->cause_code = code << 2;
+
 	cpu->jumping = 0;
 	cpu->in_jumpdelay = 0;
 
 	// roll the status bits
-	bits = cpu->ex_status & 0x3f;
-	bits <<= 2;
-	cpu->ex_status = (cpu->ex_status & 0xffffffc0) | (bits & 0x3f);
+	cpu->old_usermode = cpu->prev_usermode;
+	cpu->old_irqon = cpu->prev_irqon;
+	cpu->prev_usermode = cpu->current_usermode;
+	cpu->prev_irqon = cpu->current_irqon;
+	cpu->current_usermode = 0;
+	cpu->current_irqon = 0;
 
 	cpu->ex_vaddr = vaddr;
 	cpu->ex_context &= 0xffe00000;
@@ -367,30 +630,28 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 		cpu->pc = boot ? 0xbfc00180 : 0x80000080;
 	}
 	cpu->nextpc = cpu->pc + 4;
+
+	/*
+	 * These cannot fail. Furthermore, if for some reason they do,
+	 * they'll likely recurse forever and not return, so checking
+	 * the return value is fairly pointless.
+	 */
+	(void) precompute_pc(cpu);
+	(void) precompute_nextpc(cpu);
 }
 
-typedef enum {
-	S_SBYTE,
-	S_UBYTE,
-	S_SHALF,
-	S_UHALF,
-	S_WORD,
-	S_WORDL,
-	S_WORDR,
-} memstyles;
-
+/*
+ * Warning: do not change this function without making corresponding
+ * changes to debug_translatemem (below).
+ */
 static
+inline
 int
-domem(struct mipscpu *cpu, u_int32_t vaddr, u_int32_t *val, 
-      int iswrite, int isinsnfetch)
+translatemem(struct mipscpu *cpu, u_int32_t vaddr, int iswrite, u_int32_t *ret)
 {
-	u_int32_t vpage = vaddr & 0xfffff000;
-	u_int32_t off   = vaddr & 0x00000fff;
 	u_int32_t seg;
-	u_int32_t ppage;
 	u_int32_t paddr;
-	int buserr;
-	
+
 	// MIPS hardwired memory layout:
 	//    0xc0000000 - 0xffffffff   kseg2 (kernel, tlb-mapped)
 	//    0xa0000000 - 0xbfffffff   kseg1 (kernel, unmapped, uncached)
@@ -399,59 +660,139 @@ domem(struct mipscpu *cpu, u_int32_t vaddr, u_int32_t *val,
 	//
 	// Since we don't implement cache, we can consider kseg0 and kseg1
 	// equivalent (except remember that the base of each maps to paddr 0.)
-	// Thus we have four segments:
-	//    3: kernel mapped
-	//    2: kernel unmapped
-	//    0-1: user
 
-	seg = vpage >> 30;
+	/*
+	 * On intel at least it's noticeably faster this way:
+	 * compute seg first, but don't use it when checking for address
+	 * error, only for whether we're in a direct-mapped segment.
+	 *
+	 * My guess is that gcc's instruction scheduler isn't good enough to
+	 * handle this on its own and we get pipeline stalls with a more
+	 * sensible organization.
+	 */
+	seg = vaddr >> 30;
 
-	if ((seg > 1 && IS_USERMODE(cpu)) || (vaddr & 0x3)!=0) {
+	if ((vaddr >= 0x80000000 && IS_USERMODE(cpu)) || (vaddr & 0x3)!=0) {
 		exception(cpu, iswrite ? EX_ADES : EX_ADEL, 0, vaddr);
 		return -1;
 	}
 
 	if (seg==2) {
-		ppage = vpage & 0x1fffffff;
+		paddr = vaddr & 0x1fffffff;
 	}
 	else {
-		int ix, exc;
+		u_int32_t vpage;
+		u_int32_t off;
+		u_int32_t ppage;
+		int ix;
+
+		vpage = vaddr & 0xfffff000;
+		off   = vaddr & 0x00000fff;
 
 		TRACEL(DOTRACE_TLB, ("tlblookup:  %05x/%03x -> ", 
-				     vpage >> 12, TLB_PID(cpu->tlbentry)));
+				     vpage >> 12, cpu->tlbentry.mt_pid));
 
 		ix = findtlb(cpu, vpage);
-		exc = iswrite ? EX_TLBS : EX_TLBL;
 
 		if (ix<0) {
+			int exc = iswrite ? EX_TLBS : EX_TLBL;
+			int isuseraddr = vaddr < 0x80000000;
 			TRACE(DOTRACE_TLB, ("MISS"));
-			exception(cpu, exc, seg<=1, vaddr);
+			exception(cpu, exc, isuseraddr, vaddr);
 			return -1;
 		}
-		TRACEL(DOTRACE_TLB, ("%05x %s%s%s%s: [%d]", 
-				     TLB_PFN(cpu->tlb[ix]) >> 12,
-				     TLB_GLOBAL(cpu->tlb[ix])?"G":"-",
-				     TLB_VALID(cpu->tlb[ix])?"V":"-",
-				     TLB_DIRTY(cpu->tlb[ix])?"D":"-",
-				     TLB_NOCACHE(cpu->tlb[ix])?"N":"-",
-				     ix));
+		TLBTRP(&cpu->tlb[ix]);
+		TRACEL(DOTRACE_TLB, (": [%d]", ix));
 
-		if (!TLB_VALID(cpu->tlb[ix])) {
+		if (!cpu->tlb[ix].mt_valid) {
+			int exc = iswrite ? EX_TLBS : EX_TLBL;
 			TRACE(DOTRACE_TLB, (" - INVALID"));
 			exception(cpu, exc, 0, vaddr);
 			return -1;
 		}
-		if (iswrite && !TLB_DIRTY(cpu->tlb[ix])) {
+		if (iswrite && !cpu->tlb[ix].mt_dirty) {
 			TRACE(DOTRACE_TLB, (" - READONLY"));
 			exception(cpu, EX_MOD, 0, vaddr);
 			return -1;
 		}
 		TRACE(DOTRACE_TLB, (" - OK"));
-		ppage = TLB_PFN(cpu->tlb[ix]);
+		ppage = cpu->tlb[ix].mt_pfn;
+		paddr = ppage|off;
 	}
-	
-	paddr = ppage|off;
-	
+
+	*ret = paddr;
+	return 0;
+}
+
+/*
+ * Special version of translatemem for use from the gdb access code. It
+ * does not touch the cpu state and always considers itself to be in 
+ * supervisor mode.
+ *
+ * Warning: do not change this function without making corresponding
+ * changes to the original translatemem (above).
+ */
+static
+inline
+int
+debug_translatemem(const struct mipscpu *cpu, u_int32_t vaddr, 
+		   int iswrite, u_int32_t *ret)
+{
+	u_int32_t paddr;
+
+	if ((vaddr & 0x3)!=0) {
+		return -1;
+	}
+
+	if ((vaddr >> 30)==2) {
+		paddr = vaddr & 0x1fffffff;
+	}
+	else {
+		u_int32_t vpage;
+		u_int32_t off;
+		u_int32_t ppage;
+		int ix;
+
+		vpage = vaddr & 0xfffff000;
+		off   = vaddr & 0x00000fff;
+
+		TRACEL(DOTRACE_TLB, ("tlblookup (debugger):  %05x/%03x -> ", 
+				     vpage >> 12, cpu->tlbentry.mt_pid));
+
+		ix = findtlb(cpu, vpage);
+
+		if (ix<0) {
+			TRACE(DOTRACE_TLB, ("MISS"));
+			return -1;
+		}
+		TLBTRP(&cpu->tlb[ix]);
+		TRACEL(DOTRACE_TLB, (": [%d]", ix));
+
+		if (!cpu->tlb[ix].mt_valid) {
+			TRACE(DOTRACE_TLB, (" - INVALID"));
+			return -1;
+		}
+		if (iswrite && !cpu->tlb[ix].mt_dirty) {
+			TRACE(DOTRACE_TLB, (" - READONLY"));
+			return -1;
+		}
+		TRACE(DOTRACE_TLB, (" - OK"));
+		ppage = cpu->tlb[ix].mt_pfn;
+		paddr = ppage|off;
+	}
+
+	*ret = paddr;
+	return 0;
+
+}
+
+static
+inline
+int
+accessmem(struct mipscpu *cpu, u_int32_t paddr, int iswrite, u_int32_t *val)
+{
+	int buserr;
+
 	/*
 	 * Physical memory layout: 
 	 *    0x00000000 - 0x1fbfffff     RAM
@@ -473,7 +814,7 @@ domem(struct mipscpu *cpu, u_int32_t vaddr, u_int32_t *val,
 			buserr = -1; /* ROM is, after all, read-only */
 		}
 		else {
-			buserr = bootrom_fetch(paddr - 0x1fe00000, val);
+			buserr = bootrom_fetch(paddr - 0x1fc00000, val);
 		}
 	}
 	else if (paddr < 0x20000000) {
@@ -494,12 +835,118 @@ domem(struct mipscpu *cpu, u_int32_t vaddr, u_int32_t *val,
 	}
 
 	if (buserr) {
-		exception(cpu, isinsnfetch ? EX_IBE : EX_DBE, 0, 0);
+		exception(cpu, EX_DBE, 0, 0);
 		return -1;
 	}
 	
 	return 0;
 }
+
+/*
+ * This is a special version of accessmem used for instruction fetch.
+ * It returns a pointer to an entire page of memory which can then be
+ * used repeatedly. Note that it doesn't call exception() - it just
+ * returns NULL if the memory doesn't exist.
+ */
+static
+inline
+const u_int32_t *
+mapmem(u_int32_t paddr)
+{
+	/*
+	 * Physical memory layout: 
+	 *    0x00000000 - 0x1fbfffff     RAM
+	 *    0x1fc00000 - 0x1fdfffff     Boot ROM
+	 *    0x1fe00000 - 0x1fffffff     LAMEbus mapped I/O
+	 *    0x20000000 - 0xffffffff     RAM
+	 */
+	paddr &= 0xfffff000;
+
+	if (paddr < 0x1fc00000) {
+		return bus_mem_map(paddr);
+	}
+
+	if (paddr < 0x1fe00000) {
+		return bootrom_map(paddr - 0x1fc00000);
+	}
+
+	if (paddr < 0x20000000) {
+		/* don't allow executing from I/O registers */
+		return NULL;
+	}
+
+	return bus_mem_map(paddr-0x00400000);
+}
+
+/*
+ * iswrite should be true if *this* domem operation is a write.
+ *
+ * willbewrite should be true if any domem operation on this
+ * cycle is (or will be) a write, even if *this* one isn't.
+ */
+static
+int
+domem(struct mipscpu *cpu, u_int32_t vaddr, u_int32_t *val, 
+      int iswrite, int willbewrite)
+{
+	u_int32_t paddr;
+	
+	if (translatemem(cpu, vaddr, willbewrite, &paddr)) {
+		return -1;
+	}
+
+	return accessmem(cpu, paddr, iswrite, val);
+}
+
+static
+int
+precompute_pc(struct mipscpu *cpu)
+{
+	u_int32_t physpc;
+	if (translatemem(cpu, cpu->pc, 0, &physpc)) {
+		return -1;
+	}
+	cpu->pcpage = mapmem(physpc);
+	if (cpu->pcpage == NULL) {
+		exception(cpu, EX_IBE, 0, 0);
+		if (cpu->pcpage == NULL) {
+			smoke("Bus error invoking exception handler");
+		}
+		return -1;
+	}
+	cpu->pcoff = physpc & 0xfff;
+	return 0;
+}
+
+static
+int
+precompute_nextpc(struct mipscpu *cpu)
+{
+	u_int32_t physnext;
+	if (translatemem(cpu, cpu->nextpc, 0, &physnext)) {
+		return -1;
+	}
+	cpu->nextpcpage = mapmem(physnext);
+	if (cpu->nextpcpage == NULL) {
+		exception(cpu, EX_IBE, 0, 0);
+		if (cpu->nextpcpage == NULL) {
+			smoke("Bus error invoking exception handler");
+		}
+		return -1;
+	}
+	cpu->nextpcoff = physnext & 0xfff;
+	return 0;
+}
+
+
+typedef enum {
+	S_SBYTE,
+	S_UBYTE,
+	S_SHALF,
+	S_UHALF,
+	S_WORDL,
+	S_WORDR,
+} memstyles;
 
 static
 void
@@ -538,10 +985,6 @@ doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
 	    }
 	    break;
      
-	    case S_WORD:
-		domem(cpu, addr, res, 0, 0);
-	        break;
-
 	    case S_WORDL:
 	    {
 		u_int32_t val;
@@ -595,9 +1038,9 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 		    case 2: mask = 0x0000ff00; shift=8; break;
 		    case 3: mask = 0x000000ff; shift=0; break;
 		}
-		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 0)) return;
+		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 1)) return;
 		wval = (wval & ~mask) | ((val&0xff) << shift);
-		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 0)) return;
+		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 1)) return;
 	    }
 	    break;
 
@@ -610,22 +1053,18 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 			case 0: mask = 0xffff0000; shift=16; break;
 			case 2: mask = 0x0000ffff; shift=0; break;
 		}
-		if (domem(cpu, addr & 0xfffffffd, &wval, 0, 0)) return;
+		if (domem(cpu, addr & 0xfffffffd, &wval, 0, 1)) return;
 		wval = (wval & ~mask) | ((val&0xffff) << shift);
-		if (domem(cpu, addr & 0xfffffffd, &wval, 1, 0)) return;
+		if (domem(cpu, addr & 0xfffffffd, &wval, 1, 1)) return;
 	    }
 	    break;
 	
-	    case S_WORD:
-		domem(cpu, addr, &val, 1, 0);
-		break;
-		
 	    case S_WORDL:
 	    {
 		u_int32_t wval;
 		u_int32_t mask = 0;
 		int shift = 0;
-		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 0)) return;
+		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 1)) return;
 		switch (addr & 0x3) {
 			case 0: mask = 0xffffffff; shift=0; break;
 			case 1: mask = 0x00ffffff; shift=8; break;
@@ -635,7 +1074,7 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 		val >>= shift;
 		wval = (wval & ~mask) | (val & mask);
 
-		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 0)) return;
+		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 1)) return;
 	    }
 	    break;
 	    case S_WORDR:
@@ -643,7 +1082,7 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 		u_int32_t wval;
 		u_int32_t mask = 0;
 		int shift = 0;
-		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 0)) return;
+		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 1)) return;
 		switch (addr & 0x3) {
 			case 0: mask = 0xff000000; shift=24; break;
 			case 1: mask = 0xffff0000; shift=16; break;
@@ -653,7 +1092,7 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 		val <<= shift;
 		wval = (wval & ~mask) | (val & mask);
 
-		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 0)) return;
+		if (domem(cpu, addr & 0xfffffffc, &wval, 1, 1)) return;
 	    }
 	    break;
 
@@ -666,11 +1105,34 @@ static
 void
 abranch(struct mipscpu *cpu, u_int32_t addr)
 {
+	TRACE(DOTRACE_JUMP, ("jump: %x -> %x", cpu->nextpc-8, addr));
+
+	if ((addr & 0x3) != 0) {
+		exception(cpu, EX_ADEL, 0, addr);
+		return;
+	}
+
 	// Branches update nextpc (which points to the insn after 
 	// the delay slot).
-	TRACE(DOTRACE_JUMP, ("jump: %x -> %x", cpu->nextpc-8, addr));
+
 	cpu->nextpc = addr;
 	cpu->jumping = 1;
+
+	/*
+	 * If the instruction in the delay slot is RFE, don't call
+	 * precompute_nextpc. Instead, clear the precomputed nextpc
+	 * stuff and call precompute_pc once the RFE has done its
+	 * thing. This is important to make sure the new PC is fetched
+	 * in user mode the RFE is switching thereto.
+	 */
+	if (bus_use_map(cpu->pcpage, cpu->pcoff) == FULLOP_RFE) {
+		cpu->nextpcpage = NULL;
+		cpu->nextpcoff = 0;
+	}
+	else {
+		/* if this fails, no special action is required */
+		precompute_nextpc(cpu);
+	}
 }
 
 static
@@ -700,12 +1162,98 @@ rbranch(struct mipscpu *cpu, int32_t rel)
 	abranch(cpu, addr);
 }
 
+static
+u_int32_t
+getstatus(struct mipscpu *cpu)
+{
+	u_int32_t val;
+	val = cpu->status_bits | cpu->status_softmask;
+	if (cpu->status_hardmask) val |= STATUS_HARDMASK;
+	if (cpu->old_usermode) val |= STATUS_KUo;
+	if (cpu->old_irqon) val |= STATUS_IEo;
+	if (cpu->prev_usermode) val |= STATUS_KUp;
+	if (cpu->prev_irqon) val |= STATUS_IEp;
+	if (cpu->current_usermode) val |= STATUS_KUc;
+	if (cpu->current_irqon) val |= STATUS_IEc;
+	return val;
+}
+
+static
+void
+setstatus(struct mipscpu *cpu, u_int32_t val)
+{
+	cpu->status_bits = val & STATUS_BITS;
+	cpu->status_hardmask = val & STATUS_HARDMASK;
+	cpu->status_softmask = val & STATUS_SOFTMASK;
+	cpu->old_usermode = val & STATUS_KUo;
+	cpu->old_irqon = val & STATUS_IEo;
+	cpu->prev_usermode = val & STATUS_KUp;
+	cpu->prev_irqon = val & STATUS_IEp;
+	cpu->current_usermode = val & STATUS_KUc;
+	cpu->current_irqon = val & STATUS_IEc;
+}
+
+
+static
+u_int32_t
+getcause(struct mipscpu *cpu)
+{
+	u_int32_t val;
+	val = cpu->cause_ce | cpu->cause_softirq | cpu->cause_code;
+
+	if (cpu->cause_bd) {
+		val |= CAUSE_BD;
+	}
+
+	if (bus_interrupts) {
+		val |= CAUSE_HARDIRQ;
+	}
+
+	return val;
+}
+
+static
+void
+setcause(struct mipscpu *cpu, u_int32_t val)
+{
+	/* c0_cause is read-only except for the soft irq bits */
+	cpu->cause_softirq = val & CAUSE_SOFTIRQ;
+}
+
+static
+u_int32_t
+getindex(struct mipscpu *cpu)
+{
+	u_int32_t val = cpu->tlbindex << 8;
+	if (cpu->tlbpf) {
+		val |= 0x80000000;
+	}
+	return val;
+}
+
+static
+void
+setindex(struct mipscpu *cpu, u_int32_t val)
+{
+	cpu->tlbindex = (val >> 8) & 63;
+	cpu->tlbpf = val & 0x80000000;
+}
+
+static
+u_int32_t
+getrandom(struct mipscpu *cpu)
+{
+	cpu->tlbrandom %= RANDREG_MAX;
+	return (cpu->tlbrandom+RANDREG_OFFSET) << 8;
+}
+
 /*************************************************************/
 
 // disassembly support
 #ifdef USE_TRACE
 static
-const char *regname(unsigned reg)
+const char *
+regname(unsigned reg)
 {
 	switch (reg) {
 	    case 0: return "$z0";
@@ -743,108 +1291,10 @@ const char *regname(unsigned reg)
 	}
 	return "$??";
 }
+
+static int tracehow;		// how to trace the current instruction
+
 #endif
-
-// Map the 6-bit MIPS opcode field to operations.
-// The operations are listed in mips-insn.h.
-static short ops[64] = {
-   OP_SPECIAL, OP_BCOND, OP_J,      OP_JAL,
-   OP_BEQ,    OP_BNE,    OP_BLEZ,   OP_BGTZ,
-   OP_ADDI,   OP_ADDIU,  OP_SLTI,   OP_SLTIU,
-   OP_ANDI,   OP_ORI,    OP_XORI,   OP_LUI,
-   OP_COP,    OP_COP,    OP_COP,    OP_COP,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_LB,     OP_LH,     OP_LWL,    OP_LW,
-   OP_LBU,    OP_LHU,    OP_LWR,    OP_ILL,
-   OP_SB,     OP_SH,     OP_SWL,    OP_SW,
-   OP_ILL,    OP_ILL,    OP_SWR,    OP_ILL,
-   OP_LWC,    OP_LWC,    OP_LWC,    OP_LWC,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_SWC,    OP_SWC,    OP_SWC,    OP_SWC,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-};
-
-// When the opcode field contains "SPECIAL", this table is used to map
-// the 6-bit special function code to operations.
-static short sops[64] = {
-   OP_SLL,    OP_ILL,    OP_SRL,    OP_SRA,
-   OP_SLLV,   OP_ILL,    OP_SRLV,   OP_SRAV,
-   OP_JR,     OP_JALR,   OP_ILL,    OP_ILL,
-   OP_SYSCALL, OP_BREAK, OP_ILL,    OP_ILL,
-   OP_MFHI,   OP_MTHI,   OP_MFLO,   OP_MTLO,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_MULT,   OP_MULTU,  OP_DIV,    OP_DIVU,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_ADD,    OP_ADDU,   OP_SUB,    OP_SUBU,
-   OP_AND,    OP_OR,     OP_XOR,    OP_NOR,
-   OP_ILL,    OP_ILL,    OP_SLT,    OP_SLTU,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-   OP_ILL,    OP_ILL,    OP_ILL,    OP_ILL,
-};
-
-/*
- * Note: OP_WAIT is not defined for mips r2000/r3000 - it's from later
- * MIPS versions. However, we support it here anyway because spinning
- * in an idle loop is just plain stupid.
- */
-static
-int
-decode_copz(struct mipscpu *cpu, int cn, u_int32_t insn, u_int32_t *ret)
-{
-	u_int32_t op;
-	if (cn!=0) {
-		exception(cpu, EX_CPU, cn, 0);
-		return -1;
-	}
-	if (IS_USERMODE(cpu)) {
-		exception(cpu, EX_CPU, cn, 0);
-		return -1;
-	}
-
-	op = (insn & 0x03e00000) >> 21;	// coprocessor opcode
-
-	if (op & 0x10) {
-		op = (insn & 0x01ffffff);	// real coprocessor opcode
-		switch (op) {
-			case 1: *ret = OP_TLBR; break;
-			case 2: *ret = OP_TLBWI; break;
-			case 6: *ret = OP_TLBWR; break;
-			case 8: *ret = OP_TLBP; break;
-			case 16: *ret = OP_RFE; break;
-		        case 32: *ret = OP_WAIT; break;
-			default: *ret = OP_ILL; break;
-		}
-	}
-	else if (op==0) {
-		*ret = OP_MF;
-	}
-	else if (op==2) {
-		*ret = OP_CF;
-	}
-	else if (op==4) {
-		*ret = OP_MT;
-	}
-	else if (op==6) {
-		*ret = OP_CT;
-	}
-	else if (op==8 || op==12) {
-		if (insn & 0x00010000) {
-			*ret = OP_BCF;
-		}
-		else {
-			*ret = OP_BCT;
-		}
-	}
-	else {
-		*ret = OP_ILL;
-	}
-	return 0;
-}
 
 #define LINK2(rg)  (cpu->r[rg] = cpu->nextpc)
 #define LINK LINK2(31)
@@ -854,89 +1304,79 @@ decode_copz(struct mipscpu *cpu, int cn, u_int32_t insn, u_int32_t *ret)
 #define RTU  ((u_int32_t)RT)
 #define RSU  ((u_int32_t)RS)
 
-#define TLBIX(r) (((r)>>8)&0x3f)
-
-#define WHILO {if (cpu->hiwait >0 || cpu->lowait >0) goto pipeline_stall;}
-#define WHI   {if (cpu->hiwait >0) goto pipeline_stall;}
-#define WLO   {if (cpu->lowait >0) goto pipeline_stall;}
+#define STALL { phony_exception(cpu); }
+#define WHILO {if (cpu->hiwait>0 || cpu->lowait>0) { STALL; return; }}
+#define WHI   {if (cpu->hiwait>0) { STALL; return; }}
+#define WLO   {if (cpu->lowait>0) { STALL; return; }}
 #define SETHILO(n) (cpu->hiwait = cpu->lowait = (n))
 #define SETHI(n)   (cpu->hiwait = (n))
 #define SETLO(n)   (cpu->lowait = (n))
 
-#define CHKOVF(v) {if (((int64_t)(int32_t)(v))!=(v)) goto overflow;}
+#define OVF	  { exception(cpu, EX_OVF, 0, 0); }
+#define CHKOVF(v) {if (((int64_t)(int32_t)(v))!=(v)) { OVF; return; }}
 
 #define TRL(args)  TRACEL(tracehow, args)
 #define TR(args)   TRACE(tracehow, args)
 
-#define TLBTR(t)  TRACEL(DOTRACE_TLB, \
-			("%05x/%03x -> %05x %s%s%s%s", \
-				TLB_VPN(t) >> 12, TLB_PID(t), \
-				TLB_PFN(t) >> 12, \
-				TLB_GLOBAL(t)?"G":"-", \
-				TLB_VALID(t)?"V":"-", \
-				TLB_DIRTY(t)?"D":"-", \
-				TLB_NOCACHE(t)?"N":"-"))
+#define NEEDRS	 u_int32_t rs = (insn & 0x03e00000) >> 21	// register
+#define NEEDRT	 u_int32_t rt = (insn & 0x001f0000) >> 16	// register
+#define NEEDRD	 u_int32_t rd = (insn & 0x0000f800) >> 11	// register
+#define NEEDTARG u_int32_t targ=(insn & 0x03ffffff)           // target of jump
+#define NEEDSH	 u_int32_t sh = (insn & 0x000007c0) >> 6	// shift count
+#define NEEDCN	 u_int32_t cn = (insn & 0x0c000000) >> 26	// coproc. no.
+#define NEEDIMM	 u_int32_t imm= (insn & 0x0000ffff)	     // immediate value
+#define NEEDSMM	 NEEDIMM; int32_t smm = (int32_t)(int16_t)imm 
+					       // sign-extended immediate value
 
-static
-u_int32_t *
-getcop0reg(struct mipscpu *cpu, int reg)
-{
-	switch (reg) {
-	    case 0: return &cpu->tlbindex;
-	    case 1: return &cpu->tlbrandom;
-	    case 2: return &((u_int32_t *)(&cpu->tlbentry))[QUAD_LOWWORD];
-	    case 4: return &cpu->ex_context;
-	    case 8: return &cpu->ex_vaddr;
-	    case 10: return &((u_int32_t *)(&cpu->tlbentry))[QUAD_HIGHWORD];
-	    case 12: return &cpu->ex_status;
-	    case 13: return &cpu->ex_cause;
-	    case 14: return &cpu->ex_epc;
-	    case 15: return &cpu->ex_prid;
-	}
-	return NULL;
-}
 
 static
 void
 domf(struct mipscpu *cpu, int cn, int reg, int32_t *greg)
 {
-	u_int32_t *creg;
 	if (cn!=0 || IS_USERMODE(cpu)) {
 		exception(cpu, EX_CPU, cn, 0);
 		return;
 	}
-	creg = getcop0reg(cpu, reg);
-	if (!creg) {
+	switch (reg) {
+	    case C0_INDEX:   *greg = getindex(cpu); break;
+	    case C0_RANDOM:  *greg = getrandom(cpu); break;
+	    case C0_TLBLO:   *greg = tlbgetlo(&cpu->tlbentry); break;
+	    case C0_CONTEXT: *greg = cpu->ex_context; break;
+	    case C0_VADDR:   *greg = cpu->ex_vaddr; break;
+	    case C0_TLBHI:   *greg = tlbgethi(&cpu->tlbentry); break;
+	    case C0_STATUS:  *greg = getstatus(cpu); break;
+	    case C0_CAUSE:   *greg = getcause(cpu); break;
+	    case C0_EPC:     *greg = cpu->ex_epc; break;
+	    case C0_PRID:    *greg = cpu->ex_prid; break;
+	    default:
 		exception(cpu, EX_RI, cn, 0);
-		return;
+		break;
 	}
-	*greg = *creg;
 }
 
 static
 void
 domt(struct mipscpu *cpu, int cn, int reg, int32_t greg)
 {
-	u_int32_t *creg;
 	if (cn!=0 || IS_USERMODE(cpu)) {
 		exception(cpu, EX_CPU, cn, 0);
 		return;
 	}
-	creg = getcop0reg(cpu, reg);
-	if (!creg) {
+	switch (reg) {
+	    case C0_INDEX:   setindex(cpu, greg); break;
+	    case C0_RANDOM:  /* read-only register */ break;
+	    case C0_TLBLO:   tlbsetlo(&cpu->tlbentry, greg); break;
+	    case C0_CONTEXT: cpu->ex_context = greg; break;
+	    case C0_VADDR:   cpu->ex_vaddr = greg; break;
+	    case C0_TLBHI:   tlbsethi(&cpu->tlbentry, greg); break;
+	    case C0_STATUS:  setstatus(cpu, greg); break;
+	    case C0_CAUSE:   setcause(cpu, greg); break;
+	    case C0_EPC:     /* read-only register */ break;
+	    case C0_PRID:    /* read-only register */ break;
+	    default:
 		exception(cpu, EX_RI, cn, 0);
-		return;
+		break;
 	}
-	*creg = greg;
-
-#ifdef USE_TRACE
-	if (reg==12) {
-		TRACE(DOTRACE_EXN, ("Status register updated: %s mode, "
-				    "interrupts %s",
-				    (cpu->ex_status & 0x2) ? "user" : "kernel",
-				    (cpu->ex_status & 0x1) ? "on" : "off"));
-	}
-#endif
 }
 
 static
@@ -958,24 +1398,986 @@ doswc(struct mipscpu *cpu, int cn, u_int32_t addr, int reg)
 }
 
 static
-int
-mips_run(struct mipscpu *cpu)
+inline
+void
+mx_add(struct mipscpu *cpu, u_int32_t insn)
 {
+	NEEDRS; NEEDRT; NEEDRD;
+	int64_t t64;
+
+	TRL(("add %s, %s, %s: %d + %d -> ",
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	t64 = (int64_t)RS + (int64_t)RT;
+	CHKOVF(t64);
+	RD = (int32_t)t64;
+	TR(("%d", RD));
+}
+
+static
+inline
+void
+mx_addi(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDSMM;
+	int64_t t64;
+
+	TRL(("addi %s, %s, %u: %d + %d -> ",
+	     regname(rt), regname(rs), smm, RS, smm));
+	t64 = (int64_t)RS + smm;
+	CHKOVF(t64);
+	RT = (int32_t)t64;
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_addiu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("addiu %s, %s, %d: %d + %d -> ", 
+	     regname(rt), regname(rs), smm, RS, smm));
+	RT = RS + smm;
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_addu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("addu %s, %s, %s: %d + %d -> ",
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = RS + RT;
+	TR(("%d", RD));
+}
+
+static
+inline
+void
+mx_and(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("and %s, %s, %s: 0x%x & 0x%x -> ", 
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = RS & RT;
+	TR(("%d", RD));
+}
+
+static
+inline
+void
+mx_andi(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDIMM;
+	TRL(("andi %s, %s, %u: 0x%x & 0x%x -> ", 
+	     regname(rt), regname(rs), imm, RS, imm));
+	RT = RS & imm;
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_bcf(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDSMM; NEEDCN;
+	(void)smm;
+	TR(("bc%df %d", cn, smm));
+	exception(cpu, EX_CPU, cn, 0);
+}
+
+static
+inline
+void
+mx_bct(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDSMM; NEEDCN;
+	(void)smm;
+	TR(("bc%dt %d", cn, smm));
+	exception(cpu, EX_CPU, cn, 0);
+}
+
+static
+inline
+void
+mx_beq(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("beq %s, %s, %d: %u==%u? ", 
+	     regname(rs), regname(rt), smm, RS, RT));
+	if (RS==RT) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2);
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_bgezal(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDSMM;
+	TRL(("bgezal %s, %d: %d>=0? ", regname(rs), smm, RS));
+	LINK;
+	if (RS>=0) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2); 
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_bgez(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDSMM;
+	TRL(("bgez %s, %d: %d>=0? ", regname(rs), smm, RS));
+	if (RS>=0) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2);
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_bltzal(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDSMM;
+	TRL(("bltzal %s, %d: %d<0? ", regname(rs), smm, RS));
+	LINK;
+	if (RS<0) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2);
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_bltz(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDSMM;
+	TRL(("bltz %s, %d: %d<0? ", regname(rs), smm, RS));
+	if (RS<0) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2);
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_bgtz(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDSMM;
+	TRL(("bgtz %s, %d: %d>0? ", regname(rs), smm, RS));
+	if (RS>0) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2);
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_blez(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDSMM;
+	TRL(("blez %s, %d: %d<=0? ", regname(rs), smm, RS));
+	if (RS<=0) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2);
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_bne(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDSMM;
+	TRL(("bne %s, %s, %d: %u!=%u? ", 
+	     regname(rs), regname(rt), smm, RS, RT));
+	if (RS!=RT) {
+		TR(("yes"));
+		rbranch(cpu, smm<<2);
+	}
+	else {
+		TR(("no"));
+	}
+}
+
+static
+inline
+void
+mx_cf(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRD; NEEDCN;
+	(void)rt;
+	(void)rd;
+	TR(("cfc%d %s, $%u", cn, regname(rt), rd));
+	exception(cpu, EX_CPU, cn, 0);
+}
+
+static
+inline
+void
+mx_ct(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRD; NEEDCN;
+	(void)rt;
+	(void)rd;
+	TR(("ctc%d %s, $%u", cn, regname(rt), rd));
+	exception(cpu, EX_CPU, cn, 0);
+}
+
+static
+inline
+void
+mx_j(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDTARG;
+	TR(("j 0x%x", targ<<2));
+	ibranch(cpu, targ<<2);
+}
+
+static
+inline
+void
+mx_jal(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDTARG;
+	TR(("jal 0x%x", targ<<2));
+	LINK;
+	ibranch(cpu, targ<<2);
+}
+
+static
+inline
+void
+mx_lb(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("lb %s, %d(%s): [%x] -> ", 
+	     regname(rt), smm, regname(rs), RS+smm));
+	doload(cpu, S_SBYTE, RS+smm, (u_int32_t *) &RT);
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_lbu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("lbu %s, %d(%s): [%x] -> ",
+	     regname(rt), smm, regname(rs), RS+smm));
+	doload(cpu, S_UBYTE, RS+smm, (u_int32_t *) &RT);
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_lh(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("lh %s, %d(%s): [%x] -> ", 
+	     regname(rt), smm, regname(rs), RS+smm));
+	doload(cpu, S_SHALF, RS+smm, (u_int32_t *) &RT);
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_lhu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("lhu %s, %d(%s): [%x] -> ", 
+	     regname(rt), smm, regname(rs), RS+smm));
+	doload(cpu, S_UHALF, RS+smm, (u_int32_t *) &RT);
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_lui(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDIMM;
+	TR(("lui %s 0x%x", regname(rt), imm));
+	RT = imm << 16;
+}
+
+static
+inline
+void
+mx_lw(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("lw %s, %d(%s): [%x] -> ", 
+	     regname(rt), smm, regname(rs), RS+smm));
+	domem(cpu, RS+smm, (u_int32_t *) &RT, 0, 0);
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_lwc(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM; NEEDCN;
+	TR(("lwc%d $%u, %d(%s)", cn, rt, smm, regname(rs)));
+	dolwc(cpu, cn, RS+smm, rt);
+}
+
+static
+inline
+void
+mx_lwl(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("lwl %s, %d(%s): [%x] -> ", 
+	     regname(rt), smm, regname(rs), RS+smm));
+	doload(cpu, S_WORDL, RS+smm, (u_int32_t *) &RT);
+	TR(("0x%x", RT));
+}
+
+static
+inline
+void
+mx_lwr(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TRL(("lwr %s, %d(%s): [%x] -> ", 
+	     regname(rt), smm, regname(rs), RS+smm));
+	doload(cpu, S_WORDR, RS+smm, (u_int32_t *) &RT);
+	TR(("0x%x", RT));
+}
+
+static
+inline
+void
+mx_sb(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TR(("sb %s, %d(%s): %d -> [%x]", 
+	    regname(rt), smm, regname(rs), RT&0xff, RS+smm));
+	dostore(cpu, S_UBYTE, RS+smm, RT);
+}
+
+static
+inline
+void
+mx_sh(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TR(("sh %s, %d(%s): %d -> [%x]", 
+	    regname(rt), smm, regname(rs), RT&0xffff, RS+smm));
+	dostore(cpu, S_UHALF, RS+smm, RT);
+}
+
+static
+inline
+void
+mx_sw(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TR(("sw %s, %d(%s): %d -> [%x]", 
+	    regname(rt), smm, regname(rs), RT, RS+smm));
+	domem(cpu, RS+smm, (u_int32_t *) &RT, 1, 1);
+}
+
+static
+inline
+void
+mx_swc(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM; NEEDCN;
+	TR(("swc%d $%u, %d(%s)", cn, rt, smm, regname(rs)));
+	doswc(cpu, cn, RS+smm, rt);
+}
+
+static
+inline
+void
+mx_swl(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TR(("swl %s, %d(%s): 0x%x -> [%x]", 
+	    regname(rt), smm, regname(rs), RT, RS+smm));
+	dostore(cpu, S_WORDL, RS+smm, RT);
+}
+
+static
+inline
+void
+mx_swr(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRS; NEEDSMM;
+	TR(("swr %s, %d(%s): 0x%x -> [%x]", 
+	    regname(rt), smm, regname(rs), RT, RS+smm));
+	dostore(cpu, S_WORDR, RS+smm, RT);
+}
+
+static
+inline
+void
+mx_break(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("break"));
+	exception(cpu, EX_BP, 0, 0);
+}
+
+static
+inline
+void
+mx_div(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT;
+	TRL(("div %s %s: %d / %d -> ", 
+	     regname(rs), regname(rt), RS, RT));
+	if (RT==0) {
+		/* What's the right exception? XXX */
+		exception(cpu, EX_RI, 0, 0);
+		TR(("ERR"));
+	}
+	else {
+		WHILO;
+		cpu->lo = RS/RT;
+		cpu->hi = RS%RT;
+		SETHILO(2);
+		TR(("%d, remainder %d", cpu->lo, cpu->hi));
+	}
+}
+
+static
+inline
+void
+mx_divu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT;
+	TRL(("divu %s %s: %u / %u -> ", 
+	     regname(rs), regname(rt), RS, RT));
+	if (RTU==0) {
+		/* What's the right exception? XXX */
+		exception(cpu, EX_RI, 0, 0);
+		TR(("ERR"));
+	}
+	else {
+		WHILO;
+		cpu->lo=RSU/RTU;
+		cpu->hi=RSU%RTU;
+		SETHILO(2);
+		TR(("%u, remainder %u", cpu->lo, cpu->hi));
+	}
+}
+
+static
+inline
+void
+mx_jr(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS;
+	TR(("jr %s: 0x%x", regname(rs), RS));
+	abranch(cpu, RS);
+}
+
+static
+inline
+void
+mx_jalr(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRD;
+	TR(("jalr %s, %s: 0x%x", regname(rd), regname(rs), RS));
+	LINK2(rd);
+	abranch(cpu, RS);
+}
+
+static
+inline
+void
+mx_mf(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRD; NEEDCN;
+	TRL(("mfc%d %s, $%u: ... -> ", cn, regname(rt), rd));
+	domf(cpu, cn, rd, &RT);
+	TR(("0x%x", RT));
+}
+
+static
+inline
+void
+mx_mfhi(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRD;
+	TRL(("mfhi %s: ... -> ", regname(rd)));
+	WHI;
+	RD = cpu->hi;
+	SETHI(2);
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_mflo(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRD;
+	TRL(("mflo %s: ... -> ", regname(rd)));
+	WLO;
+	RD = cpu->lo;
+	SETLO(2);
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_mt(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDRD; NEEDCN;
+	TR(("mtc%d %s, $%u: 0x%x -> ...", cn, regname(rt), rd, RT));
+	domt(cpu, cn, rd, RT);
+}
+
+static
+inline
+void
+mx_mthi(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS;
+	TR(("mthi %s: 0x%x -> ...", regname(rs), RS));
+	WHI;
+	cpu->hi = RS;
+	SETHI(2);
+}
+
+static
+inline
+void
+mx_mtlo(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS;
+	TR(("mtlo %s: 0x%x -> ...", regname(rs), RS));
+	WLO;
+	cpu->lo = RS;
+	SETLO(2);
+}
+
+static
+inline
+void
+mx_mult(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT;
+	int64_t t64;
+	TRL(("mult %s, %s: %d * %d -> ", 
+	     regname(rs), regname(rt), RS, RT));
+	WHILO;
+	t64=(int64_t)RS*(int64_t)RT;
+	cpu->hi = (t64>>32);
+	cpu->lo = (u_int32_t)(u_int64_t)t64;
+	SETHILO(2);
+	TR(("%d %d", cpu->hi, cpu->lo));
+}
+
+static
+inline
+void
+mx_multu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT;
+	int64_t t64;
+	TRL(("multu %s, %s: %u * %u -> ", 
+	     regname(rs), regname(rt), RS, RT));
+	WHILO;
+	t64=(u_int64_t)RSU*(u_int64_t)RTU;
+	cpu->hi = (t64>>32);
+	cpu->lo = (u_int32_t)(u_int64_t)t64;
+	SETHILO(2);
+	TR(("%u %u", cpu->hi, cpu->lo));
+}
+
+static
+inline
+void
+mx_nor(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("nor %s, %s, %s: ~(0x%x | 0x%x) -> ",
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = ~(RS | RT);
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_or(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("or %s, %s, %s: 0x%x | 0x%x -> ", 
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = RS | RT;
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_ori(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDIMM;
+	TRL(("ori %s, %s, %u: 0x%x | 0x%x -> ", 
+	     regname(rt), regname(rs), imm, RS, imm));
+	RT = RS | imm;
+	TR(("0x%x", RT));
+}
+
+static
+inline
+void
+mx_rfe(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("rfe"));
+	do_rfe(cpu);
+}
+
+static
+inline
+void
+mx_sll(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRD; NEEDRT; NEEDSH;
+	TRL(("sll %s, %s, %u: 0x%x << %d -> ", 
+	     regname(rd), regname(rt), sh, RT, sh));
+	RD = RT << sh;
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_sllv(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRD; NEEDRT; NEEDRS;
+	TRL(("sllv %s, %s, %s: 0x%x << %d -> ", 
+	     regname(rd), regname(rt), regname(rs), RT, (RS&31)));
+	RD = RT << (RS&31);
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_slt(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("slt %s, %s, %s: %d < %d -> ", 
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = RS < RT;
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_slti(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDSMM;
+	TRL(("slti %s, %s, %d: %d < %d -> ", 
+	     regname(rt), regname(rs), smm, RS, smm));
+	RT = RS < smm;
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_sltiu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDSMM;
+	TRL(("sltiu %s, %s, %u: %u < %u -> ", 
+	     regname(rt), regname(rs), imm, RS, smm));
+	// Yes, the immediate is sign-extended then treated as
+	// unsigned, according to my mips book. Blech.
+	RT = RSU < (u_int32_t) smm;
+	TR(("%d", RT));
+}
+
+static
+inline
+void
+mx_sltu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("sltu %s, %s, %s: %u < %u -> ", 
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = RSU < RTU;
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_sra(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRD; NEEDRT; NEEDSH;
+	TRL(("sra %s, %s, %u: 0x%x >> %d -> ", 
+	     regname(rd), regname(rt), sh, RT, sh));
+	RD = RT >> sh;
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_srav(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("srav %s, %s, %s: 0x%x >> %d -> ", 
+	     regname(rd), regname(rt), regname(rs), RT, (RS&31)));
+	RD = RT >> (RS&31);
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_srl(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRD; NEEDRT; NEEDSH;
+	TRL(("srl %s, %s, %u: 0x%x >> %d -> ", 
+	     regname(rd), regname(rt), sh, RT, sh));
+	RD = RTU >> sh;
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_srlv(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("srlv %s, %s, %s: 0x%x >> %d -> ", 
+	     regname(rd), regname(rt), regname(rs), RT,  (RS&31)));
+	RD = RTU >> (RS&31);
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_sub(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	int64_t t64;
+	TRL(("sub %s, %s, %s: %d - %d -> ", 
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	t64 = (int64_t)RS - (int64_t)RT;
+	CHKOVF(t64);
+	RD = (int32_t)t64;
+	TR(("%d", RD));
+}
+
+static
+inline
+void
+mx_subu(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("subu %s, %s, %s: %d - %d -> ", 
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = RS - RT;
+	TR(("%d", RD));
+}
+
+static
+inline
+void
+mx_syscall(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("syscall"));
+	exception(cpu, EX_SYS, 0, 0);
+}
+
+static
+inline
+void
+mx_tlbp(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("tlbp"));
+	probetlb(cpu);
+}
+
+static
+inline
+void
+mx_tlbr(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("tlbr"));
+	cpu->tlbentry = cpu->tlb[cpu->tlbindex];
+	TRACEL(DOTRACE_TLB, ("tlbr:  [%2d] ", cpu->tlbindex));
+	TLBTR(&cpu->tlbentry);
+	TRACE(DOTRACE_TLB, (" "));
+}
+
+static
+inline
+void
+mx_tlbwi(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("tlbwi"));
+	writetlb(cpu, cpu->tlbindex, "tlbwi");
+}
+
+static
+inline
+void
+mx_tlbwr(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("tlbwr"));
+	cpu->tlbrandom %= RANDREG_MAX;
+	writetlb(cpu, cpu->tlbrandom+RANDREG_OFFSET, "tlbwr");
+}
+
+static
+inline
+void
+mx_wait(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("wait"));
+	do_wait(cpu);
+}
+
+static
+inline
+void
+mx_xor(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDRD;
+	TRL(("xor %s, %s, %s: 0x%x ^ 0x%x -> ",
+	     regname(rd), regname(rs), regname(rt), RS, RT));
+	RD = RS ^ RT;
+	TR(("0x%x", RD));
+}
+
+static
+inline
+void
+mx_xori(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRS; NEEDRT; NEEDIMM;
+	TRL(("xori %s, %s, %u: 0x%x ^ 0x%x -> ",
+	     regname(rt), regname(rs), imm, RS, imm));
+	RT = RS ^ imm;
+	TR(("0x%x", RT));
+}
+
+static
+inline
+void
+mx_ill(struct mipscpu *cpu, u_int32_t insn)
+{
+	(void)insn;
+	TR(("[illegal instruction %08lx]", (unsigned long) insn));
+	exception(cpu, EX_RI, 0, 0);
+}
+
+/*
+ * Note: OP_WAIT is not defined for mips r2000/r3000 - it's from later
+ * MIPS versions. However, we support it here anyway because spinning
+ * in an idle loop is just plain stupid.
+ */
+static
+inline
+void
+mx_copz(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDCN;
+	u_int32_t copop;
+
+	if (cn!=0) {
+		exception(cpu, EX_CPU, cn, 0);
+		return;
+	}
+	if (IS_USERMODE(cpu)) {
+		exception(cpu, EX_CPU, cn, 0);
+		return;
+	}
+
+	copop = (insn & 0x03e00000) >> 21;	// coprocessor opcode
+
+	if (copop & 0x10) {
+		copop = (insn & 0x01ffffff);	// real coprocessor opcode
+		switch (copop) {
+		    case 1: mx_tlbr(cpu, insn); break;
+		    case 2: mx_tlbwi(cpu, insn); break;
+		    case 6: mx_tlbwr(cpu, insn); break;
+		    case 8: mx_tlbp(cpu, insn); break;
+		    case 16: mx_rfe(cpu, insn); break;
+		    case 32: mx_wait(cpu, insn); break;
+		    default: mx_ill(cpu, insn); break;
+		}
+	}
+	else switch (copop) {
+	    case 0: mx_mf(cpu, insn); break;
+	    case 2: mx_cf(cpu, insn); break;
+	    case 4: mx_mt(cpu, insn); break;
+	    case 6: mx_ct(cpu, insn); break;
+	    case 8:
+	    case 12:
+		if (insn & 0x00010000) {
+			mx_bcf(cpu, insn);
+		}
+		else {
+			mx_bct(cpu, insn);
+		}
+		break;
+	    default: mx_ill(cpu, insn);
+	}
+}
+
+int
+cpu_cycle(void)
+{
+	struct mipscpu *cpu = &mycpu;
 	u_int32_t insn;
-	u_int32_t op, realop;
-	u_int32_t rs, rt, rd;	// register fields of instruction
-	u_int32_t targ;		// target part of absolute jump
-	u_int32_t sh;		// shift count of shift instruction
-	u_int32_t imm;		// immediate part of instruction
-	int32_t smm;		// signed immediate part of instruction
-	
-	int64_t t64;		// temporary 64-bit value
-
-	int hitbp=0;		// true if we hit a builtin breakpoint
-
-#ifdef USE_TRACE
-	int tracehow;		// how to trace this instruction
-#endif
+	u_int32_t op;
 
 	/*
 	 * First, update exception PC.
@@ -997,20 +2399,22 @@ mips_run(struct mipscpu *cpu)
 	/*
 	 * Check for interrupts.
 	 */
-	if (cpu->ex_status & 1) {
-		// interrupts are enabled, check if any are pending
-		u_int32_t intpending = (cpu->ex_cause & 0x0000ff00);
-		u_int32_t intenabled = (cpu->ex_status& 0x0000ff00);
-		if (intpending & intenabled) {
+	if (cpu->current_irqon) {
+		u_int32_t soft = cpu->status_softmask & cpu->cause_softirq;
+		if ((cpu->status_hardmask && bus_interrupts) || soft) {
 			TRACE(DOTRACE_IRQ, ("Taking interrupt"));
 			exception(cpu, EX_IRQ, 0, 0);
 			/*
 			 * Start processing the interrupt this cycle.
 			 *
 			 * That is, repeat the code above us in this
-			 * function. This amounts to just setting expc,
-			 * and at this point we can be sure we're not in
-			 * a jump delay slot, so it's only one line.
+			 * function.
+			 *
+			 * At this point we're executing the first 
+			 * instruction of the exception handler, which
+			 * cannot be a jump delay slot.
+			 *
+			 * Thus, just set expc.
 			 */
 			cpu->expc = cpu->pc;
 		}
@@ -1031,19 +2435,36 @@ mips_run(struct mipscpu *cpu)
 	
 	/*
 	 * Fetch instruction.
+	 *
+	 * We cache the page translation for the PC.
+	 * Use the page part of the precomputed physpc and also the
+	 * precomputed page pointer.
+	 *
+	 * Note that as a result of precomputing everything, exceptions
+	 * related to PC mishaps occur at jump time, or possibly when
+	 * *nextpc* crosses a page boundary (below) or whatnot, never 
+	 * during instruction fetch itself. I believe this is acceptable
+	 * behavior to exhibit.
 	 */
-	if (domem(cpu, cpu->pc, &insn, 0, 1)) {
-		/* 
-		 * Exception during instruction fetch; stop. On the next cycle
-		 * we'll fetch the first instruction of the exception handler.
-		 */
-		return 0;
-	}
-	
+	insn = bus_use_map(cpu->pcpage, cpu->pcoff);
+
 	// Update PC. 
 	cpu->pc = cpu->nextpc;
+	cpu->pcoff = cpu->nextpcoff;
+	cpu->pcpage = cpu->nextpcpage;
 	cpu->nextpc += 4;
+	if ((cpu->nextpc & 0xfff)==0) {
+		/* crossed page boundary */
+		if (precompute_nextpc(cpu)) {
+			/* exception */
+			return 1;
+		}
+	}
+	else {
+		cpu->nextpcoff += 4;
+	}
 
+	TRL(("at %08x: ", cpu->expc));
 	
 	/*
 	 * Decode instruction.
@@ -1051,542 +2472,105 @@ mips_run(struct mipscpu *cpu)
 	
 	op = (insn & 0xfc000000) >> 26;   // opcode
 
-	// decode opcode
-	realop = ops[op];
-	if (realop == OP_SPECIAL) {
-		realop = sops[insn & 0x3f];  // function field
-	}
-	else if (realop == OP_BCOND) {
+	switch (op) {
+	    case OPM_SPECIAL:
+		// use function field
+		switch (insn & 0x3f) {
+		    case OPS_SLL: mx_sll(cpu, insn); break;
+		    case OPS_SRL: mx_srl(cpu, insn); break;
+		    case OPS_SRA: mx_sra(cpu, insn); break;
+		    case OPS_SLLV: mx_sllv(cpu, insn); break;
+		    case OPS_SRLV: mx_srlv(cpu, insn); break;
+		    case OPS_SRAV: mx_srav(cpu, insn); break;
+		    case OPS_JR: mx_jr(cpu, insn); break;
+		    case OPS_JALR: mx_jalr(cpu, insn); break;
+		    case OPS_SYSCALL: mx_syscall(cpu, insn); break;
+		    case OPS_BREAK: 
+			/*
+			 * If we're in the range that we can debug in (that
+			 * is, not the TLB-mapped segments), activate the
+			 * kernel debugging hooks.
+			 */
+			if (gdb_canhandle(cpu->expc)) {
+				phony_exception(cpu);
+				main_stop();
+				/*
+				 * Don't bill time for hitting the breakpoint.
+				 */
+				return 0;
+			}
+			mx_break(cpu, insn);
+			break;
+		    case OPS_MFHI: mx_mfhi(cpu, insn); break;
+		    case OPS_MTHI: mx_mthi(cpu, insn); break;
+		    case OPS_MFLO: mx_mflo(cpu, insn); break;
+		    case OPS_MTLO: mx_mtlo(cpu, insn); break;
+		    case OPS_MULT: mx_mult(cpu, insn); break;
+		    case OPS_MULTU: mx_multu(cpu, insn); break;
+		    case OPS_DIV: mx_div(cpu, insn); break;
+		    case OPS_DIVU: mx_divu(cpu, insn); break;
+		    case OPS_ADD: mx_add(cpu, insn); break;
+		    case OPS_ADDU: mx_addu(cpu, insn); break;
+		    case OPS_SUB: mx_sub(cpu, insn); break;
+		    case OPS_SUBU: mx_subu(cpu, insn); break;
+		    case OPS_AND: mx_and(cpu, insn); break;
+		    case OPS_OR: mx_or(cpu, insn); break;
+		    case OPS_XOR: mx_xor(cpu, insn); break;
+		    case OPS_NOR: mx_nor(cpu, insn); break;
+		    case OPS_SLT: mx_slt(cpu, insn); break;
+		    case OPS_SLTU: mx_sltu(cpu, insn); break;
+		    default: mx_ill(cpu, insn); break;
+		}
+		break;
+	    case OPM_BCOND:
 		// use rt field
 		switch ((insn & 0x001f0000) >> 16) {
-			case 0: realop = OP_BLTZ; break;
-			case 1: realop = OP_BGEZ; break;
-			case 16: realop = OP_BLTZAL; break;
-			case 17: realop = OP_BGEZAL; break;
-			default: realop = OP_ILL;
-		}
-	}
-	else if (realop == OP_COP) {
-		if (decode_copz(cpu, op&3, insn, &realop)) {
-			// exception
-			return 0;
-		}
-	}
-
-
-	// get fields from opcode
-	rs = (insn & 0x03e00000) >> 21;   // register
-	rt = (insn & 0x001f0000) >> 16;   // register
-	rd = (insn & 0x0000f800) >> 11;   // register
-	targ=(insn & 0x03ffffff);         // target of jump
-	sh = (insn & 0x000007c0) >> 6;    // shift count
-	
-	imm= (insn & 0x0000ffff);         // immediate value
-	smm= (int32_t)(int16_t)imm;       // sign-extended immediate value
-
-	TRL(("at %08x: ", cpu->expc));
-
-	switch (realop) {
-	    case OP_ADD:
-		TRL(("add %s, %s, %s: %d + %d -> ",
-		     regname(rd), regname(rs), regname(rt), RS, RT));
-		t64 = (int64_t)RS + (int64_t)RT;
-		CHKOVF(t64);
-		RD = (int32_t)t64;
-		TR(("%d", RD));
-		break;
-	    case OP_ADDI:
-		TRL(("addi %s, %s, %u: %d + %d -> ",
-			regname(rt), regname(rs), smm, RS, smm));
-		t64 = (int64_t)RS + smm;
-		CHKOVF(t64);
-		RT = (int32_t)t64;
-		TR(("%d", RT));
-		break;
-	    case OP_ADDIU: 
-		TRL(("addiu %s, %s, %d: %d + %d -> ", 
-			regname(rt), regname(rs), smm, RS, smm));
-		RT = RS + smm;
-		TR(("%d", RT));
-		break;
-	    case OP_ADDU:
-		TRL(("addu %s, %s, %s: %d + %d -> ",
-			regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = RS + RT;
-		TR(("%d", RD));
-		break;
-	    case OP_AND:
-		TRL(("and %s, %s, %s: 0x%x & 0x%x -> ", 
-			regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = RS & RT;
-		TR(("%d", RD));
-		break;
-	    case OP_ANDI:
-		TRL(("andi %s, %s, %u: 0x%x & 0x%x -> ", 
-			regname(rd), regname(rs), imm, RS, imm));
-		RT = RS & imm;
-		TR(("%d", RT));
-		break;
-	    case OP_BCF:
-		TR(("bc%df %d", (op&3), smm));
-		exception(cpu, EX_CPU, (op&3), 0);
-		break;
-	    case OP_BCT:
-		TR(("bc%dt %d", (op&3), smm));
-		exception(cpu, EX_CPU, (op&3), 0);
-		break;
-	    case OP_BEQ:
-		TRL(("beq %s, %s, %d: %u==%u? ", 
-		      regname(rs), regname(rt), smm, RS, RT));
-		if (RS==RT) {
-			rbranch(cpu, smm<<2);
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
+		    case 0: mx_bltz(cpu, insn); break;
+		    case 1: mx_bgez(cpu, insn); break;
+		    case 16: mx_bltzal(cpu, insn); break;
+		    case 17: mx_bgezal(cpu, insn); break;
+		    default: mx_ill(cpu, insn); break;
 		}
 		break;
-	    case OP_BGEZAL:
-		TRL(("bgezal %s, %d: %d>=0? ", regname(rs), smm, RS));
-		LINK;
-		if (RS>=0) {
-			rbranch(cpu, smm<<2); 
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
-		}
-		break;
-	    case OP_BGEZ:
-		TRL(("bgez %s, %d: %d>=0? ", regname(rs), smm, RS));
-		if (RS>=0) {
-			rbranch(cpu, smm<<2);
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
-		}
-		break;
-	    case OP_BLTZAL:
-		TRL(("bltzal %s, %d: %d<0? ", regname(rs), smm, RS));
-		LINK;
-		if (RS<0) {
-			rbranch(cpu, smm<<2);
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
-		}
-		break;
-	    case OP_BLTZ:
-		TRL(("bltz %s, %d: %d<0? ", regname(rs), smm, RS));
-		if (RS<0) {
-			rbranch(cpu, smm<<2);
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
-		}
-		break;
-	    case OP_BGTZ:
-		TRL(("bgtz %s, %d: %d>0? ", regname(rs), smm, RS));
-		if (RS>0) {
-			rbranch(cpu, smm<<2);
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
-		}
-		break;
-	    case OP_BLEZ:
-		TRL(("blez %s, %d: %d<=0? ", regname(rs), smm, RS));
-		if (RS<=0) {
-			rbranch(cpu, smm<<2);
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
-		}
-		break;
-	    case OP_BNE:
-		TRL(("bne %s, %s, %d: %u!=%u? ", 
-		      regname(rs), regname(rt), smm, RS, RT));
-		if (RS!=RT) {
-			rbranch(cpu, smm<<2);
-			TR(("yes"));
-		}
-		else {
-			TR(("no"));
-		}
-		break;
-	    case OP_CF:
-		TR(("cfc%d %s, $%u", op&3, regname(rt), rd));
-		exception(cpu, EX_CPU, (op&3), 0);
-		break;
-	    case OP_CT:
-		TR(("ctc%d %s, $%u", op&3, regname(rt), rd));
-		exception(cpu, EX_CPU, (op&3), 0);
-		break;
-	    case OP_J:
-		TR(("j 0x%x", targ<<2));
-		ibranch(cpu, targ<<2);
-		break;
-	    case OP_JAL:
-		TR(("jal 0x%x", targ<<2));
-		LINK;
-		ibranch(cpu, targ<<2);
-		break;
-	    case OP_LB:
-		TRL(("lb %s, %d(%s): [%x] -> ", 
-		     regname(rt), smm, regname(rs), RS+smm));
-		doload(cpu, S_SBYTE, RS+smm, (u_int32_t *) &RT);
-		TR(("%d", RT));
-		break;
-	    case OP_LBU:
-		TRL(("lbu %s, %d(%s): [%x] -> ",
-		     regname(rt), smm, regname(rs), RS+smm));
-		doload(cpu, S_UBYTE, RS+smm, (u_int32_t *) &RT);
-		TR(("%d", RT));
-		break;
-	    case OP_LH:
-		TRL(("lh %s, %d(%s): [%x] -> ", 
-		     regname(rt), smm, regname(rs), RS+smm));
-		doload(cpu, S_SHALF, RS+smm, (u_int32_t *) &RT);
-		TR(("%d", RT));
-		break;
-	    case OP_LHU:
-		TRL(("lhu %s, %d(%s): [%x] -> ", 
-		      regname(rt), smm, regname(rs), RS+smm));
-		doload(cpu, S_UHALF, RS+smm, (u_int32_t *) &RT);
-		TR(("%d", RT));
-		break;
-	    case OP_LUI:
-		TR(("lui %s 0x%x", regname(rt), imm));
-		RT = imm << 16;
-		break;
-	    case OP_LW:
-		TRL(("lw %s, %d(%s): [%x] -> ", 
-		      regname(rt), smm, regname(rs), RS+smm));
-		doload(cpu, S_WORD, RS+smm, (u_int32_t *) &RT);
-		TR(("%d", RT));
-		break;
-	    case OP_LWC:
-		TR(("lwc%d $%u, %d(%s)", op&3, rt, smm, regname(rs)));
-		dolwc(cpu, op&3, RS+smm, rt);
-		break;
-	    case OP_LWL:
-		TRL(("lwl %s, %d(%s): [%x] -> ", 
-		     regname(rt), smm, regname(rs), RS+smm));
-		doload(cpu, S_WORDL, RS+smm, (u_int32_t *) &RT);
-		TR(("0x%x", RT));
-		break;
-	    case OP_LWR:
-		TRL(("lwr %s, %d(%s): [%x] -> ", 
-		     regname(rt), smm, regname(rs), RS+smm));
-		doload(cpu, S_WORDR, RS+smm, (u_int32_t *) &RT);
-		TR(("0x%x", RT));
-		break;
-	    case OP_SB:
-		TR(("sb %s, %d(%s): %d -> [%x]", 
-		    regname(rt), smm, regname(rs), RT&0xff, RS+smm));
-		dostore(cpu, S_UBYTE, RS+smm, RT);
-		break;
-	    case OP_SH:
-		TR(("sh %s, %d(%s): %d -> [%x]", 
-		      regname(rt), smm, regname(rs), RT&0xffff, RS+smm));
-		dostore(cpu, S_UHALF, RS+smm, RT);
-		break;
-	    case OP_SW:
-		TR(("sw %s, %d(%s): %d -> [%x]", 
-		    regname(rt), smm, regname(rs), RT, RS+smm));
-		dostore(cpu, S_WORD, RS+smm, RT);
-		break;
-	    case OP_SWC:
-		TR(("swc%d $%u, %d(%s)", op&3, rt, smm, regname(rs)));
-		doswc(cpu, op&3, RS+smm, rt);
-		break;
-	    case OP_SWL:
-		TR(("swl %s, %d(%s): 0x%x -> [%x]", 
-		    regname(rt), smm, regname(rs), RT, RS+smm));
-		dostore(cpu, S_WORDL, RS+smm, RT);
-		break;
-	    case OP_SWR:
-		TR(("swr %s, %d(%s): 0x%x -> [%x]", 
-		    regname(rt), smm, regname(rs), RT, RS+smm));
-		dostore(cpu, S_WORDR, RS+smm, RT);
-		break;
-	    case OP_BREAK:
-		TR(("break"));
-
-		/*
-		 * If we're in the range that we can debug in (that
-		 * is, not the TLB-mapped segments), activate the
-		 * kernel debugging hooks.
-		 */
-		
-		if (gdb_canhandle(cpu->expc)) {
-			phony_exception(cpu);
-			hitbp = 1;
-		}
-		else {
-			exception(cpu, EX_BP, 0, 0);
-		}
-		break;
-	    case OP_DIV:
-		TRL(("div %s %s: %d / %d -> ", 
-		     regname(rs), regname(rt), RS, RT));
-		if (RT==0) {
-			/* What's the right exception? XXX */
-			exception(cpu, EX_RI, 0, 0);
-			TR(("ERR"));
-		}
-		else {
-			WHILO;
-			cpu->lo = RS/RT;
-			cpu->hi = RS%RT;
-			SETHILO(2);
-			TR(("%d, remainder %d", cpu->lo, cpu->hi));
-		}
-		break;
-	    case OP_DIVU:
-		TRL(("divu %s %s: %u / %u -> ", 
-		     regname(rs), regname(rt), RS, RT));
-		if (RTU==0) {
-			/* What's the right exception? XXX */
-			exception(cpu, EX_RI, 0, 0);
-			TR(("ERR"));
-		}
-		else {
-			WHILO;
-			cpu->lo=RSU/RTU;
-			cpu->hi=RSU%RTU;
-			SETHILO(2);
-			TR(("%u, remainder %u", cpu->lo, cpu->hi));
-		}
-		break;
-	    case OP_JR:
-		TR(("jr %s: 0x%x", regname(rs), RS));
-		abranch(cpu, RS);
-		break;
-	    case OP_JALR:
-		TR(("jalr %s, %s: 0x%x", regname(rd), regname(rs), RS));
-		LINK2(rd);
-		abranch(cpu, RS);
-		break;
-	    case OP_MF:
-		TRL(("mfc%d %s, $%u: ... -> ", op&3, regname(rt), rd));
-		domf(cpu, (op&3), rd, &RT);
-		TR(("0x%x", RT));
-		break;
-	    case OP_MFHI:
-		TRL(("mfhi %s: ... -> ", regname(rd)));
-		WHI;
-		RD = cpu->hi;
-		SETHI(2);
-		TR(("0x%x", RD));
-		break;
-	    case OP_MFLO:
-		TRL(("mflo %s: ... -> ", regname(rd)));
-		WLO;
-		RD = cpu->lo;
-		SETLO(2);
-		TR(("0x%x", RD));
-		break;
-	    case OP_MT:
-		TR(("mtc%d %s, $%u: 0x%x -> ...", op&3, regname(rt), rd, RT));
-		domt(cpu, (op&3), rd, RT);
-		break;
-	    case OP_MTHI:
-		TR(("mthi %s: 0x%x -> ...", regname(rs), RS));
-		WHI;
-		cpu->hi = RS;
-		SETHI(2);
-		break;
-	    case OP_MTLO:
-		TR(("mtlo %s: 0x%x -> ...", regname(rs), RS));
-		WLO;
-		cpu->lo = RS;
-		SETLO(2);
-		break;
-	    case OP_MULT:
-		TRL(("mult %s, %s: %d * %d -> ", 
-		     regname(rs), regname(rt), RS, RT));
-		WHILO;
-		t64=(int64_t)RS*(int64_t)RT;
-		cpu->hi = (t64>>32);
-		cpu->lo = (u_int32_t)(u_int64_t)t64;
-		SETHILO(2);
-		TR(("%d %d", cpu->hi, cpu->lo));
-		break;
-	    case OP_MULTU:
-		TRL(("multu %s, %s: %u * %u -> ", 
-		     regname(rs), regname(rt), RS, RT));
-		WHILO;
-		t64=(u_int64_t)RSU*(u_int64_t)RTU;
-		cpu->hi = (t64>>32);
-		cpu->lo = (u_int32_t)(u_int64_t)t64;
-		SETHILO(2);
-		TR(("%u %u", cpu->hi, cpu->lo));
-		break;
-	    case OP_NOR:
-		TRL(("nor %s, %s, %s: ~(0x%x | 0x%x) -> ",
-		     regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = ~(RS | RT);
-		TR(("0x%x", RD));
-		break;
-	    case OP_OR:
-		TRL(("or %s, %s, %s: 0x%x | 0x%x -> ", 
-		     regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = RS | RT;
-		TR(("0x%x", RD));
-		break;
-	    case OP_ORI:
-		TRL(("ori %s, %s, %u: 0x%x | 0x%x -> ", 
-		     regname(rt), regname(rs), imm, RS, imm));
-		RT = RS | imm;
-		TR(("0x%x", RT));
-		break;
-	    case OP_RFE:
-		TR(("rfe"));
-		do_rfe(cpu);
-		break;
-	    case OP_SLL:
-		TRL(("sll %s, %s, %u: 0x%x << %d -> ", 
-		     regname(rd), regname(rt), sh, RT, sh));
-		RD = RT << sh;
-		TR(("0x%x", RD));
-		break;
-	    case OP_SLLV:
-		TRL(("sllv %s, %s, %s: 0x%x << %d -> ", 
-		     regname(rd), regname(rt), regname(rs), RT, (RS&31)));
-		RD = RT << (RS&31);
-		TR(("0x%x", RD));
-		break;
-	    case OP_SLT:
-		TRL(("slt %s, %s, %s: %d < %d -> ", 
-		       regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = RS < RT;
-		TR(("0x%x", RD));
-		break;
-	    case OP_SLTI:
-		TRL(("slti %s, %s, %d: %d < %d -> ", 
-		     regname(rt), regname(rs), smm, RS, smm));
-		RT = RS < smm;
-		TR(("%d", RT));
-		break;
-	    case OP_SLTIU:
-		TRL(("sltiu %s, %s, %u: %u < %u -> ", 
-		     regname(rt), regname(rs), imm, RS, smm));
-		// Yes, the immediate is sign-extended then treated as
-		// unsigned, according to my mips book. Blech.
-		RT = RSU < (u_int32_t) smm;
-		TR(("%d", RT));
-		break;
-	    case OP_SLTU:
-		TRL(("sltu %s, %s, %s: %u < %u -> ", 
-		     regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = RSU < RTU;
-		TR(("0x%x", RD));
-		break;
-	    case OP_SRA:
-		TRL(("sra %s, %s, %u: 0x%x >> %d -> ", 
-		     regname(rd), regname(rt), sh, RT, sh));
-		RD = RT >> sh;
-		TR(("0x%x", RD));
-		break;
-	    case OP_SRAV:
-		TRL(("srav %s, %s, %s: 0x%x >> %d -> ", 
-		     regname(rd), regname(rt), regname(rs), RT, (RS&31)));
-		RD = RT >> (RS&31);
-		TR(("0x%x", RD));
-		break;
-	    case OP_SRL:
-		TRL(("srl %s, %s, %u: 0x%x >> %d -> ", 
-		     regname(rd), regname(rt), sh, RT, sh));
-		RD = RTU >> sh;
-		TR(("0x%x", RD));
-		break;
-	    case OP_SRLV:
-		TRL(("srlv %s, %s, %s: 0x%x >> %d -> ", 
-		     regname(rd), regname(rt), regname(rs), RT,  (RS&31)));
-		RD = RTU >> (RS&31);
-		TR(("0x%x", RD));
-		break;
-	    case OP_SUB:
-		TRL(("sub %s, %s, %s: %d - %d -> ", 
-		     regname(rd), regname(rs), regname(rt), RS, RT));
-		t64 = (int64_t)RS - (int64_t)RT;
-		CHKOVF(t64);
-		RD = (int32_t)t64;
-		TR(("%d", RD));
-		break;
-	    case OP_SUBU:
-		TRL(("subu %s, %s, %s: %d - %d -> ", 
-		     regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = RS - RT;
-		TR(("%d", RD));
-		break;
-	    case OP_SYSCALL:
-		TR(("syscall"));
-		exception(cpu, EX_SYS, 0, 0);
-		break;
-	    case OP_TLBP:
-		TR(("tlbp"));
-		probetlb(cpu);
-		break;
-	    case OP_TLBR:
-		TR(("tlbr"));
-		cpu->tlbentry = cpu->tlb[TLBIX(cpu->tlbindex)];
-		TRACEL(DOTRACE_TLB, ("tlbr:  [%2d] ", TLBIX(cpu->tlbindex)));
-		TLBTR(cpu->tlbentry);
-		TRACE(DOTRACE_TLB, (" "));
-		break;
-	    case OP_TLBWI:
-		TR(("tlbwi"));
-		TRACEL(DOTRACE_TLB,("tlbwi: [%2d] ", TLBIX(cpu->tlbindex)));
-		TLBTR(cpu->tlb[TLBIX(cpu->tlbindex)]);
-		TRACEL(DOTRACE_TLB, (" ==> "));
-		TLBTR(cpu->tlbentry);
-		TRACE(DOTRACE_TLB, (" "));
-		cpu->tlb[TLBIX(cpu->tlbindex)] = cpu->tlbentry;
-		check_tlb_dups(cpu, TLBIX(cpu->tlbindex));
-		break;
-	    case OP_TLBWR:
-		TR(("tlbwr"));
-		TRACEL(DOTRACE_TLB,("tlbwr: [%2d] ", TLBIX(cpu->tlbrandom)));
-		TLBTR(cpu->tlb[TLBIX(cpu->tlbrandom)]);
-		TRACEL(DOTRACE_TLB, (" ==> "));
-		TLBTR(cpu->tlbentry);
-		TRACE(DOTRACE_TLB, (" "));
-		cpu->tlb[TLBIX(cpu->tlbrandom)] = cpu->tlbentry;
-		check_tlb_dups(cpu, TLBIX(cpu->tlbrandom));
-		break;
-	    case OP_WAIT:
-		TR(("wait"));
-		do_wait(cpu);
-		break;
-	    case OP_XOR:
-		TRL(("xor %s, %s, %s: 0x%x ^ 0x%x -> ",
-		     regname(rd), regname(rs), regname(rt), RS, RT));
-		RD = RS ^ RT;
-		TR(("0x%x", RD));
-		break;
-	    case OP_XORI:
-		TRL(("xori %s, %s, %u: 0x%x ^ 0x%x -> ",
-		     regname(rd), regname(rs), imm, RS, imm));
-		RT = RS ^ imm;
-		TR(("0x%x", RT));
-		break;
-	    case OP_ILL:
-	    default:
-		TR(("[illegal instruction]"));
-		exception(cpu, EX_RI, 0, 0); break; 
-            pipeline_stall:
-		cpu->nextpc = cpu->pc;
-		cpu->pc = cpu->expc;
-		break;
-            overflow:
-		exception(cpu, EX_OVF, 0, 0); break;
+	    case OPM_J: mx_j(cpu, insn); break;
+	    case OPM_JAL: mx_jal(cpu, insn); break;
+	    case OPM_BEQ: mx_beq(cpu, insn); break;
+	    case OPM_BNE: mx_bne(cpu, insn); break;
+	    case OPM_BLEZ: mx_blez(cpu, insn); break;
+	    case OPM_BGTZ: mx_bgtz(cpu, insn); break;
+	    case OPM_ADDI: mx_addi(cpu, insn); break;
+	    case OPM_ADDIU: mx_addiu(cpu, insn); break;
+	    case OPM_SLTI: mx_slti(cpu, insn); break;
+	    case OPM_SLTIU: mx_sltiu(cpu, insn); break;
+	    case OPM_ANDI: mx_andi(cpu, insn); break;
+	    case OPM_ORI: mx_ori(cpu, insn); break;
+	    case OPM_XORI: mx_xori(cpu, insn); break;
+	    case OPM_LUI: mx_lui(cpu, insn); break;
+	    case OPM_COP0:
+	    case OPM_COP1:
+	    case OPM_COP2:
+	    case OPM_COP3: mx_copz(cpu, insn); break;
+	    case OPM_LB: mx_lb(cpu, insn); break;
+	    case OPM_LH: mx_lh(cpu, insn); break;
+	    case OPM_LWL: mx_lwl(cpu, insn); break;
+	    case OPM_LW: mx_lw(cpu, insn); break;
+	    case OPM_LBU: mx_lbu(cpu, insn); break;
+	    case OPM_LHU: mx_lhu(cpu, insn); break;
+	    case OPM_LWR: mx_lwr(cpu, insn); break;
+	    case OPM_SB: mx_sb(cpu, insn); break;
+	    case OPM_SH: mx_sh(cpu, insn); break;
+	    case OPM_SWL: mx_swl(cpu, insn); break;
+	    case OPM_SW: mx_sw(cpu, insn); break;
+	    case OPM_SWR: mx_swr(cpu, insn); break;
+	    case OPM_LWC0:
+	    case OPM_LWC1:
+	    case OPM_LWC2:
+	    case OPM_LWC3: mx_lwc(cpu, insn); break;
+	    case OPM_SWC0:
+	    case OPM_SWC1:
+	    case OPM_SWC2:
+	    case OPM_SWC3: mx_swc(cpu, insn); break;
+	    default: mx_ill(cpu, insn); break;
 	}
 
 	if (cpu->lowait > 0) {
@@ -1598,19 +2582,12 @@ mips_run(struct mipscpu *cpu)
 
 	cpu->in_jumpdelay = 0;
 	
-	{
-		int ix = ((cpu->tlbrandom >> 8) & 0x3f);
-		ix = (ix+1)&0x3f;
-		if (ix<8) ix = 8;
-		cpu->tlbrandom = ix<<8;
-	}
+	cpu->tlbrandom++;
 
-	return hitbp;
+	return 1;
 }
 
 /*************************************************************/
-
-static struct mipscpu mycpu;
 
 void
 cpu_init(void)
@@ -1618,31 +2595,75 @@ cpu_init(void)
 	mips_init(&mycpu);
 }
 
-int
-cpu_cycle(void)
+void
+cpu_dumpstate(void)
 {
-	/*
-	 * Use hardware interrupt 0 for IRQ and 1 for NMI.
-	 * The other four we don't use.
-	 */
-	const u_int32_t irqmask = 0x00000400;
-	const u_int32_t nmimask = 0x00000800;
-	const u_int32_t allmask = 0x0000fc00;
+	int i;
 
-	u_int32_t mask = 0;
-
-	if (cpu_irq_line) {
-		// generates too much crap
-		//TRACE(DOTRACE_IRQ, ("Raising MIPS irq"));
-		mask |= irqmask;
+	msg("1 cpu: MIPS r2000");
+	for (i=0; i<NREGS; i++) {
+		msgl("r%d:%s 0x%08lx  ", i, i<10 ? " " : "",
+		     (unsigned long) mycpu.r[i]);
+		if (i%4==3) {
+			msg(" ");
+		}
 	}
-	if (cpu_nmi_line) {
-		//TRACE(DOTRACE_IRQ, ("Raising MIPS nmi"));
-		mask |= nmimask;
-	}
-	mycpu.ex_cause = (mycpu.ex_cause & ~allmask) | mask;
+	msg("lo:  0x%08lx  hi:  0x%08lx  pc:  0x%08lx  npc: 0x%08lx", 
+	    (unsigned long) mycpu.lo,
+	    (unsigned long) mycpu.hi,
+	    (unsigned long) mycpu.pc,
+	    (unsigned long) mycpu.nextpc);
 
-	return mips_run(&mycpu);
+	for (i=0; i<NTLB; i++) {
+		tlbmsg("TLB", i, &mycpu.tlb[i]);
+	}
+	tlbmsg("TLB", -1, &mycpu.tlbentry);
+	msg("tlb index: %d %s", mycpu.tlbindex, 
+	    mycpu.tlbpf ? "[last probe failed]" : "");
+	msg("tlb random: %d", (mycpu.tlbrandom%RANDREG_MAX)+RANDREG_OFFSET);
+
+	msgl("Status register: ");
+	msgl("%s%s%s%s-----",
+	     mycpu.status_bits & 0x80000000 ? "3" : "-",
+	     mycpu.status_bits & 0x40000000 ? "2" : "-",
+	     mycpu.status_bits & 0x20000000 ? "1" : "-",
+	     mycpu.status_bits & 0x10000000 ? "0" : "-");
+	msgl("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+	     mycpu.status_bits & 0x00400000 ? "B" : "-",
+	     mycpu.status_bits & 0x00200000 ? "T" : "-",
+	     mycpu.status_bits & 0x00100000 ? "E" : "-",
+	     mycpu.status_bits & 0x00080000 ? "M" : "-",
+	     mycpu.status_bits & 0x00040000 ? "Z" : "-",
+	     mycpu.status_bits & 0x00020000 ? "S" : "-",
+	     mycpu.status_bits & 0x00010000 ? "I" : "-",
+	     mycpu.status_bits & 0x00008000 ? "h" : "-",
+	     mycpu.status_bits & 0x00004000 ? "h" : "-",
+	     mycpu.status_bits & 0x00002000 ? "h" : "-",
+	     mycpu.status_bits & 0x00001000 ? "h" : "-",
+	     mycpu.status_bits & 0x00000800 ? "h" : "-",
+	     mycpu.status_hardmask ? "H" : "-",
+	     mycpu.status_softmask & 0x0200 ? "S" : "-",
+	     mycpu.status_softmask & 0x0100 ? "S" : "-");
+	msg("--%s%s%s%s%s%s",
+	    mycpu.old_usermode ? "U" : "-",
+	    mycpu.old_irqon ? "I" : "-",
+	    mycpu.prev_usermode ? "U" : "-",
+	    mycpu.prev_irqon ? "I" : "-",
+	    mycpu.current_usermode ? "U" : "-",
+	    mycpu.current_irqon ? "I" : "-");
+
+	msg("Cause register: %s %d -----%s%s%s %d [%s]",
+	    mycpu.cause_bd ? "B" : "-",
+	    mycpu.cause_ce >> 28,
+	    bus_interrupts ? "H" : "-",
+	    (mycpu.cause_softirq & 0x200) ? "S" : "-",
+	    (mycpu.cause_softirq & 0x100) ? "S" : "-",
+	    mycpu.cause_code >> 2,
+	    exception_name(mycpu.cause_code>>2));
+
+	msg("VAddr register: 0x%08lx", (unsigned long)mycpu.ex_vaddr);
+	msg("Context register: 0x%08lx", (unsigned long)mycpu.ex_context);
+	msg("EPC register: 0x%08lx", (unsigned long)mycpu.ex_epc);
 }
 
 #define BETWEEN(addr, size, base, top) \
@@ -1678,9 +2699,19 @@ cpu_get_load_vaddr(u_int32_t paddr, u_int32_t size, u_int32_t *vaddr)
 void
 cpu_set_entrypoint(u_int32_t addr)
 {
-	mycpu.pc = addr;
+	if ((addr & 0x3) != 0) {
+		hang("Kernel entry point is not properly aligned");
+		addr &= 0xfffffffc;
+	}
 	mycpu.expc = addr;
+	mycpu.pc = addr;
 	mycpu.nextpc = addr+4;
+	if (precompute_pc(&mycpu)) {
+		hang("Kernel entry point is an invalid address");
+	}
+	if (precompute_nextpc(&mycpu)) {
+		hang("Kernel entry point is an invalid address");
+	}
 }
 
 void
@@ -1700,11 +2731,82 @@ cpudebug_get_bp_region(u_int32_t *start, u_int32_t *end)
 }
 
 int
-cpudebug_translate_address(u_int32_t va, u_int32_t size, u_int32_t *pa)
+cpudebug_fetch_byte(u_int32_t va, u_int8_t *byte)
 {
-	/* Same behavior as cpu_get_load_paddr wanted. */
-	return cpu_get_load_paddr(va, size, pa);
+	u_int32_t pa;
+
+	/*
+	 * For now, only allow KSEG0/1
+	 */
+	
+	if (debug_translatemem(&mycpu, va, 0, &pa)) {
+		return -1;
+	}
+
+	if (bus_mem_fetchbyte(pa, byte)) {
+		return -1;
+	}
+	return 0;
 }
+
+int
+cpudebug_fetch_word(u_int32_t va, u_int32_t *word)
+{
+	u_int32_t pa;
+
+	/*
+	 * For now, only allow KSEG0/1
+	 */
+	
+
+	if (debug_translatemem(&mycpu, va, 0, &pa)) {
+		return -1;
+	}
+
+	if (bus_mem_fetch(pa, word)) {
+		return -1;
+	}
+	return 0;
+}
+
+int
+cpudebug_store_byte(u_int32_t va, u_int8_t byte)
+{
+	u_int32_t pa;
+
+	/*
+	 * For now, only allow KSEG0/1
+	 */
+	
+	if (debug_translatemem(&mycpu, va, 1, &pa)) {
+		return -1;
+	}
+
+	if (bus_mem_storebyte(pa, byte)) {
+		return -1;
+	}
+	return 0;
+}
+
+int
+cpudebug_store_word(u_int32_t va, u_int32_t word)
+{
+	u_int32_t pa;
+
+	/*
+	 * For now, only allow KSEG0/1
+	 */
+	
+	if (debug_translatemem(&mycpu, va, 1, &pa)) {
+		return -1;
+	}
+
+	if (bus_mem_store(pa, word)) {
+		return -1;
+	}
+	return 0;
+}
+
 
 static
 inline
@@ -1725,11 +2827,11 @@ cpudebug_getregs(u_int32_t *regs, int maxregs, int *nregs)
 	for (i=0; i<NREGS; i++) {
 		GETREG(mycpu.r[i]);
 	}
-	GETREG(mycpu.ex_status);
+	GETREG(getstatus(&mycpu));
 	GETREG(mycpu.lo);
 	GETREG(mycpu.hi);
 	GETREG(mycpu.ex_vaddr);
-	GETREG(mycpu.ex_cause);
+	GETREG(getcause(&mycpu));
 	GETREG(mycpu.pc);
 	*nregs = j;
 }

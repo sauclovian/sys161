@@ -1,11 +1,10 @@
 #include <sys/types.h>
-#include <sys/time.h>  // posix place for select()
-#include <unistd.h>    // BSD place for select()
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "config.h"
 
+#include "util.h"
 #include "bus.h"
 #include "cpu.h"
 #include "speed.h"
@@ -14,18 +13,19 @@
 #include "onsel.h"
 #include "clock.h"
 #include "main.h"
+#include "memdefs.h"
 
 #include "lamebus.h"
 #include "busids.h"
 #include "busdefs.h"
-#include "ram.h"
 
 /*
  * Maximum amount of physical memory we allow.
  * For now, 16M.
  */
 
-const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.22 2001/06/04 21:41:49 dholland Exp $";
+const char rcsid_lamebus_c[] =
+    "$Id: lamebus.c,v 1.26 2001/07/18 23:49:47 dholland Exp $";
 
 #define MAXMEM (16*1024*1024)
 
@@ -34,8 +34,6 @@ const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.22 2001/06/04 21:41:49 dholla
  */
 u_int32_t bus_ramsize;
 u_int32_t bus_interrupts;
-int cpu_irq_line=0;
-int cpu_nmi_line=0;
 
 /*
  * A slot.
@@ -49,36 +47,6 @@ static struct lamebus_slot devices[LAMEBUS_NSLOTS];
 char *ram;
 
 /***************************************************************/
-
-void
-bus_forward_interrupts(void)
-{
-	cpu_irq_line = (bus_interrupts != 0);
-	cpu_nmi_line = 0;
-}
-
-/***************************************************************/
-
-/*
- * Fetch physical memory.
- */
-int
-bus_mem_fetch(u_int32_t offset, u_int32_t *ret)
-{
-	char *ptr;
-	
-	if (offset >= bus_ramsize) {
-		/* No such memory */
-		return -1;
-	}
-
-	Assert((offset & 0x3)==0);
-	
-	ptr = ram+offset;
-	*ret = ntohl(*(u_int32_t *)ptr);
-	
-	return 0;
-}
 
 /*
  * Fetch device register.
@@ -102,27 +70,6 @@ bus_io_fetch(u_int32_t offset, u_int32_t *ret)
 
 	return devices[slot].ls_info->ldi_fetch(devices[slot].ls_devdata,
 						slotoffset, ret);
-}
-
-/*
- * Store to physical memory.
- */
-int
-bus_mem_store(u_int32_t offset, u_int32_t val)
-{
-	char *ptr;
-
-	if (offset >= bus_ramsize) {
-		/* No such memory */
-		return -1;
-	}
-
-	Assert((offset & 0x3)==0);
-
-	ptr = ram+offset;
-	*(u_int32_t *)ptr = htonl(val);
-	
-	return 0;
 }
 
 /*
@@ -277,8 +224,9 @@ dopoweroff(void *junk1, u_int32_t junk2)
 	main_poweroff();
 }
 
-static int lamebus_controller_store(void *data, u_int32_t offset, 
-				   u_int32_t val)
+static
+int
+lamebus_controller_store(void *data, u_int32_t offset, u_int32_t val)
 {
 	u_int32_t cfg, cfgoffset;
 	(void)data;
@@ -290,7 +238,8 @@ static int lamebus_controller_store(void *data, u_int32_t offset,
 	switch (cfgoffset) {
 	    case LBC_OFFSET_POWER:
 		if (val==0) {
-			schedule_event(POWEROFF_NSECS, NULL, 0, dopoweroff);
+			schedule_event(POWEROFF_NSECS, NULL, 0, dopoweroff,
+				       "poweroff");
 		}
 		return 0;
 	    default:
@@ -300,6 +249,18 @@ static int lamebus_controller_store(void *data, u_int32_t offset,
 	return -1;
 }
 
+static
+void
+lamebus_controller_dumpstate(void *data)
+{
+	(void)data;
+	msg("LAMEbus controller rev %d", BUSCTL_REVISION);
+	msg("    ramsize: %lu (%luk)", 
+	    (unsigned long)bus_ramsize, 
+	    (unsigned long)bus_ramsize/1024);
+	msg("    irqs: 0x%08x", bus_interrupts);
+}
+
 static struct lamebus_device_info lamebus_controller_info = {
 	LBVEND_CS161,
 	LBVEND_CS161_CTL,
@@ -307,6 +268,7 @@ static struct lamebus_device_info lamebus_controller_info = {
 	lamebus_controller_init,
 	lamebus_controller_fetch,
 	lamebus_controller_store,
+	lamebus_controller_dumpstate,
 	NULL,
 };
 
@@ -326,6 +288,7 @@ static const struct bus_device devtable[] = {
 	{ "screen",     &screen_device_info },
 	{ "nic",        &net_device_info },
 	{ "emufs",      &emufs_device_info },
+	{ "trace",      &trace_device_info },
 	{ "random",     &random_device_info },
 	{ NULL, NULL }
 };
@@ -465,4 +428,21 @@ bus_cleanup(void)
 		}
 		devices[i].ls_info->ldi_cleanup(devices[i].ls_devdata);
 	}
+}
+
+void
+bus_dumpstate(void)
+{
+	int i;
+
+	for (i=0; i<LAMEBUS_NSLOTS; i++) {
+		if (devices[i].ls_info==NULL) {
+			continue;
+		}
+		msg("************ Slot %d ************", i);
+		devices[i].ls_info->ldi_dumpstate(devices[i].ls_devdata);
+	}
+
+	msg("RAM:");
+	dohexdump(ram, bus_ramsize);
 }

@@ -17,7 +17,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.18 2001/06/07 20:01:51 dholland Exp $";
+    "$Id: dev_disk.c,v 1.21 2001/07/21 23:51:54 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -154,9 +154,16 @@ doread(int fd, off_t offset, char *buf, size_t bufsize)
 			return -1;
 		}
 		if (r==0) {
-			/* Unexpected EOF */
-			errno = ENXIO;  /* not a very good errno... */
-			return -1;
+			/* 
+			 * Unexpected EOF.
+			 * This means that the file isn't as large as
+			 * it's supposed to be. This can happen, if,
+			 * for instance, someone creats a 5M image,
+			 * and then changes the config to say 10M.
+			 * Pretend we read back zeros.
+			 */
+			memset(buf+tot, 0, bufsize-tot);
+			r = bufsize-tot;
 		}
 		tot += r;
 	}
@@ -184,8 +191,16 @@ dowrite(int fd, off_t offset, const char *buf, size_t bufsize, int paranoid)
 			return -1;
 		}
 		if (r==0) {
-			/* ? */
-			errno = ENXIO;  /* not a very good errno... */
+			/*
+			 * :-?
+			 */
+
+			msg("disk: unexpected short write");
+			msg("disk: fd %d, offset %ld, tot %lu, tried %lu",
+			    fd, (long) offset, (unsigned long) tot,
+			    (unsigned long) (bufsize - tot));
+
+			errno = EIO;
 			return -1;
 		}
 		tot += r;
@@ -729,7 +744,7 @@ disk_work(struct disk_data *dd)
 		nsecs = disk_seektime(dd, distance);
 		
 		dd->dd_timedop = 1;
-		schedule_event(nsecs, dd, cyl, disk_seekdone);
+		schedule_event(nsecs, dd, cyl, disk_seekdone, "disk seek");
 		return;
 	}
 
@@ -737,7 +752,8 @@ disk_work(struct disk_data *dd)
 		//TRACE(DOTRACE_DISK, ("disk: slot %d: write copy latency", 
 		//		     dd->dd_slot));
 		dd->dd_timedop = 1;
-		schedule_event(CACHE_WRITE_TIME, dd, 1, disk_waitdone);
+		schedule_event(CACHE_WRITE_TIME, dd, 1, disk_waitdone,
+			       "disk cache write");
 		return;
 	}
 	
@@ -752,7 +768,9 @@ disk_work(struct disk_data *dd)
 			TRACE(DOTRACE_DISK, ("disk: slot %d: rotdelay %u ns", 
 					     dd->dd_slot, rotdelay));
 			dd->dd_timedop = 1;
-			schedule_event(rotdelay, dd, 2, disk_waitdone);
+			schedule_event(rotdelay, dd, 2, disk_waitdone,
+				       "disk rotation");
+			return;
 		}
 		else {
 			TRACE(DOTRACE_DISK, ("disk: slot %d: rotdelay 0 ns", 
@@ -765,7 +783,9 @@ disk_work(struct disk_data *dd)
 		//TRACE(DOTRACE_DISK, ("disk: slot %d: read copy latency", 
 		//		     dd->dd_slot));
 		dd->dd_timedop = 1;
-		schedule_event(CACHE_WRITE_TIME, dd, 3, disk_waitdone);
+		schedule_event(CACHE_WRITE_TIME, dd, 3, disk_waitdone,
+			       "disk cache read");
+		return;
 	}
 
  forceio:
@@ -888,6 +908,34 @@ disk_store(void *data, u_int32_t offset, u_int32_t val)
 	return -1;
 }
 
+static
+void
+disk_dumpstate(void *data)
+{
+	struct disk_data *dd = data;
+
+	msg("CS161 disk rev %d", DISK_REVISION);
+	msg("    Paranoid flag: %s", dd->dd_paranoid ? "ON" : "off");
+	msg("    Tracks: %lu  Total sectors: %lu  RPM: %lu",
+	    (unsigned long) dd->dd_tracks,
+	    (unsigned long) dd->dd_totsectors,
+	    (unsigned long) dd->dd_rpm);
+	msg("    Current track: %d  [arrived: %lu.%09lu]",
+	    dd->dd_current_track,
+	    (unsigned long) dd->dd_trackarrival_secs,
+	    (unsigned long) dd->dd_trackarrival_nsecs);
+	msg("    Status: try %d, code %d, %s", 
+	    dd->dd_worktries,
+	    dd->dd_iostatus,
+	    dd->dd_timedop ? "event in progress" : "idle");
+	msg("    Registers: status 0x%08lx  sector 0x%08lx", 
+	    (unsigned long) dd->dd_stat,
+	    (unsigned long) dd->dd_sect);
+
+	msg("    Transfer buffer:");
+	dohexdump(dd->dd_buf, sizeof(dd->dd_buf));
+}
+
 const struct lamebus_device_info disk_device_info = {
 	LBVEND_CS161,
 	LBVEND_CS161_DISK,
@@ -895,5 +943,6 @@ const struct lamebus_device_info disk_device_info = {
 	disk_init,
 	disk_fetch,
 	disk_store,
+	disk_dumpstate,
 	disk_cleanup,
 };

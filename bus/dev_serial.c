@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <string.h>
+#include <ctype.h>
 #include "config.h"
 
 #include "speed.h"
@@ -13,7 +14,7 @@
 
 
 
-const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.8 2001/06/04 21:41:49 dholland Exp $";
+const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.9 2001/07/18 23:49:47 dholland Exp $";
 
 #define SERREG_CHAR   0x0
 #define SERREG_WIRQ   0x4
@@ -128,7 +129,7 @@ serial_store(void *d, u_int32_t offset, u_int32_t val)
 			    g_stats.s_wchars++;
 			    console_putc(val);
 			    schedule_event(SERIAL_NSECS, sd, 0, 
-					   serial_writedone);
+					   serial_writedone, "serial write");
 		    }
 		    return 0;
 	    case SERREG_RIRQ: 
@@ -164,6 +165,33 @@ serial_init(int slot, int argc, char *argv[])
 	return sd;
 }
 
+static
+void
+serial_dumpstate(void *data)
+{
+	struct ser_data *sd = data;
+	char c[2];
+
+	msg("CS161 serial port rev %d", SERIAL_REVISION);
+	c[0] = sd->sd_readch;
+	c[1] = 0;
+	msg("    Last character typed: %s (%ld)", 
+	    isprint(c[0]) ? c : "(?)",
+	    (unsigned long) sd->sd_readch);
+	msg("    Read interrupts %s%s", 
+	    sd->sd_rirq.si_on ? "active" : "inactive",
+	    sd->sd_rirq.si_ready ? " (asserted)" : "");
+	if (sd->sd_wbusy) {
+		msg("    Write in progress");
+	}
+	else {
+		msg("    Ready for writing");
+	}
+	msg("    Write interrupts %s%s", 
+	    sd->sd_wirq.si_on ? "active" : "inactive",
+	    sd->sd_wirq.si_ready ? " (asserted)" : "");
+}
+
 const struct lamebus_device_info serial_device_info = {
 	LBVEND_CS161,
 	LBVEND_CS161_SERIAL,
@@ -171,5 +199,6 @@ const struct lamebus_device_info serial_device_info = {
 	serial_init,
 	serial_fetch,
 	serial_store,
+	serial_dumpstate,
 	NULL
 };

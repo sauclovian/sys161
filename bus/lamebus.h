@@ -13,6 +13,7 @@ struct lamebus_device_info {
    void   *(*ldi_init)(int slot, int argc, char *argv[]);
    int     (*ldi_fetch)(void *, u_int32_t offset, u_int32_t *rt);
    int     (*ldi_store)(void *, u_int32_t offset, u_int32_t val);
+   void    (*ldi_dumpstate)(void *);
    void    (*ldi_cleanup)(void *);
 };
 
@@ -26,12 +27,13 @@ extern const struct lamebus_device_info
    screen_device_info,
    net_device_info,
    emufs_device_info,
+   trace_device_info,
    random_device_info;
 
 /*
  * Interrupt management.
  */
-extern u_int32_t bus_interrupts;
+extern u_int32_t bus_interrupts;  // NOTICE: also declared in bus.h
 
 #define RAISE_IRQ2(slot) (bus_interrupts |= (1<<(u_int32_t)(slot)))
 #define LOWER_IRQ2(slot) (bus_interrupts &= ~(1<<(u_int32_t)(slot)))

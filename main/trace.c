@@ -6,7 +6,7 @@
 #include "trace.h"
 
 const char rcsid_trace_c[] = 
-	"$Id: trace.c,v 1.3 2001/06/08 21:37:58 dholland Exp $";
+	"$Id: trace.c,v 1.4 2001/07/09 22:14:18 dholland Exp $";
 
 #ifdef USE_TRACE
 
@@ -40,6 +40,20 @@ set_traceflag(int ch)
 		if (flaginfo[j].ch == ch) {
 			f = flaginfo[j].flag;
 			g_traceflags[f] = !g_traceflags[f];
+			return 0;
+		}
+	}
+	return -1;
+}
+
+int
+adjust_traceflag(int letter, int onoff)
+{
+	int j, f;
+	for (j=0; flaginfo[j].ch >= 0; j++) {
+		if (flaginfo[j].ch == letter) {
+			f = flaginfo[j].flag;
+			g_traceflags[f] = onoff;
 			return 0;
 		}
 	}

@@ -18,7 +18,7 @@
 #include "lamebus.h"
 
 const char rcsid_dev_net_c[] = 
-    "$Id: dev_net.c,v 1.9 2001/06/08 22:04:56 dholland Exp $";
+    "$Id: dev_net.c,v 1.11 2001/07/18 23:49:47 dholland Exp $";
 
 #define NETREG_READINTR    0
 #define NETREG_WRITEINTR   4
@@ -157,7 +157,7 @@ keepalive(void *data, u_int32_t junk)
 				    nd->nd_slot));
 	}
 
-	schedule_event(1000000000, nd, 0, keepalive);
+	schedule_event(1000000000, nd, 0, keepalive, "net keepalive");
 }
 
 static
@@ -394,7 +394,7 @@ net_init(int slot, int argc, char *argv[])
 {
 	struct net_data *nd = domalloc(sizeof(struct net_data));
 	const char *hubname = ".sockets/hub";
-	u_int16_t hwaddr = 0;
+	u_int16_t hwaddr = HUB_ADDR;
 
 	struct sockaddr_un mysun;
 
@@ -406,15 +406,16 @@ net_init(int slot, int argc, char *argv[])
 		}
 		else if (!strncmp(argv[i], "hwaddr=", 7)) {
 			hwaddr = atoi(argv[i]+7);
-			if (hwaddr == BROADCAST_ADDR || hwaddr == HUB_ADDR) {
-				msg("nic: slot %d: invalid hwaddr", slot);
-				die();
-			}
 		}
 		else {
 			msg("nic: slot %d: invalid option %s", slot, argv[i]);
 			die();
 		}
+	}
+
+	if (hwaddr == BROADCAST_ADDR || hwaddr == HUB_ADDR) {
+		msg("nic: slot %d: invalid hwaddr or hwaddr not set", slot);
+		die();
 	}
 
 	nd->nd_slot = slot;
@@ -455,6 +456,25 @@ net_init(int slot, int argc, char *argv[])
 	return nd;
 }
 
+static
+void
+net_dumpstate(void *data)
+{
+	struct net_data *nd = data;
+	msg("CS161 network interface rev %d", NET_REVISION);
+	msg("    Hub: %s", nd->nd_hubaddr.sun_path);
+	msg("    Carrier: %s", nd->nd_lostcarrier ? "none" : "detected");
+	msg("    rirq: %lu  wirq: %lu  control: %lu  status: 0x%04lx",
+	    (unsigned long) nd->nd_rirq,
+	    (unsigned long) nd->nd_wirq,
+	    (unsigned long) nd->nd_control,
+	    (unsigned long) nd->nd_status);
+	msg("    rx buffer:");
+	dohexdump(nd->nd_rbuf, sizeof(nd->nd_rbuf));
+	msg("    tx buffer:");
+	dohexdump(nd->nd_wbuf, sizeof(nd->nd_wbuf));
+}
+
 const struct lamebus_device_info net_device_info = {
 	LBVEND_CS161,
 	LBVEND_CS161_NET,
@@ -462,5 +482,6 @@ const struct lamebus_device_info net_device_info = {
 	net_init,
 	net_fetch,
 	net_store,
+	net_dumpstate,
 	net_cleanup,
 };

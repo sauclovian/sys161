@@ -10,7 +10,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.6 2001/01/27 01:43:15 dholland Exp $";
+const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.8 2001/07/18 23:49:47 dholland Exp $";
 
 static
 void *
@@ -35,6 +35,14 @@ rand_init(int slot, int argc, char *argv[])
 		}
 	}
 
+	if (RAND_MAX < 0xffff) {
+		/*
+		 * The code below assumes random() ^ random() << 16 fills
+		 * a u_int32_t.
+		 */
+		msg("random: warning: RAND_MAX too small");
+	}
+
 	srandom(seed);
 
 	return NULL;
@@ -47,7 +55,7 @@ rand_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 	(void)data;  // not used
 
 	if (offset==0) {
-		*ret = random();
+		*ret = random() ^ (random() << 16);
 		return 0;
 	}
 	return -1;
@@ -65,6 +73,15 @@ rand_store(void *data, u_int32_t offset, u_int32_t val)
 
 static
 void
+rand_dumpstate(void *data)
+{
+	(void)data;
+	msg("CS161 random generator rev %d", RANDOM_REVISION);
+	msg("    (randomizer state not readily available)");
+}
+
+static
+void
 rand_cleanup(void *data)
 {
 	(void)data;
@@ -77,5 +94,6 @@ const struct lamebus_device_info random_device_info = {
 	rand_init,
 	rand_fetch,
 	rand_store,
+	rand_dumpstate,
 	rand_cleanup,
 };

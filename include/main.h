@@ -19,8 +19,13 @@ void main_continue(void);
  * Have the mainloop code run a single processor cycle.
  * Returns nonzero if we hit a breakpoint instruction in that cycle.
  */
-int onecycle(void);
+void onecycle(void);
 
+/*
+ * Have the mainloop code do a complete dump of its state.
+ * This ultimately dumps the entire state of sys161.
+ */
+void main_dumpstate(void);
 
 /*
  * Hardware counters reported at simulator exit.

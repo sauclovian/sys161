@@ -6,3 +6,4 @@
  */
 
 void *domalloc(size_t);
+void dohexdump(const char *buf, size_t len);

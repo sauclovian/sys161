@@ -25,6 +25,7 @@ Options are:
     --help              Print this message
     --with-compiler=CC  Use CC as compiler [probed]
     --installdir=DIR    Install into DIR [$HOME/cs161/root]
+    --docdir=DIR        Install docs into DIR [INSTALLDIR/man/sys161]
     --devel             Turn on lots of warnings [default off]
     --debug             Turn on debug symbols for sys161 itself [default off]
 Architectures are:
@@ -34,6 +35,7 @@ EOF
     ;;
 	--with-compiler=*) CC=`echo $1 | sed 's/^[^=]*=//'`;;
 	--installdir=*) INSTALLDIR=`echo $1 | sed 's/^[^=]*=//'`;;
+	--docdir=*) DOCDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--devel) USEWARNS=1;;
 	--debug) USEDEBUG=1;;
 	--*) echo "Unknown option $1 (try --help)"; exit 1;;
@@ -418,13 +420,25 @@ fi
 
 echo "$INSTALLDIR"
 
+echo -n "Checking doc directory... "
+
+if [ "x$DOCDIR" = x ]; then
+    DOCDIR="$INSTALLDIR/man/sys161"
+fi
+
+echo "$DOCDIR"
+
 ############################################################
 
 echo 'Creating build directories'
 
-for d in sys161 trace161 hub161; do
+for d in sys161 trace161 hub161 doc; do
     [ -d build-$d ] || mkdir build-$d
 done
+
+if [ -d ${SRCDIR}$CPU/tests ]; then
+    [ -d test-cpu ] || mkdir test-cpu
+fi
 
 ########################################
 
@@ -494,6 +508,44 @@ echo 'Generating build-hub161/defs.mk'
 
 ########################################
 
+echo 'Generating build-doc/defs.mk'
+
+(
+    echo "DOCDIR=$DOCDIR"
+    echo "INSTALLDIR=$INSTALLDIR"
+    echo
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo
+) > build-doc/defs.mk
+
+########################################
+
+if [ -d ${SRCDIR}$CPU/tests ]; then
+    echo 'Generating test-cpu/defs.mk'
+
+    (
+	case "$SRCDIR" in
+	    /*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	    *) echo "S=../$SRCDIR" | sed 's,/$,,';;
+	esac
+	echo
+    ) > test-cpu/defs.mk
+fi
+
+########################################
+
+echo 'Generating lb-cpu.html'
+
+(
+    echo '<!-- Automatically generated file - do not edit here -->'
+    cat ${SRCDIR}$CPU/lb-cpu.html
+) > build-doc/lb-cpu.html
+
+########################################
+
 echo 'Generating cpu.mk'
 
 (
@@ -518,6 +570,18 @@ cp -f build-sys161/Makefile build-trace161/Makefile
     echo '# Automatically generated file - do not edit here'
     cat ${SRCDIR}Makefile.hub
 ) > build-hub161/Makefile
+
+(
+    echo '# Automatically generated file - do not edit here'
+    cat ${SRCDIR}Makefile.doc
+) > build-doc/Makefile
+
+if [ -d ${SRCDIR}$CPU/tests ]; then
+    (
+	echo '# Automatically generated file - do not edit here'
+	cat ${SRCDIR}$CPU/tests/Makefile.test
+    ) > test-cpu/Makefile
+fi
 
 (
     echo '# Automatically generated file - do not edit here'
@@ -558,6 +622,12 @@ echo 'Generating make rules'
 (
     cd build-hub161 && touch depend.mk rules.mk && make rules
 )
+
+if [ -d test-cpu ]; then
+    (
+	cd test-cpu && touch depend.mk rules.mk && make rules
+    )
+fi
 
 ########################################
 
