@@ -1,3 +1,8 @@
+20040203 dholland	System/161 1.11 released.
+20040203 dholland	Support for building on Solaris.
+20040131 dholland	Fix to allow talking to gdb >= 5.0.
+			(From Melissa O'Neill of Harvey Mudd College.)
+20030201 dholland	Clarify some error messages.
 
 20030131 dholland	System/161 1.1 released.
 20030128 dholland	Fix one last test glitch.

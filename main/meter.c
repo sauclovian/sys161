@@ -161,7 +161,7 @@ static
 int
 meter_listen(const char *name)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un su;
 	socklen_t len;
 	int sfd;
 
@@ -171,15 +171,15 @@ meter_listen(const char *name)
 		return -1;
 	}
 
-	memset(&sun, 0, sizeof(sun));
-	sun.sun_family = AF_UNIX;
-	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", name);
-	len = SUN_LEN(&sun);
+	memset(&su, 0, sizeof(su));
+	su.sun_family = AF_UNIX;
+	snprintf(su.sun_path, sizeof(su.sun_path), "%s", name);
+	len = SUN_LEN(&su);
 #ifdef HAS_SUN_LEN
-	sun.sun_len = len;
+	su.sun_len = len;
 #endif
 
-	if (bind(sfd, (struct sockaddr *) &sun, len) < 0) {
+	if (bind(sfd, (struct sockaddr *) &su, len) < 0) {
 		msg("bind: %s", strerror(errno));
 		close(sfd);
 		return -1;

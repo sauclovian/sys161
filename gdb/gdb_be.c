@@ -18,7 +18,7 @@
 
 //#define SHOW_PACKETS
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.25 2001/07/20 18:14:18 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.26 2004/01/31 15:20:12 dholland Exp $";
 
 extern struct gdbcontext g_ctx;
 extern int g_ctx_inuse;
@@ -103,7 +103,9 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 		break;
 	    case 'Z':
 	    case 'z':
-		debug_send(ctx, "E01");
+		// doing this breaks gdb >= 5.0
+		//debug_send(ctx, "E01");
+		debug_notsupp(ctx);
 		break;
 	    case 'X':
 		debug_notsupp(ctx);

@@ -307,6 +307,7 @@ for size in 8 16 32 64; do
 	    echo "uint${size}_t x;" >> __conftest.c
 
 	    if $CC -c __conftest.c >/dev/null 2>&1; then
+		echo '#include <sys/types.h>' >> __config.h;
 		echo "typedef uint${size}_t u_int${size}_t;" >> __config.h;
 		break;
 	    fi
@@ -408,6 +409,78 @@ if $CC -c __conftest.c >/dev/null 2>&1; then
     echo '#define HAS_SUN_LEN 1' >> __config.h
 else
     echo "no"
+fi
+
+############################################################
+
+echo -n "Checking for -lsocket..."
+cat >__conftest.c <<EOF
+#include <sys/types.h>
+#include <sys/socket.h>
+int main() {
+    return socket(0, 0, 0);
+}
+EOF
+
+if $CC __conftest.c -o __conftest >/dev/null 2>&1; then
+    echo 'no'
+elif $CC __conftest.c -lsocket -o __conftest >/dev/null 2>&1; then
+    echo 'yes'
+    LIBS=`echo "$LIBS -lsocket" | sed 's/^ *//;s/ *$//'`
+else
+    echo 'missing'
+    echo 'Cannot find socket()... help!'
+    rm -f __conf*
+    exit 1
+fi
+
+############################################################
+
+echo -n "Checking for -lnsl..."
+cat >__conftest.c <<EOF
+#include <sys/types.h>
+#include <netdb.h>
+int main() {
+    struct hostent *hp = gethostbyname("abcdef");
+    return hp->h_length;
+}
+EOF
+
+if $CC __conftest.c -o __conftest >/dev/null 2>&1; then
+    echo 'no'
+elif $CC __conftest.c -lnsl -o __conftest >/dev/null 2>&1; then
+    echo 'yes'
+    LIBS=`echo "$LIBS -lnsl" | sed 's/^ *//;s/ *$//'`
+else
+    echo 'missing'
+    echo 'Cannot find gethostbyname()... help!'
+    exit 5
+    rm -f __conf*
+    exit 1
+fi
+
+############################################################
+
+echo -n "Checking if SUN_LEN is defined... "
+cat >__conftest.c <<EOF
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <string.h>
+int foo() {
+    struct sockaddr_un mysun;
+    strcpy(mysun.sun_path, "abc");
+    return SUN_LEN(&mysun);
+}
+EOF
+
+if $CC __conftest.c $LIBS >/dev/null 2>&1; then
+    echo "yes"
+else
+    echo "missing"
+    echo '#define SUN_LEN(x) '"\\" >>__config.h
+    echo '    (sizeof(*(x)) - sizeof((x)->sun_path) '"\\" >>__config.h
+    echo '     + strlen((x)->sun_path))' >>__config.h
 fi
 
 ############################################################

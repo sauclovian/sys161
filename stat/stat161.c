@@ -218,7 +218,7 @@ static
 int
 opensock(void)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un su;
 	socklen_t len;
 	int s;
 
@@ -228,15 +228,15 @@ opensock(void)
 		exit(1);
 	}
 
-	memset(&sun, 0, sizeof(sun));
-	sun.sun_family = AF_UNIX;
-	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", PATH_SOCKET);
-	len = SUN_LEN(&sun);
+	memset(&su, 0, sizeof(su));
+	su.sun_family = AF_UNIX;
+	snprintf(su.sun_path, sizeof(su.sun_path), "%s", PATH_SOCKET);
+	len = SUN_LEN(&su);
 #ifdef HAS_SUN_LEN
-	sun.sun_len = len;
+	su.sun_len = len;
 #endif
 
-	if (connect(s, (struct sockaddr *)&sun, len)<0) {
+	if (connect(s, (struct sockaddr *)&su, len)<0) {
 		if (errno!=ECONNREFUSED && errno!=ENOENT) {
 			fprintf(stderr, "stat161: connect: %s\n", 
 				strerror(errno));

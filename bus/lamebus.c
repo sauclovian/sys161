@@ -25,7 +25,7 @@
  */
 
 const char rcsid_lamebus_c[] =
-    "$Id: lamebus.c,v 1.26 2001/07/18 23:49:47 dholland Exp $";
+    "$Id: lamebus.c,v 1.27 2003/02/01 23:06:43 dholland Exp $";
 
 #define MAXMEM (16*1024*1024)
 
@@ -125,7 +125,7 @@ lamebus_controller_init(int slot, int argc, char *argv[])
 			bus_ramsize = strtoul(argv[i]+8, NULL, 0);
 		}
 		else {
-			msg("busctl: invalid option %s", argv[i]);
+			msg("busctl: invalid option `%s'", argv[i]);
 			die();
 		}
 	}
@@ -343,7 +343,7 @@ bus_config(const char *configfile)
 
 		slot = strtol(argv[0], &s, 0);
 		if (strlen(s)>0 || slot<0 || slot>=LAMEBUS_NSLOTS) {
-			msg("config %s: line %d: Invalid slot %s (should "
+			msg("config %s: line %d: Invalid slot `%s' (should "
 			    "be 0-%d)", 
 			    configfile, line, argv[0], LAMEBUS_NSLOTS-1);
 			die();
@@ -363,8 +363,8 @@ bus_config(const char *configfile)
 		
 		dev = find_dev(argv[1]);
 		if (!dev) {
-			msg("config %s: line %d: slot %d: %s: No such "
-			    "hardware", 
+			msg("config %s: line %d: slot %d: No such "
+			    "hardware `%s'", 
 			    configfile, line, slot, argv[1]);
 			die();
 		}

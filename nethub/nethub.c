@@ -153,7 +153,7 @@ static
 void
 opensock(const char *sockname)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un su;
 	socklen_t len;
 	struct stat st;
 	int one=1;
@@ -180,16 +180,17 @@ opensock(const char *sockname)
 		exit(1);
 	}
 
-	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, 
+		   (void *)&one, sizeof(one));
 
-	sun.sun_family = AF_UNIX;
-	strcpy(sun.sun_path, sockname);
-	len = SUN_LEN(&sun);
+	su.sun_family = AF_UNIX;
+	strcpy(su.sun_path, sockname);
+	len = SUN_LEN(&su);
 #ifdef HAS_SUN_LEN
-	sun.sun_len = len;
+	su.sun_len = len;
 #endif
 
-	if (bind(sock, (struct sockaddr *)&sun, len) < 0) {
+	if (bind(sock, (struct sockaddr *)&su, len) < 0) {
 		fprintf(stderr, "hub161: bind: %s\n", strerror(errno));
 		exit(1);
 	}

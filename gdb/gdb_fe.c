@@ -19,7 +19,7 @@
 
 #include "context.h"
 
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.17 2002/09/09 21:23:19 dholland Exp $";
+const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.18 2004/02/03 22:10:37 dholland Exp $";
 
 //#include "lamebus.h"
 
@@ -265,7 +265,8 @@ setup_inet(int port)
 		return -1;
 	}
 
-	setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+	setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, 
+		   (void *)&one, sizeof(one));
 
 	memset(&sn, 0, sizeof(sn));
 	sn.sin_family = AF_INET;
@@ -284,7 +285,7 @@ static
 int
 setup_unix(const char *name)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un su;
 	socklen_t len;
 	int sfd;
 
@@ -294,15 +295,15 @@ setup_unix(const char *name)
 		return -1;
 	}
 
-	memset(&sun, 0, sizeof(sun));
-	sun.sun_family = AF_UNIX;
-	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", name);
-	len = SUN_LEN(&sun);
+	memset(&su, 0, sizeof(su));
+	su.sun_family = AF_UNIX;
+	snprintf(su.sun_path, sizeof(su.sun_path), "%s", name);
+	len = SUN_LEN(&su);
 #ifdef HAS_SUN_LEN
-	sun.sun_len = len;
+	su.sun_len = len;
 #endif
 
-	if (bind(sfd, (struct sockaddr *) &sun, len) < 0) {
+	if (bind(sfd, (struct sockaddr *) &su, len) < 0) {
 		msg("bind: %s", strerror(errno));
 		close(sfd);
 		return -1;

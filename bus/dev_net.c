@@ -19,7 +19,7 @@
 #include "lamebus.h"
 
 const char rcsid_dev_net_c[] = 
-    "$Id: dev_net.c,v 1.17 2002/05/01 02:40:20 dholland Exp $";
+    "$Id: dev_net.c,v 1.18 2004/02/03 22:10:37 dholland Exp $";
 
 #define NETREG_READINTR    0
 #define NETREG_WRITEINTR   4
@@ -132,7 +132,7 @@ keepalive(void *data, u_int32_t junk)
 	lh.lh_packetlen = htons(sizeof(lh));
 	lh.lh_to = htons(HUB_ADDR);
 
-	r = sendto(nd->nd_socket, &lh, sizeof(lh), 0, 
+	r = sendto(nd->nd_socket, (void *)&lh, sizeof(lh), 0, 
 	       (struct sockaddr *)&nd->nd_hubaddr, nd->nd_hubaddrlen);
 
 	if (r<0 && (errno==ECONNREFUSED || errno==ENOENT || errno==ENOTSOCK)) {
@@ -477,7 +477,8 @@ net_init(int slot, int argc, char *argv[])
 #endif
 
 	unlink(mysun.sun_path);
-	setsockopt(nd->nd_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+	setsockopt(nd->nd_socket, SOL_SOCKET, SO_REUSEADDR, 
+		   (void *)&one, sizeof(one));
 
 	if (bind(nd->nd_socket, (struct sockaddr *)&mysun, mylen)<0) {
 		msg("nic: slot %d: bind: %s", slot, strerror(errno));
