@@ -1,3 +1,8 @@
+20040415 dholland	Minor compile fixes for gcc >= 3.0.
+20040415 dholland	Fix bug in PC translation caching code.
+			(Thanks to Pat Swieskowski for crucial diagnosis info.)
+20040205 dholland	Fix botched configure test for the SUN_LEN macro.
+
 20040203 dholland	System/161 1.11 released.
 20040203 dholland	Support for building on Solaris.
 20040131 dholland	Fix to allow talking to gdb >= 5.0.

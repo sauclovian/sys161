@@ -472,6 +472,10 @@ int foo() {
     strcpy(mysun.sun_path, "abc");
     return SUN_LEN(&mysun);
 }
+
+int main() {
+    return 0;
+}
 EOF
 
 if $CC __conftest.c $LIBS >/dev/null 2>&1; then

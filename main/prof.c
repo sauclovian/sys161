@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "config.h"
 
 #include "gmon.h"
@@ -15,7 +16,7 @@
 #include "prof.h"
 
 const char rcsid_prof_c[] = 
-    "$Id: prof.c,v 1.1 2002/09/04 22:10:21 dholland Exp $";
+    "$Id: prof.c,v 1.2 2004/04/15 20:11:04 dholland Exp $";
 
 #ifdef USE_TRACE
 

@@ -22,7 +22,7 @@
 
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.83 2003/01/18 03:15:05 dholland Exp $";
+	"$Id: mips.c,v 1.84 2004/04/15 20:14:25 dholland Exp $";
 
 
 /* number of tlb entries */
@@ -2538,7 +2538,12 @@ cpu_cycle(void)
 	cpu->nextpc += 4;
 	if ((cpu->nextpc & 0xfff)==0) {
 		/* crossed page boundary */
-		if (precompute_nextpc(cpu)) {
+		if (insn == FULLOP_RFE) {
+			/* defer precompute_nextpc() */
+			cpu->nextpcpage = NULL;
+			cpu->nextpcoff = 0;
+		}
+		else if (precompute_nextpc(cpu)) {
 			/* exception */
 			return 1;
 		}

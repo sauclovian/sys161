@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 
 #include "console.h"
@@ -6,7 +7,7 @@
 
 
 const char rcsid_util_c[] = 
-    "$Id: util.c,v 1.4 2002/01/22 23:59:32 dholland Exp $";
+    "$Id: util.c,v 1.5 2004/04/15 20:11:04 dholland Exp $";
 
 void *
 domalloc(size_t len)
