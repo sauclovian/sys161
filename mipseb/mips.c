@@ -21,7 +21,7 @@
 
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.77 2002/03/21 20:13:26 dholland Exp $";
+	"$Id: mips.c,v 1.78 2002/04/24 22:41:07 dholland Exp $";
 
 
 /* number of tlb entries */
@@ -2733,14 +2733,19 @@ int
 cpudebug_fetch_byte(u_int32_t va, u_int8_t *byte)
 {
 	u_int32_t pa;
+	u_int32_t aligned_va;
+
+	aligned_va = va & 0xfffffffc;
 
 	/*
 	 * For now, only allow KSEG0/1
 	 */
-	
-	if (debug_translatemem(&mycpu, va, 0, &pa)) {
+
+	if (debug_translatemem(&mycpu, aligned_va, 0, &pa)) {
 		return -1;
 	}
+
+	pa |= (va & 3);
 
 	if (bus_mem_fetchbyte(pa, byte)) {
 		return -1;
