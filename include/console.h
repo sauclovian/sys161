@@ -1,0 +1,32 @@
+/* Tell GCC to check printf formats. */
+#ifdef __GNUC__
+#define PF(a,b) __attribute__((__format__(__printf__, a, b)))
+#else
+#define PF(a,b)
+#endif
+
+void console_init(void);
+void console_cleanup(void);
+
+void console_beep(void);
+void console_putc(int ch);
+void console_onkey(void *, void (*func)(void *, int));
+
+void die(void);
+void msg(const char *fmt, ...) PF(1,2);    /* general messages */
+void smoke(const char *fmt, ...) PF(1,2);  /* for internal errors */
+void hang(const char *fmt, ...) PF(1,2);   /* for errors programming the hw */
+
+void console_pause(void);
+
+
+#define Assert(x) ((x) ? (void)0 : \
+        smoke("Assertion failed: %s, line %d of %s", #x, __LINE__, __FILE__))
+
+#ifdef USE_DEBUG
+#define DEBUG(fmt...) msg(fmt)
+#define PAUSE() console_pause()
+#else
+#define DEBUG(fmt...)
+#define PAUSE()
+#endif

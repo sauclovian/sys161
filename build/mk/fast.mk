@@ -1,0 +1,3 @@
+#CFLAGS+=-O2  # XXX
+CFLAGS+=-g
+PROG=sys161

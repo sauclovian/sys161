@@ -1,0 +1,2 @@
+CFLAGS+=-g -DUSE_DEBUG
+PROG=trace161
