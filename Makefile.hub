@@ -1,4 +1,5 @@
 include defs.mk
+include $S/version.mk
 
 all: $(PROG)
 
@@ -24,10 +25,7 @@ realdepend:
 
 install:
 	[ -d "$(INSTALLDIR)" ] || mkdir -p $(INSTALLDIR)
-	cp $(PROG) $(INSTALLDIR)/$(PROG).new
-	chmod 755 $(INSTALLDIR)/$(PROG).new
-	-mv -f $(INSTALLDIR)/$(PROG) $(INSTALLDIR)/$(PROG).old
-	mv -f $(INSTALLDIR)/$(PROG).new $(INSTALLDIR)/$(PROG)
+	$S/installit.sh "$(INSTALLDIR)" "$(PROG)" "$(VERSION)"
 
 $(PROG): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -lm -o $(PROG)

@@ -180,6 +180,18 @@ used. Specifying -f- sends output to stdout instead of stderr.</dd>
 </blockquote>
 <p>
 
+The following option is also only available in trace161:
+<blockquote>
+<dl>
+
+<dt>-P</dt>
+<dd>Collect a kernel profile and leave it in the file
+<tt>gmon.out</tt> for analysis by <tt>gprof</tt>.</dd>
+
+</dl>
+</blockquote>
+<p>
+
 The <em>kernel</em> is an operating system kernel to load and run. It
 should be an ELF-format executable for the same processor type as
 System/161 is compiled to support. For further information, see below.

@@ -17,3 +17,19 @@ s-shift:	sll sllv sra srav srl srlv
 t-tlb:		tlbp tlbr tlbwi tlbwr
 w-writemem:	sb sh sw swl swr
 z-special:	various handwritten tests
+
+As you may notice, less than half of the tests that one would actually
+desire are actually implemented.
+
+Also, the tests that cause division by zero are presently disabled;
+they cause the simulator to stop and wait for a debugger connection,
+which is incompatible with automated testing. (Straightening this out
+turns out to be somewhat problematic. XXX)
+
+To run the tests you have to have the CS161 toolchain (cs161-gcc,
+etc.) on your path. As of this writing, the actual FSF configuration
+we're using is "mips-linux".
+
+(The tests are all assembler, but cpp is used for preprocessing, so
+both gcc and binutils are required.)
+

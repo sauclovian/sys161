@@ -17,7 +17,7 @@
 
 
 const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.21 2001/07/21 23:51:54 dholland Exp $";
+    "$Id: dev_disk.c,v 1.22 2002/08/08 22:59:43 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -348,7 +348,7 @@ compute_sectors(struct disk_data *dd)
 	physsectors = (u_int32_t)(dd->dd_totsectors * SECTOR_FUDGE);
 	if (physsectors < dd->dd_totsectors) {
 		/* Overflow - didn't fit in u_int32_t */
-		smoke("gah");
+		smoke("Fatal error computing disk geometry");
 		return -1;
 	}
 

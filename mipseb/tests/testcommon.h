@@ -68,13 +68,20 @@
 #define POWEROFFREG	(CFG_REGION(31)+0x208)
 #define DUMPREG		(TRACE_BASE+12)
 
-#define DUMP(code)	li $t7, code; li $t8, DUMPREG; sw $t7, 0($t8); nop
-#define POWEROFF	li $t8,POWEROFFREG; sw $0, 0($t8); 1: wait; j 1b; nop
+/* mips r3000 doesn't have wait and gas knows this... but we do have it */
+#if 0
+#define WAIT		wait
+#else
+#define WAIT		.long 0x42000020
+#endif
 
-#define EXNSON		mfc0 $t8, c0_status; \
-			li $t7, 0xffbfffff; \
-			and $t8, $t8, $t7; \
-			mtc0 $t8, c0_status
+#define DUMP(code)	li t7, code; li t8, DUMPREG; sw t7, 0(t8); nop
+#define POWEROFF	li t8,POWEROFFREG; sw $0, 0(t8); 1: WAIT; j 1b; nop
+
+#define EXNSON		mfc0 t8, c0_status; \
+			li t7, 0xffbfffff; \
+			and t8, t8, t7; \
+			mtc0 t8, c0_status
 
 .set noreorder
 .globl __start

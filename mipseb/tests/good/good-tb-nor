@@ -1,24 +1,24 @@
 sys161: Tracing enabled: kinsn uinsn jump tlb exn irq 
-sys161: at 80000000: mfc0 $t8, $12: ... -> 0x400000
-sys161: at 80000004: lui $t7 0xffbf
-sys161: at 80000008: ori $t7, $t7, 65535: 0xffbf0000 | 0xffff -> 0xffbfffff
-sys161: at 8000000c: and $t8, $t8, $t7: 0x400000 & 0xffbfffff -> 0
-sys161: at 80000010: mtc0 $t8, $12: 0x0 -> ...
-sys161: at 80000014: lui $t0 0x1248
-sys161: at 80000018: ori $t0, $t0, 4680: 0x12480000 | 0x1248 -> 0x12481248
-sys161: at 8000001c: addiu $t1, $z0, 4369: 0 + 4369 -> 4369
-sys161: at 80000020: lui $t2 0x2222
-sys161: at 80000024: ori $t2, $t2, 17476: 0x22220000 | 0x4444 -> 0x22224444
-sys161: at 80000028: lui $t3 0x8888
-sys161: at 8000002c: ori $t3, $t3, 65535: 0x88880000 | 0xffff -> 0x8888ffff
-sys161: at 80000030: nor $s1, $t0, $t1: ~(0x12481248 | 0x1111) -> 0xedb7eca6
-sys161: at 80000034: nor $s2, $t0, $t2: ~(0x12481248 | 0x22224444) -> 0xcd95a9b3
-sys161: at 80000038: nor $s3, $t0, $t3: ~(0x12481248 | 0x8888ffff) -> 0x65370000
-sys161: at 8000003c: sll $z0, $z0, 0: 0x0 << 0 -> 0x0
-sys161: at 80000040: addiu $t7, $z0, 0: 0 + 0 -> 0
-sys161: at 80000044: lui $t8 0xbffe
-sys161: at 80000048: ori $t8, $t8, 12: 0xbffe0000 | 0xc -> 0xbffe000c
-sys161: at 8000004c: sw $t7, 0($t8): 0 -> [bffe000c]
+trace: at 80000000: mfc0 $t8, $12: ... -> 0x400000
+trace: at 80000004: lui $t7, 0xffbf
+trace: at 80000008: ori $t7, $t7, 65535: 0xffbf0000 | 0xffff -> 0xffbfffff
+trace: at 8000000c: and $t8, $t8, $t7: 0x400000 & 0xffbfffff -> 0x0
+trace: at 80000010: mtc0 $t8, $12: 0x0 -> ...
+trace: at 80000014: lui $t0, 0x1248
+trace: at 80000018: ori $t0, $t0, 4680: 0x12480000 | 0x1248 -> 0x12481248
+trace: at 8000001c: addiu $t1, $z0, 4369: 0 + 4369 -> 4369
+trace: at 80000020: lui $t2, 0x2222
+trace: at 80000024: ori $t2, $t2, 17476: 0x22220000 | 0x4444 -> 0x22224444
+trace: at 80000028: lui $t3, 0x8888
+trace: at 8000002c: ori $t3, $t3, 65535: 0x88880000 | 0xffff -> 0x8888ffff
+trace: at 80000030: nor $s1, $t0, $t1: ~(0x12481248 | 0x1111) -> 0xedb7eca6
+trace: at 80000034: nor $s2, $t0, $t2: ~(0x12481248 | 0x22224444) -> 0xcd95a9b3
+trace: at 80000038: nor $s3, $t0, $t3: ~(0x12481248 | 0x8888ffff) -> 0x65370000
+trace: at 8000003c: sll $z0, $z0, 0: 0x0 << 0 -> 0x0
+trace: at 80000040: addiu $t7, $z0, 0: 0 + 0 -> 0
+trace: at 80000044: lui $t8, 0xbffe
+trace: at 80000048: ori $t8, $t8, 12: 0xbffe0000 | 0xc -> 0xbffe000c
+trace: at 8000004c: sw $t7, 0($t8): 0 -> [0xbffe000c]
 sys161: ------------------------------------------------------------------------
 sys161: trace: dump with code 0 (0x0)
 sys161: mainloop: shutoff_flag 0 continue_flag 0 stop_flag 0
@@ -121,24 +121,25 @@ sys161: LAMEbus controller rev 1
 sys161:     ramsize: 16384 (16k)
 sys161:     irqs: 0x00000000
 sys161: RAM:
-sys161:      0:40 18 60 00 3c 0f ff bf 35 ef ff ff 03 0f c0 24 @.`.<...5......$ 
-sys161:     10:40 98 60 00 3c 08 12 48 35 08 12 48 24 09 11 11 @.`.<..H5..H$... 
-sys161:     20:3c 0a 22 22 35 4a 44 44 3c 0b 88 88 35 6b ff ff <.""5JDD<...5k.. 
-sys161:     30:01 09 88 27 01 0a 90 27 01 0b 98 27 00 00 00 00 ...'...'...'.... 
-sys161:     40:24 0f 00 00 3c 18 bf fe 37 18 00 0c af 0f 00 00 $...<...7....... 
-sys161:     50:00 00 00 00 3c 18 bf ff 37 18 7e 08 af 00 00 00 ....<...7.~..... 
-sys161:     60:42 00 00 20 08 00 00 18 00 00 00 00 00 00 00 00 B.. ............ 
+sys161:      0:40 18 60 00 3c 0f ff bf 35 ef ff ff 03 0f c0 24 @.`.<...5......$
+sys161:     10:40 98 60 00 3c 08 12 48 35 08 12 48 24 09 11 11 @.`.<..H5..H$...
+sys161:     20:3c 0a 22 22 35 4a 44 44 3c 0b 88 88 35 6b ff ff <.""5JDD<...5k..
+sys161:     30:01 09 88 27 01 0a 90 27 01 0b 98 27 00 00 00 00 ...'...'...'....
+sys161:     40:24 0f 00 00 3c 18 bf fe 37 18 00 0c af 0f 00 00 $...<...7.......
+sys161:     50:00 00 00 00 3c 18 bf ff 37 18 7e 08 af 00 00 00 ....<...7.~.....
+sys161:     60:42 00 00 20 08 00 00 18 00 00 00 00 00 00 00 00 B.. ............
+sys161:     70:01 0e 8f 00 00 00 00 00 00 00 00 00 00 00 00 00 ................
 sys161:        *
 sys161:   4000:
 sys161: trace: dump complete
 sys161: ------------------------------------------------------------------------
-sys161: at 80000050: sll $z0, $z0, 0: 0x0 << 0 -> 0x0
-sys161: at 80000054: lui $t8 0xbfff
-sys161: at 80000058: ori $t8, $t8, 32264: 0xbfff0000 | 0x7e08 -> 0xbfff7e08
-sys161: at 8000005c: sw $z0, 0($t8): 0 -> [bfff7e08]
-sys161: at 80000060: wait
-sys161: Waiting for interrupt
-sys161: Slot 31: irq ON
+trace: at 80000050: sll $z0, $z0, 0: 0x0 << 0 -> 0x0
+trace: at 80000054: lui $t8, 0xbfff
+trace: at 80000058: ori $t8, $t8, 32264: 0xbfff0000 | 0x7e08 -> 0xbfff7e08
+trace: at 8000005c: sw $z0, 0($t8): 0 -> [0xbfff7e08]
+trace: at 80000060: wait
+trace: Waiting for interrupt
+trace: Slot 31: irq ON
 sys161: 125107 cycles (25k, 0u, 125082i)
 sys161: 0 irqs 0 exns 0r/0w disk 0r/0w console 0r/0w/0m emufs 0r/0w net
 sys161: Elapsed virtual time: 0.005004280 seconds (25 mhz)

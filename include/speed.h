@@ -26,4 +26,10 @@
 // All emufs ops take 5ms.
 #define EMUFS_NSECS    (5000000)
 
+// Profile at 1000 Hz for increased accuracy.
+#define PROFILE_NSECS  (1000000)
+
+// Emit perfmeter data every 2/10 of a second.
+#define METER_NSECS    (200000000)
+
 #endif /* SPEED_H */

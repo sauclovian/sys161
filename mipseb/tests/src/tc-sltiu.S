@@ -14,18 +14,18 @@
     */
 __start:
    EXNSON
-   li $t0, 0x1234
-   li $t1, 0xfffffaaa
-   li $t2, 0x801234
-   slti $s0, $t0, 0x1001
-   slti $s1, $t0, 0x3030
-   slti $s2, $t0, 0xf000
-   slti $s3, $t1, 0x0355
-   slti $s4, $t1, 0x9191
-   slti $s5, $t1, 0xffff
-   slti $s6, $t0, 0x1234
-   slti $s7, $t1, 0xfaaa
-   slti $s8, $t2, 0xf000
+   li t0, 0x1234
+   li t1, 0xfffffaaa
+   li t2, 0x801234
+   slti s0, t0, 0x1001
+   slti s1, t0, 0x3030
+   slti s2, t0, 0xf000
+   slti s3, t1, 0x0355
+   slti s4, t1, 0x9191
+   slti s5, t1, 0xffff
+   slti s6, t0, 0x1234
+   slti s7, t1, 0xfaaa
+   slti s8, t2, 0xf000
    nop
    DUMP(0)
    POWEROFF

@@ -8,11 +8,12 @@
 #include "console.h"
 #include "cpu.h"
 #include "memdefs.h"
+#include "prof.h"
 #include "elf.h"
 #include "cpu-elf.h"
 
 
-const char rcsid_boot_c[] = "$Id: boot.c,v 1.11 2002/01/17 22:05:22 dholland Exp $";
+const char rcsid_boot_c[] = "$Id: boot.c,v 1.13 2002/09/04 22:10:20 dholland Exp $";
 
 static
 void
@@ -118,7 +119,7 @@ load_elf(int fd)
 
 		if (cpu_get_load_paddr(ph.p_vaddr, ph.p_memsz, &paddr)) {
 			msg("Invalidly placed segment in boot image"
-			    " (load address %u, size %u", 
+			    " (load address %u, size %u)", 
 			    ph.p_vaddr, ph.p_memsz);
 			die();
 		}
@@ -132,6 +133,12 @@ load_elf(int fd)
 		if (ph.p_filesz > ph.p_memsz) {
 			ph.p_filesz = ph.p_memsz;
 		}
+
+#ifdef USE_TRACE
+		if (ph.p_flags & PF_X) {
+			prof_addtext(ph.p_vaddr, ph.p_memsz);
+		}
+#endif
 
 		doread(fd, ph.p_offset, ram+paddr, ph.p_filesz);
 		bzero(ram+paddr+ph.p_filesz, ph.p_memsz - ph.p_filesz);

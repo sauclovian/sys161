@@ -9,6 +9,7 @@
 #include "gdb.h"
 #include "main.h"
 #include "trace.h"
+#include "prof.h"
 #include "memdefs.h"
 #include "inlinemem.h"
 
@@ -21,7 +22,7 @@
 
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.78 2002/04/24 22:41:07 dholland Exp $";
+	"$Id: mips.c,v 1.83 2003/01/18 03:15:05 dholland Exp $";
 
 
 /* number of tlb entries */
@@ -539,7 +540,8 @@ do_rfe(struct mipscpu *cpu)
 	 * changed to usermode.
 	 *
 	 * Furthermore, hack the processor state so the exception happens
-	 * with things pointing to the instruction after the rfe.
+	 * with things pointing to the instruction happening after the rfe,
+	 * not the rfe itself.
 	 */
 	
 	cpu->in_jumpdelay = 0;
@@ -882,6 +884,8 @@ mapmem(u_int32_t paddr)
  *
  * willbewrite should be true if any domem operation on this
  * cycle is (or will be) a write, even if *this* one isn't.
+ * (This is for preventing silly exception behavior when writing
+ * a sub-word quantity.)
  */
 static
 int
@@ -1122,7 +1126,7 @@ abranch(struct mipscpu *cpu, u_int32_t addr)
 	 * precompute_nextpc. Instead, clear the precomputed nextpc
 	 * stuff and call precompute_pc once the RFE has done its
 	 * thing. This is important to make sure the new PC is fetched
-	 * in user mode the RFE is switching thereto.
+	 * in user mode if the RFE is switching thereto.
 	 */
 	if (bus_use_map(cpu->pcpage, cpu->pcoff) == FULLOP_RFE) {
 		cpu->nextpcpage = NULL;
@@ -1297,11 +1301,31 @@ static int tracehow;		// how to trace the current instruction
 
 #define LINK2(rg)  (cpu->r[rg] = cpu->nextpc)
 #define LINK LINK2(31)
-#define RT   (cpu->r[rt])
-#define RS   (cpu->r[rs])
-#define RD   (cpu->r[rd])
-#define RTU  ((u_int32_t)RT)
-#define RSU  ((u_int32_t)RS)
+
+/* registers as lvalues */
+#define RTx  (cpu->r[rt])
+#define RSx  (cpu->r[rs])
+#define RDx  (cpu->r[rd])
+
+/* registers as signed 32-bit rvalues */
+#define RTs  ((int32_t)RTx)
+#define RSs  ((int32_t)RSx)
+#define RDs  ((int32_t)RDx)
+
+/* registers as unsigned 32-bit rvalues */
+#define RTu  ((u_int32_t)RTx)
+#define RSu  ((u_int32_t)RSx)
+#define RDu  ((u_int32_t)RDx)
+
+/* registers as printf-able signed values */
+#define RTsp  ((long)RTs)
+#define RSsp  ((long)RSs)
+#define RDsp  ((long)RDs)
+
+/* registers as printf-able unsigned values */
+#define RTup  ((unsigned long)RTu)
+#define RSup  ((unsigned long)RSu)
+#define RDup  ((unsigned long)RDu)
 
 #define STALL { phony_exception(cpu); }
 #define WHILO {if (cpu->hiwait>0 || cpu->lowait>0) { STALL; return; }}
@@ -1326,6 +1350,8 @@ static int tracehow;		// how to trace the current instruction
 #define NEEDIMM	 u_int32_t imm= (insn & 0x0000ffff)	     // immediate value
 #define NEEDSMM	 NEEDIMM; int32_t smm = (int32_t)(int16_t)imm 
 					       // sign-extended immediate value
+#define NEEDADDR NEEDRS; NEEDSMM; u_int32_t addr = RSu + (u_int32_t)smm
+                                                     // register+offset address
 
 
 static
@@ -1404,12 +1430,12 @@ mx_add(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRS; NEEDRT; NEEDRD;
 	int64_t t64;
 
-	TRL(("add %s, %s, %s: %d + %d -> ",
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	t64 = (int64_t)RS + (int64_t)RT;
+	TRL(("add %s, %s, %s: %ld + %ld -> ",
+	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	t64 = (int64_t)RSs + (int64_t)RTs;
 	CHKOVF(t64);
-	RD = (int32_t)t64;
-	TR(("%d", RD));
+	RDx = (int32_t)t64;
+	TR(("%ld", RDsp));
 }
 
 static
@@ -1420,12 +1446,12 @@ mx_addi(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRS; NEEDRT; NEEDSMM;
 	int64_t t64;
 
-	TRL(("addi %s, %s, %u: %d + %d -> ",
-	     regname(rt), regname(rs), smm, RS, smm));
-	t64 = (int64_t)RS + smm;
+	TRL(("addi %s, %s, %lu: %ld + %ld -> ",
+	     regname(rt), regname(rs), (unsigned long)imm, RSsp, (long)smm));
+	t64 = (int64_t)RSs + smm;
 	CHKOVF(t64);
-	RT = (int32_t)t64;
-	TR(("%d", RT));
+	RTx = (int32_t)t64;
+	TR(("%ld", RTsp));
 }
 
 static
@@ -1434,10 +1460,13 @@ void
 mx_addiu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("addiu %s, %s, %d: %d + %d -> ", 
-	     regname(rt), regname(rs), smm, RS, smm));
-	RT = RS + smm;
-	TR(("%d", RT));
+	TRL(("addiu %s, %s, %lu: %ld + %ld -> ", 
+	     regname(rt), regname(rs), (unsigned long)imm, RSsp, (long)smm));
+
+	/* must add as unsigned, or overflow behavior is not defined */
+	RTx = RSu + (u_int32_t)smm;
+
+	TR(("%ld", RTsp));
 }
 
 static
@@ -1446,10 +1475,10 @@ void
 mx_addu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("addu %s, %s, %s: %d + %d -> ",
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = RS + RT;
-	TR(("%d", RD));
+	TRL(("addu %s, %s, %s: %ld + %ld -> ",
+	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	RDx = RSu + RTu;
+	TR(("%ld", RDsp));
 }
 
 static
@@ -1458,10 +1487,10 @@ void
 mx_and(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("and %s, %s, %s: 0x%x & 0x%x -> ", 
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = RS & RT;
-	TR(("%d", RD));
+	TRL(("and %s, %s, %s: 0x%lx & 0x%lx -> ", 
+	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	RDx = RSu & RTu;
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -1470,10 +1499,11 @@ void
 mx_andi(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
-	TRL(("andi %s, %s, %u: 0x%x & 0x%x -> ", 
-	     regname(rt), regname(rs), imm, RS, imm));
-	RT = RS & imm;
-	TR(("%d", RT));
+	TRL(("andi %s, %s, %lu: 0x%lx & 0x%lx -> ", 
+	     regname(rt), regname(rs), (unsigned long) imm, RSup, 
+	     (unsigned long) imm));
+	RTx = RSu & imm;
+	TR(("0x%lx", RTup));
 }
 
 static
@@ -1483,7 +1513,7 @@ mx_bcf(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDSMM; NEEDCN;
 	(void)smm;
-	TR(("bc%df %d", cn, smm));
+	TR(("bc%df %ld", cn, (long)smm));
 	exception(cpu, EX_CPU, cn, 0);
 }
 
@@ -1494,7 +1524,7 @@ mx_bct(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDSMM; NEEDCN;
 	(void)smm;
-	TR(("bc%dt %d", cn, smm));
+	TR(("bc%dt %ld", cn, (long)smm));
 	exception(cpu, EX_CPU, cn, 0);
 }
 
@@ -1504,9 +1534,9 @@ void
 mx_beq(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("beq %s, %s, %d: %u==%u? ", 
-	     regname(rs), regname(rt), smm, RS, RT));
-	if (RS==RT) {
+	TRL(("beq %s, %s, %ld: %lu==%lu? ", 
+	     regname(rs), regname(rt), (long)smm, RSup, RTup));
+	if (RSu==RTu) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2);
 	}
@@ -1521,9 +1551,9 @@ void
 mx_bgezal(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bgezal %s, %d: %d>=0? ", regname(rs), smm, RS));
+	TRL(("bgezal %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp));
 	LINK;
-	if (RS>=0) {
+	if (RSs>=0) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2); 
 	}
@@ -1538,8 +1568,8 @@ void
 mx_bgez(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bgez %s, %d: %d>=0? ", regname(rs), smm, RS));
-	if (RS>=0) {
+	TRL(("bgez %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp));
+	if (RSs>=0) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2);
 	}
@@ -1554,9 +1584,9 @@ void
 mx_bltzal(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bltzal %s, %d: %d<0? ", regname(rs), smm, RS));
+	TRL(("bltzal %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp));
 	LINK;
-	if (RS<0) {
+	if (RSs<0) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2);
 	}
@@ -1571,8 +1601,8 @@ void
 mx_bltz(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bltz %s, %d: %d<0? ", regname(rs), smm, RS));
-	if (RS<0) {
+	TRL(("bltz %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp));
+	if (RSs<0) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2);
 	}
@@ -1587,8 +1617,8 @@ void
 mx_bgtz(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bgtz %s, %d: %d>0? ", regname(rs), smm, RS));
-	if (RS>0) {
+	TRL(("bgtz %s, %ld: %ld>0? ", regname(rs), (long)smm, RSsp));
+	if (RSs>0) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2);
 	}
@@ -1603,8 +1633,8 @@ void
 mx_blez(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("blez %s, %d: %d<=0? ", regname(rs), smm, RS));
-	if (RS<=0) {
+	TRL(("blez %s, %ld: %ld<=0? ", regname(rs), (long)smm, RSsp));
+	if (RSs<=0) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2);
 	}
@@ -1619,9 +1649,9 @@ void
 mx_bne(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
-	TRL(("bne %s, %s, %d: %u!=%u? ", 
-	     regname(rs), regname(rt), smm, RS, RT));
-	if (RS!=RT) {
+	TRL(("bne %s, %s, %ld: %lu!=%lu? ", 
+	     regname(rs), regname(rt), (long)smm, RSup, RTup));
+	if (RSu!=RTu) {
 		TR(("yes"));
 		rbranch(cpu, smm<<2);
 	}
@@ -1660,7 +1690,7 @@ void
 mx_j(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDTARG;
-	TR(("j 0x%x", targ<<2));
+	TR(("j 0x%lx", (unsigned long)(targ<<2)));
 	ibranch(cpu, targ<<2);
 }
 
@@ -1670,9 +1700,12 @@ void
 mx_jal(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDTARG;
-	TR(("jal 0x%x", targ<<2));
+	TR(("jal 0x%lx", (unsigned long)(targ<<2)));
 	LINK;
 	ibranch(cpu, targ<<2);
+#ifdef USE_TRACE
+	prof_call(cpu->pc, cpu->nextpc);
+#endif
 }
 
 static
@@ -1680,11 +1713,11 @@ inline
 void
 mx_lb(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("lb %s, %d(%s): [%x] -> ", 
-	     regname(rt), smm, regname(rs), RS+smm));
-	doload(cpu, S_SBYTE, RS+smm, (u_int32_t *) &RT);
-	TR(("%d", RT));
+	NEEDRT; NEEDADDR;
+	TRL(("lb %s, %ld(%s): [0x%lx] -> ", 
+	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	doload(cpu, S_SBYTE, addr, (u_int32_t *) &RTx);
+	TR(("%ld", RTsp));
 }
 
 static
@@ -1692,11 +1725,11 @@ inline
 void
 mx_lbu(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("lbu %s, %d(%s): [%x] -> ",
-	     regname(rt), smm, regname(rs), RS+smm));
-	doload(cpu, S_UBYTE, RS+smm, (u_int32_t *) &RT);
-	TR(("%d", RT));
+	NEEDRT; NEEDADDR;
+	TRL(("lbu %s, %ld(%s): [0x%lx] -> ",
+	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	doload(cpu, S_UBYTE, addr, (u_int32_t *) &RTx);
+	TR(("%ld", RTsp));
 }
 
 static
@@ -1704,11 +1737,11 @@ inline
 void
 mx_lh(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("lh %s, %d(%s): [%x] -> ", 
-	     regname(rt), smm, regname(rs), RS+smm));
-	doload(cpu, S_SHALF, RS+smm, (u_int32_t *) &RT);
-	TR(("%d", RT));
+	NEEDRT; NEEDADDR;
+	TRL(("lh %s, %ld(%s): [0x%lx] -> ", 
+	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	doload(cpu, S_SHALF, addr, (u_int32_t *) &RTx);
+	TR(("%ld", RTsp));
 }
 
 static
@@ -1716,11 +1749,11 @@ inline
 void
 mx_lhu(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("lhu %s, %d(%s): [%x] -> ", 
-	     regname(rt), smm, regname(rs), RS+smm));
-	doload(cpu, S_UHALF, RS+smm, (u_int32_t *) &RT);
-	TR(("%d", RT));
+	NEEDRT; NEEDADDR;
+	TRL(("lhu %s, %ld(%s): [0x%lx] -> ", 
+	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	doload(cpu, S_UHALF, addr, (u_int32_t *) &RTx);
+	TR(("%ld", RTsp));
 }
 
 static
@@ -1729,8 +1762,8 @@ void
 mx_lui(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDIMM;
-	TR(("lui %s 0x%x", regname(rt), imm));
-	RT = imm << 16;
+	TR(("lui %s, 0x%x", regname(rt), imm));
+	RTx = imm << 16;
 }
 
 static
@@ -1738,11 +1771,11 @@ inline
 void
 mx_lw(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("lw %s, %d(%s): [%x] -> ", 
-	     regname(rt), smm, regname(rs), RS+smm));
-	domem(cpu, RS+smm, (u_int32_t *) &RT, 0, 0);
-	TR(("%d", RT));
+	NEEDRT; NEEDADDR;
+	TRL(("lw %s, %ld(%s): [0x%lx] -> ", 
+	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	domem(cpu, addr, (u_int32_t *) &RTx, 0, 0);
+	TR(("%ld", RTsp));
 }
 
 static
@@ -1750,9 +1783,9 @@ inline
 void
 mx_lwc(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM; NEEDCN;
-	TR(("lwc%d $%u, %d(%s)", cn, rt, smm, regname(rs)));
-	dolwc(cpu, cn, RS+smm, rt);
+	NEEDRT; NEEDADDR; NEEDCN;
+	TR(("lwc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs)));
+	dolwc(cpu, cn, addr, rt);
 }
 
 static
@@ -1760,11 +1793,11 @@ inline
 void
 mx_lwl(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("lwl %s, %d(%s): [%x] -> ", 
-	     regname(rt), smm, regname(rs), RS+smm));
-	doload(cpu, S_WORDL, RS+smm, (u_int32_t *) &RT);
-	TR(("0x%x", RT));
+	NEEDRT; NEEDADDR;
+	TRL(("lwl %s, %ld(%s): [0x%lx] -> ", 
+	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	doload(cpu, S_WORDL, addr, (u_int32_t *) &RTx);
+	TR(("0x%lx", RTup));
 }
 
 static
@@ -1772,11 +1805,11 @@ inline
 void
 mx_lwr(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("lwr %s, %d(%s): [%x] -> ", 
-	     regname(rt), smm, regname(rs), RS+smm));
-	doload(cpu, S_WORDR, RS+smm, (u_int32_t *) &RT);
-	TR(("0x%x", RT));
+	NEEDRT; NEEDADDR;
+	TRL(("lwr %s, %ld(%s): [0x%lx] -> ", 
+	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	doload(cpu, S_WORDR, addr, (u_int32_t *) &RTx);
+	TR(("0x%lx", RTup));
 }
 
 static
@@ -1784,10 +1817,11 @@ inline
 void
 mx_sb(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TR(("sb %s, %d(%s): %d -> [%x]", 
-	    regname(rt), smm, regname(rs), RT&0xff, RS+smm));
-	dostore(cpu, S_UBYTE, RS+smm, RT);
+	NEEDRT; NEEDADDR;
+	TR(("sb %s, %ld(%s): %d -> [0x%lx]", 
+	    regname(rt), (long)smm, regname(rs),
+	    (int)(RTu&0xff), (unsigned long)addr));
+	dostore(cpu, S_UBYTE, addr, RTu);
 }
 
 static
@@ -1795,10 +1829,11 @@ inline
 void
 mx_sh(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TR(("sh %s, %d(%s): %d -> [%x]", 
-	    regname(rt), smm, regname(rs), RT&0xffff, RS+smm));
-	dostore(cpu, S_UHALF, RS+smm, RT);
+	NEEDRT; NEEDADDR;
+	TR(("sh %s, %ld(%s): %d -> [0x%lx]", 
+	    regname(rt), (long)smm, regname(rs),
+	    (int)(RTu&0xffff), (unsigned long)addr));
+	dostore(cpu, S_UHALF, addr, RTu);
 }
 
 static
@@ -1806,10 +1841,10 @@ inline
 void
 mx_sw(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TR(("sw %s, %d(%s): %d -> [%x]", 
-	    regname(rt), smm, regname(rs), RT, RS+smm));
-	domem(cpu, RS+smm, (u_int32_t *) &RT, 1, 1);
+	NEEDRT; NEEDADDR;
+	TR(("sw %s, %ld(%s): %ld -> [0x%lx]", 
+	    regname(rt), (long)smm, regname(rs), RTsp, (unsigned long)addr));
+	domem(cpu, addr, (u_int32_t *) &RTx, 1, 1);
 }
 
 static
@@ -1817,9 +1852,9 @@ inline
 void
 mx_swc(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM; NEEDCN;
-	TR(("swc%d $%u, %d(%s)", cn, rt, smm, regname(rs)));
-	doswc(cpu, cn, RS+smm, rt);
+	NEEDRT; NEEDADDR; NEEDCN;
+	TR(("swc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs)));
+	doswc(cpu, cn, addr, rt);
 }
 
 static
@@ -1827,10 +1862,10 @@ inline
 void
 mx_swl(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TR(("swl %s, %d(%s): 0x%x -> [%x]", 
-	    regname(rt), smm, regname(rs), RT, RS+smm));
-	dostore(cpu, S_WORDL, RS+smm, RT);
+	NEEDRT; NEEDADDR;
+	TR(("swl %s, %ld(%s): 0x%lx -> [0x%lx]", 
+	    regname(rt), (long)smm, regname(rs), RTup, (unsigned long)addr));
+	dostore(cpu, S_WORDL, addr, RTu);
 }
 
 static
@@ -1838,10 +1873,10 @@ inline
 void
 mx_swr(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRS; NEEDSMM;
-	TR(("swr %s, %d(%s): 0x%x -> [%x]", 
-	    regname(rt), smm, regname(rs), RT, RS+smm));
-	dostore(cpu, S_WORDR, RS+smm, RT);
+	NEEDRT; NEEDADDR;
+	TR(("swr %s, %ld(%s): 0x%lx -> [0x%lx]", 
+	    regname(rt), (long)smm, regname(rs), RTup, (unsigned long)addr));
+	dostore(cpu, S_WORDR, addr, RTu);
 }
 
 static
@@ -1860,20 +1895,38 @@ void
 mx_div(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
-	TRL(("div %s %s: %d / %d -> ", 
-	     regname(rs), regname(rt), RS, RT));
-	if (RT==0) {
-		/* What's the right exception? XXX */
-		exception(cpu, EX_RI, 0, 0);
+	TRL(("div %s %s: %ld / %ld -> ", 
+	     regname(rs), regname(rt), RSsp, RTsp));
+
+	WHILO;
+	if (RTs==0) {
+		/*
+		 * On divide-by-zero the mips doesn't trap.
+		 * Instead, the assembler emits an integer check for
+		 * zero that (on the real chip) runs in parallel with
+		 * the divide unit.
+		 *
+		 * I don't know what the right values to load in the
+		 * result are, if there are any that are specified,
+		 * but I'm going to make up what seems like a good
+		 * excuse for machine infinity.
+		 */
+		if (RSs < 0) {
+			cpu->lo = 0xffffffff;
+		}
+		else {
+			cpu->lo = 0x7fffffff;
+		}
+		cpu->hi = 0;
 		TR(("ERR"));
 	}
 	else {
-		WHILO;
-		cpu->lo = RS/RT;
-		cpu->hi = RS%RT;
-		SETHILO(2);
-		TR(("%d, remainder %d", cpu->lo, cpu->hi));
+		cpu->lo = RSs/RTs;
+		cpu->hi = RSs%RTs;
+		TR(("%ld, remainder %ld", 
+		    (long)(int32_t)cpu->lo, (long)(int32_t)cpu->hi));
 	}
+	SETHILO(2);
 }
 
 static
@@ -1882,20 +1935,26 @@ void
 mx_divu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
-	TRL(("divu %s %s: %u / %u -> ", 
-	     regname(rs), regname(rt), RS, RT));
-	if (RTU==0) {
-		/* What's the right exception? XXX */
-		exception(cpu, EX_RI, 0, 0);
+	TRL(("divu %s %s: %lu / %lu -> ", 
+	     regname(rs), regname(rt), RSup, RTup));
+
+	WHILO;
+	if (RTu==0) {
+		/*
+		 * See notes under signed divide above.
+		 */
+		cpu->lo = 0xffffffff;
+		cpu->hi = 0;
 		TR(("ERR"));
 	}
 	else {
-		WHILO;
-		cpu->lo=RSU/RTU;
-		cpu->hi=RSU%RTU;
-		SETHILO(2);
-		TR(("%u, remainder %u", cpu->lo, cpu->hi));
+		cpu->lo=RSu/RTu;
+		cpu->hi=RSu%RTu;
+		TR(("%lu, remainder %lu", 
+		    (unsigned long)(u_int32_t)cpu->lo, 
+		    (unsigned long)(u_int32_t)cpu->hi));
 	}
+	SETHILO(2);
 }
 
 static
@@ -1904,8 +1963,8 @@ void
 mx_jr(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS;
-	TR(("jr %s: 0x%x", regname(rs), RS));
-	abranch(cpu, RS);
+	TR(("jr %s: 0x%lx", regname(rs), RSup));
+	abranch(cpu, RSu);
 }
 
 static
@@ -1914,9 +1973,12 @@ void
 mx_jalr(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRD;
-	TR(("jalr %s, %s: 0x%x", regname(rd), regname(rs), RS));
+	TR(("jalr %s, %s: 0x%lx", regname(rd), regname(rs), RSup));
 	LINK2(rd);
-	abranch(cpu, RS);
+	abranch(cpu, RSu);
+#ifdef USE_TRACE
+	prof_call(cpu->pc, cpu->nextpc);
+#endif
 }
 
 static
@@ -1926,8 +1988,8 @@ mx_mf(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN;
 	TRL(("mfc%d %s, $%u: ... -> ", cn, regname(rt), rd));
-	domf(cpu, cn, rd, &RT);
-	TR(("0x%x", RT));
+	domf(cpu, cn, rd, &RTx);
+	TR(("0x%lx", RTup));
 }
 
 static
@@ -1938,9 +2000,9 @@ mx_mfhi(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRD;
 	TRL(("mfhi %s: ... -> ", regname(rd)));
 	WHI;
-	RD = cpu->hi;
+	RDx = cpu->hi;
 	SETHI(2);
-	TR(("0x%x", RD));
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -1951,9 +2013,9 @@ mx_mflo(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRD;
 	TRL(("mflo %s: ... -> ", regname(rd)));
 	WLO;
-	RD = cpu->lo;
+	RDx = cpu->lo;
 	SETLO(2);
-	TR(("0x%x", RD));
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -1962,8 +2024,8 @@ void
 mx_mt(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN;
-	TR(("mtc%d %s, $%u: 0x%x -> ...", cn, regname(rt), rd, RT));
-	domt(cpu, cn, rd, RT);
+	TR(("mtc%d %s, $%u: 0x%lx -> ...", cn, regname(rt), rd, RTup));
+	domt(cpu, cn, rd, RTs);
 }
 
 static
@@ -1972,9 +2034,9 @@ void
 mx_mthi(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS;
-	TR(("mthi %s: 0x%x -> ...", regname(rs), RS));
+	TR(("mthi %s: 0x%lx -> ...", regname(rs), RSup));
 	WHI;
-	cpu->hi = RS;
+	cpu->hi = RSu;
 	SETHI(2);
 }
 
@@ -1984,9 +2046,9 @@ void
 mx_mtlo(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS;
-	TR(("mtlo %s: 0x%x -> ...", regname(rs), RS));
+	TR(("mtlo %s: 0x%lx -> ...", regname(rs), RSup));
 	WLO;
-	cpu->lo = RS;
+	cpu->lo = RSu;
 	SETLO(2);
 }
 
@@ -1997,14 +2059,14 @@ mx_mult(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
 	int64_t t64;
-	TRL(("mult %s, %s: %d * %d -> ", 
-	     regname(rs), regname(rt), RS, RT));
+	TRL(("mult %s, %s: %ld * %ld -> ", 
+	     regname(rs), regname(rt), RSsp, RTsp));
 	WHILO;
-	t64=(int64_t)RS*(int64_t)RT;
-	cpu->hi = (t64>>32);
-	cpu->lo = (u_int32_t)(u_int64_t)t64;
+	t64=(int64_t)RSs*(int64_t)RTs;
+	cpu->hi = (((u_int64_t)t64)&0xffffffff00000000ULL) >> 32;
+	cpu->lo = (u_int32_t)(((u_int64_t)t64)&0x00000000ffffffffULL);
 	SETHILO(2);
-	TR(("%d %d", cpu->hi, cpu->lo));
+	TR(("%ld %ld", (long)(int32_t)cpu->hi, (long)(int32_t)cpu->lo));
 }
 
 static
@@ -2013,15 +2075,17 @@ void
 mx_multu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
-	int64_t t64;
-	TRL(("multu %s, %s: %u * %u -> ", 
-	     regname(rs), regname(rt), RS, RT));
+	u_int64_t t64;
+	TRL(("multu %s, %s: %lu * %lu -> ", 
+	     regname(rs), regname(rt), RSup, RTup));
 	WHILO;
-	t64=(u_int64_t)RSU*(u_int64_t)RTU;
-	cpu->hi = (t64>>32);
-	cpu->lo = (u_int32_t)(u_int64_t)t64;
+	t64=(u_int64_t)RSu*(u_int64_t)RTu;
+	cpu->hi = (t64&0xffffffff00000000ULL) >> 32;
+	cpu->lo = (u_int32_t)(t64&0x00000000ffffffffULL);
 	SETHILO(2);
-	TR(("%u %u", cpu->hi, cpu->lo));
+	TR(("%lu %lu",
+	    (unsigned long)(u_int32_t)cpu->hi,
+	    (unsigned long)(u_int32_t)cpu->lo));
 }
 
 static
@@ -2030,10 +2094,10 @@ void
 mx_nor(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("nor %s, %s, %s: ~(0x%x | 0x%x) -> ",
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = ~(RS | RT);
-	TR(("0x%x", RD));
+	TRL(("nor %s, %s, %s: ~(0x%lx | 0x%lx) -> ",
+	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	RDx = ~(RSu | RTu);
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2042,10 +2106,10 @@ void
 mx_or(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("or %s, %s, %s: 0x%x | 0x%x -> ", 
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = RS | RT;
-	TR(("0x%x", RD));
+	TRL(("or %s, %s, %s: 0x%lx | 0x%lx -> ", 
+	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	RDx = RSu | RTu;
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2054,10 +2118,11 @@ void
 mx_ori(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
-	TRL(("ori %s, %s, %u: 0x%x | 0x%x -> ", 
-	     regname(rt), regname(rs), imm, RS, imm));
-	RT = RS | imm;
-	TR(("0x%x", RT));
+	TRL(("ori %s, %s, %lu: 0x%lx | 0x%lx -> ", 
+	     regname(rt), regname(rs), (unsigned long)imm,
+	     RSup, (unsigned long)imm));
+	RTx = RSu | imm;
+	TR(("0x%lx", RTup));
 }
 
 static
@@ -2076,10 +2141,10 @@ void
 mx_sll(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
-	TRL(("sll %s, %s, %u: 0x%x << %d -> ", 
-	     regname(rd), regname(rt), sh, RT, sh));
-	RD = RT << sh;
-	TR(("0x%x", RD));
+	TRL(("sll %s, %s, %u: 0x%lx << %u -> ", 
+	     regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh));
+	RDx = RTu << sh;
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2088,10 +2153,11 @@ void
 mx_sllv(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDRS;
-	TRL(("sllv %s, %s, %s: 0x%x << %d -> ", 
-	     regname(rd), regname(rt), regname(rs), RT, (RS&31)));
-	RD = RT << (RS&31);
-	TR(("0x%x", RD));
+	unsigned vsh = (RSu&31);
+	TRL(("sllv %s, %s, %s: 0x%lx << %u -> ", 
+	     regname(rd), regname(rt), regname(rs), RTup, vsh));
+	RDx = RTu << vsh;
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2100,10 +2166,10 @@ void
 mx_slt(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("slt %s, %s, %s: %d < %d -> ", 
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = RS < RT;
-	TR(("0x%x", RD));
+	TRL(("slt %s, %s, %s: %ld < %ld -> ", 
+	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	RDx = RSs < RTs;
+	TR(("%ld", RDsp));
 }
 
 static
@@ -2112,10 +2178,10 @@ void
 mx_slti(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
-	TRL(("slti %s, %s, %d: %d < %d -> ", 
-	     regname(rt), regname(rs), smm, RS, smm));
-	RT = RS < smm;
-	TR(("%d", RT));
+	TRL(("slti %s, %s, %ld: %ld < %ld -> ", 
+	     regname(rt), regname(rs), (long)smm, RSsp, (long)smm));
+	RTx = RSs < smm;
+	TR(("%ld", RTsp));
 }
 
 static
@@ -2124,12 +2190,13 @@ void
 mx_sltiu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
-	TRL(("sltiu %s, %s, %u: %u < %u -> ", 
-	     regname(rt), regname(rs), imm, RS, smm));
+	TRL(("sltiu %s, %s, %lu: %lu < %lu -> ", 
+	     regname(rt), regname(rs), (unsigned long)imm, RSup, 
+	     (unsigned long)(u_int32_t)smm));
 	// Yes, the immediate is sign-extended then treated as
 	// unsigned, according to my mips book. Blech.
-	RT = RSU < (u_int32_t) smm;
-	TR(("%d", RT));
+	RTx = RSu < (u_int32_t) smm;
+	TR(("%ld", RTsp));
 }
 
 static
@@ -2138,10 +2205,24 @@ void
 mx_sltu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("sltu %s, %s, %s: %u < %u -> ", 
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = RSU < RTU;
-	TR(("0x%x", RD));
+	TRL(("sltu %s, %s, %s: %lu < %lu -> ", 
+	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	RDx = RSu < RTu;
+	TR(("%ld", RDsp));
+}
+
+static
+inline
+u_int32_t
+signedshift(u_int32_t val, unsigned amt)
+{
+	/* There's no way to express a signed shift directly in C. */
+	u_int32_t result;
+	result = val >> amt;
+	if (val & 0x80000000) {
+		result |= (0xffffffff << (31-amt));
+	}
+	return result;
 }
 
 static
@@ -2150,10 +2231,10 @@ void
 mx_sra(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
-	TRL(("sra %s, %s, %u: 0x%x >> %d -> ", 
-	     regname(rd), regname(rt), sh, RT, sh));
-	RD = RT >> sh;
-	TR(("0x%x", RD));
+	TRL(("sra %s, %s, %u: 0x%lx >> %u -> ", 
+	     regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh));
+	RDx = signedshift(RTu, sh);
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2162,10 +2243,11 @@ void
 mx_srav(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("srav %s, %s, %s: 0x%x >> %d -> ", 
-	     regname(rd), regname(rt), regname(rs), RT, (RS&31)));
-	RD = RT >> (RS&31);
-	TR(("0x%x", RD));
+	unsigned vsh = (RSu&31);
+	TRL(("srav %s, %s, %s: 0x%lx >> %u -> ", 
+	     regname(rd), regname(rt), regname(rs), RTup, vsh));
+	RDx = signedshift(RTu, vsh);
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2174,10 +2256,10 @@ void
 mx_srl(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
-	TRL(("srl %s, %s, %u: 0x%x >> %d -> ", 
-	     regname(rd), regname(rt), sh, RT, sh));
-	RD = RTU >> sh;
-	TR(("0x%x", RD));
+	TRL(("srl %s, %s, %u: 0x%lx >> %u -> ", 
+	     regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh));
+	RDx = RTu >> sh;
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2186,10 +2268,11 @@ void
 mx_srlv(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("srlv %s, %s, %s: 0x%x >> %d -> ", 
-	     regname(rd), regname(rt), regname(rs), RT,  (RS&31)));
-	RD = RTU >> (RS&31);
-	TR(("0x%x", RD));
+	unsigned vsh = (RSu&31);
+	TRL(("srlv %s, %s, %s: 0x%lx >> %u -> ", 
+	     regname(rd), regname(rt), regname(rs), RTup, vsh));
+	RDx = RTu >> vsh;
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2199,12 +2282,12 @@ mx_sub(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	int64_t t64;
-	TRL(("sub %s, %s, %s: %d - %d -> ", 
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	t64 = (int64_t)RS - (int64_t)RT;
+	TRL(("sub %s, %s, %s: %ld - %ld -> ", 
+	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	t64 = (int64_t)RSs - (int64_t)RTs;
 	CHKOVF(t64);
-	RD = (int32_t)t64;
-	TR(("%d", RD));
+	RDx = (int32_t)t64;
+	TR(("%ld", RDsp));
 }
 
 static
@@ -2213,10 +2296,10 @@ void
 mx_subu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("subu %s, %s, %s: %d - %d -> ", 
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = RS - RT;
-	TR(("%d", RD));
+	TRL(("subu %s, %s, %s: %ld - %ld -> ", 
+	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	RDx = RSu - RTu;
+	TR(("%ld", RDsp));
 }
 
 static
@@ -2289,10 +2372,10 @@ void
 mx_xor(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("xor %s, %s, %s: 0x%x ^ 0x%x -> ",
-	     regname(rd), regname(rs), regname(rt), RS, RT));
-	RD = RS ^ RT;
-	TR(("0x%x", RD));
+	TRL(("xor %s, %s, %s: 0x%lx ^ 0x%lx -> ",
+	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	RDx = RSu ^ RTu;
+	TR(("0x%lx", RDup));
 }
 
 static
@@ -2301,10 +2384,11 @@ void
 mx_xori(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
-	TRL(("xori %s, %s, %u: 0x%x ^ 0x%x -> ",
-	     regname(rt), regname(rs), imm, RS, imm));
-	RT = RS ^ imm;
-	TR(("0x%x", RT));
+	TRL(("xori %s, %s, %lu: 0x%lx ^ 0x%lx -> ",
+	     regname(rt), regname(rs), (unsigned long)imm, 
+	     RSup, (unsigned long)imm));
+	RTx = RSu ^ imm;
+	TR(("0x%lx", RTup));
 }
 
 static
@@ -2837,5 +2921,21 @@ cpudebug_getregs(u_int32_t *regs, int maxregs, int *nregs)
 	GETREG(mycpu.ex_vaddr);
 	GETREG(getcause(&mycpu));
 	GETREG(mycpu.pc);
+	GETREG(0); /* fp status? */
+	GETREG(0); /* fp something-else? */
+	GETREG(0); /* fp ? */
+	GETREG(getindex(&mycpu));
+	GETREG(getrandom(&mycpu));
+	GETREG(tlbgetlo(&mycpu.tlbentry));
+	GETREG(mycpu.ex_context);
+	GETREG(tlbgethi(&mycpu.tlbentry));
+	GETREG(mycpu.ex_epc);
+	GETREG(mycpu.ex_prid);
 	*nregs = j;
+}
+
+u_int32_t
+cpuprof_sample(void)
+{
+	return mycpu.pc;
 }

@@ -14,7 +14,7 @@
 
 
 
-const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.9 2001/07/18 23:49:47 dholland Exp $";
+const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.10 2002/05/28 21:32:18 dholland Exp $";
 
 #define SERREG_CHAR   0x0
 #define SERREG_WIRQ   0x4
@@ -28,6 +28,8 @@ const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.9 2001/07/18 23:49:47 d
 #define IRQF_ON    0x1
 #define IRQF_READY 0x2
 
+#define INBUF_SIZE 512
+
 //////////////////////////////////////////////////
 
 struct serirq {
@@ -37,10 +39,15 @@ struct serirq {
 
 struct ser_data {
 	int sd_slot;
-	u_int32_t sd_readch;
 	int sd_wbusy;
+	int sd_rbusy;
 	struct serirq sd_rirq;
 	struct serirq sd_wirq;
+
+	u_int32_t sd_readch;
+	char sd_inbuf[INBUF_SIZE];
+	int sd_inbufhead;	/* characters are read from inbufhead */
+	int sd_inbuftail;	/* characters are written to inbuftail */
 };
 
 static
@@ -89,12 +96,54 @@ serial_writedone(void *d, u_int32_t gen)
 
 static
 void
+serial_pushinput(void *d, u_int32_t junk)
+{
+	struct ser_data *sd = d;
+	u_int32_t ch;
+
+	(void)junk;
+
+	if (sd->sd_inbufhead==sd->sd_inbuftail) {
+		sd->sd_rbusy = 0;
+	}
+	else {
+		ch = (u_int32_t)(unsigned char)sd->sd_inbuf[sd->sd_inbufhead];
+		sd->sd_inbufhead = (sd->sd_inbufhead+1)%INBUF_SIZE;
+
+		sd->sd_readch = ch;
+		sd->sd_rirq.si_ready = 1;
+		setirq(sd);
+
+		sd->sd_rbusy = 1;
+		schedule_event(SERIAL_NSECS, sd, 0,
+			       serial_pushinput, "serial read");
+	}
+}
+
+static
+void
 serial_input(void *d, int ch)
 {
 	struct ser_data *sd = d;
-	sd->sd_readch = ch;
-	sd->sd_rirq.si_ready = 1;
-	setirq(sd);
+	int nexttail;
+	static int overrun_in_progress=0;
+
+	nexttail = (sd->sd_inbuftail + 1)%INBUF_SIZE;
+	if (nexttail==sd->sd_inbufhead) {
+		if (!overrun_in_progress) {
+			msg("Input buffer overrun");
+			overrun_in_progress=1;
+		}
+		return;
+	}
+	overrun_in_progress = 0;
+
+	sd->sd_inbuf[sd->sd_inbuftail] = ch;
+	sd->sd_inbuftail = nexttail;
+
+	if (!sd->sd_rbusy) {
+		serial_pushinput(sd, 0);
+	}
 }
 
 static
@@ -150,12 +199,16 @@ serial_init(int slot, int argc, char *argv[])
 {
 	struct ser_data *sd = domalloc(sizeof(struct ser_data));
 	sd->sd_slot = slot;
-	sd->sd_readch = 0;
 	sd->sd_wbusy = 0;
+	sd->sd_rbusy = 0;
 	sd->sd_rirq.si_on = 0;
 	sd->sd_rirq.si_ready = 0;
 	sd->sd_wirq.si_on = 0;
 	sd->sd_wirq.si_ready = 0;
+
+	sd->sd_readch = 0;
+	sd->sd_inbufhead = 0;	/* empty if head==tail */
+	sd->sd_inbuftail = 0;
 
 	(void)argc;
 	(void)argv;

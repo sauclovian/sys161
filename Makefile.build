@@ -1,5 +1,6 @@
 include defs.mk
 include cpu.mk
+include $S/version.mk
 
 all: $(PROG)
 
@@ -11,7 +12,8 @@ SRCFILES+=bus     lamebus.c boot.c \
                   dev_disk.c dev_emufs.c dev_net.c dev_random.c \
                   dev_screen.c dev_serial.c dev_timer.c dev_trace.c \
           gdb     gdb_fe.c gdb_be.c \
-          main    main.c onsel.c clock.c console.c trace.c util.c
+          main    main.c onsel.c clock.c console.c \
+                  prof.c meter.c trace.c util.c
 
 tidy:
 	(find $S -name '*~' -print | xargs rm -f)
@@ -32,10 +34,7 @@ realdepend:
 
 install:
 	[ -d "$(INSTALLDIR)" ] || mkdir -p $(INSTALLDIR)
-	cp $(PROG) $(INSTALLDIR)/$(PROG).new
-	chmod 755 $(INSTALLDIR)/$(PROG).new
-	-mv -f $(INSTALLDIR)/$(PROG) $(INSTALLDIR)/$(PROG).old
-	mv -f $(INSTALLDIR)/$(PROG).new $(INSTALLDIR)/$(PROG)
+	$S/installit.sh "$(INSTALLDIR)" "$(PROG)" "$(VERSION)"
 
 $(PROG): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -lm -o $(PROG)

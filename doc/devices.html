@@ -257,8 +257,9 @@ address. The rest is reserved. The status register is read-only.
 To transmit, a packet should first be assembled in the send buffer.
 The destination and length fields in the link-level header must be set
 correctly. (The source and frame fields will be set by the card during
-transmit.) Then bit 1 of the control register should be set to 1 to
-start transmission. An interrupt will occur when transmission is
+transmit. However, the entire link-level header should be placed in
+the send buffer.) Then bit 1 of the control register should be set to
+1 to start transmission. An interrupt will occur when transmission is
 complete.
 <p>
 
@@ -275,14 +276,19 @@ fields (always in network byte order):
 <table width=95% border=0>
 <tr><th>Offset</th><th>Size</th><th>Description</th></tr>
 <tr><td>0</td>	<td>2</td>	<td>Framing word (0xa4b3)</td></tr>
-<tr><td>2</td>	<td>2</td>	<td>Hardware from address</td></tr>
+<tr><td>2</td>	<td>2</td>	<td>Hardware from-address</td></tr>
 <tr><td>4</td>	<td>2</td>	<td>Total packet length</td></tr>
-<tr><td>6</td>	<td>2</td>	<td>Hardware to address</td></tr>
+<tr><td>6</td>	<td>2</td>	<td>Hardware to-address</td></tr>
 </table>
 </blockquote>
 
+The length field should hold the entire packet length, including the
+space taken by the header.
+<p>
+
 The hardware address 0xffff is the broadcast address; the hardware
 address 0x0000 is reserved for sending keepalives to the network hub.
+Software should not send packets to hardware address 0x0000.
 
 <hr>
 

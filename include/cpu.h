@@ -22,4 +22,7 @@ int cpudebug_store_word(u_int32_t va, u_int32_t word);// not used
 void cpudebug_get_bp_region(u_int32_t *start, u_int32_t *end);
 void cpudebug_getregs(u_int32_t *regs, int maxregs, int *nregs);
 
+/* Functions used by the profiling code */
+u_int32_t cpuprof_sample(void);
+
 #endif /* CPU_H */

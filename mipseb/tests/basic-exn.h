@@ -1,6 +1,6 @@
 
 utlbexn:
-	lui $k0, 0xaaaa
+	lui k0, 0xaaaa
 	j die
 	nop
 	nop; nop; nop; nop; nop
@@ -10,7 +10,7 @@ utlbexn:
 	nop; nop; nop; nop; nop; nop; nop; nop
 
 genexn:
-	lui $k0, 0xbbbb
+	lui k0, 0xbbbb
 
 die:
 	DUMP(0xdeadbeef)

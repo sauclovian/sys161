@@ -5,9 +5,9 @@
     */
 __start:
    EXNSON
-   li $t0, -78
-   li $t1, -9304
-   divu $t0, $t1
+   li t0, -78
+   li t1, -9304
+   divu t0, t1
    nop
    nop
    nop

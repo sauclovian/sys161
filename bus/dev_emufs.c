@@ -115,7 +115,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.13 2002/01/21 22:27:35 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.14 2003/01/18 03:13:50 dholland Exp $";
 
 
 #define MAXHANDLES     64
@@ -278,11 +278,11 @@ emufs_open(struct emufs_data *ed, int flags)
 		return EMU_RES_BADSIZE;
 	}
 
-	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: open %s: ", ed->ed_slot,
-			       ed->ed_buf));
-
 	/* ensure null termination */
 	ed->ed_buf[ed->ed_iolen] = 0;
+
+	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: open %s: ", ed->ed_slot,
+			       ed->ed_buf));
 
 	handle = pickhandle(ed);
 	if (handle < 0) {

@@ -19,7 +19,7 @@
 
 #include "context.h"
 
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.16 2002/01/22 23:59:04 dholland Exp $";
+const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.17 2002/09/09 21:23:19 dholland Exp $";
 
 //#include "lamebus.h"
 
@@ -304,6 +304,7 @@ setup_unix(const char *name)
 
 	if (bind(sfd, (struct sockaddr *) &sun, len) < 0) {
 		msg("bind: %s", strerror(errno));
+		close(sfd);
 		return -1;
 	}
 	return sfd;
@@ -321,6 +322,7 @@ common_init(int sfd)
 	if (listen(sfd, 1) < 0) {
 		msg("listen: %s", strerror(errno));
 		msg("Could not set up debug socket; debugging disabled");
+		close(sfd);
 		return;
 	}
 

@@ -6,8 +6,8 @@
     */
 __start:
    EXNSON
-   li $t0, 0x90000000
-   addiu $t2, $t0, 0x3000
+   li t0, 0x90000000
+   addiu t2, t0, 0x3000
    nop
    DUMP(0)
    POWEROFF

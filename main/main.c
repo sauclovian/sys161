@@ -8,6 +8,8 @@
 
 #include "console.h"
 #include "trace.h"
+#include "prof.h"
+#include "meter.h"
 #include "gdb.h"
 #include "cpu.h"
 #include "bus.h"
@@ -18,7 +20,7 @@
 #include "version.h"
 
 const char rcsid_main_c[] =
-    "$Id: main.c,v 1.27 2002/01/17 22:20:23 dholland Exp $";
+    "$Id: main.c,v 1.30 2002/09/09 21:26:08 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -265,6 +267,7 @@ static
 void
 usage(void)
 {
+	msg("System/161 %s, compiled %s %s", VERSION, __DATE__, __TIME__);
 	msg("Usage: sys161 [sys161 options] kernel [kernel args...]");
 	msg("   sys161 options:");
 	msg("     -c config      Use alternate config file");
@@ -296,6 +299,9 @@ main(int argc, char *argv[])
 	size_t argsize=0;
 	int debugwait=0;
 	int pass_signals=0;
+#ifdef USE_TRACE
+	int profiling=0;
+#endif
 
 	/* This must come absolutely first so msg() can be used. */
 	console_earlyinit();
@@ -308,7 +314,7 @@ main(int argc, char *argv[])
 		die();
 	}
 
-	while ((opt = mygetopt(argc, argv, "c:f:p:st:w"))!=-1) {
+	while ((opt = mygetopt(argc, argv, "c:f:p:Pst:w"))!=-1) {
 		switch (opt) {
 		    case 'c': config = myoptarg; break;
 		    case 'f':
@@ -317,6 +323,11 @@ main(int argc, char *argv[])
 #endif
 			break;
 		    case 'p': port = atoi(myoptarg); usetcp=1; break;
+		    case 'P':
+#ifdef USE_TRACE
+			profiling = 1;
+#endif
+			break;
 		    case 's': pass_signals = 1; break;
 		    case 't': 
 #ifdef USE_TRACE
@@ -363,11 +374,17 @@ main(int argc, char *argv[])
 		gdb_unix_init(".sockets/gdb");
 	}
 
+	unlink(".sockets/meter");
+	meter_init(".sockets/meter");
+
 	load_kernel(kernel, argstr);
 
 	msg("System/161 %s, compiled %s %s", VERSION, __DATE__, __TIME__);
 #ifdef USE_TRACE
 	print_traceflags();
+	if (profiling) {
+		prof_setup();
+	}
 #endif
 
 	if (debugwait) {
@@ -375,6 +392,12 @@ main(int argc, char *argv[])
 	}
 	
 	run();
+
+#ifdef USE_TRACE
+	if (profiling) {
+		prof_write();
+	}
+#endif
 
 	bus_cleanup();
 	console_cleanup();
