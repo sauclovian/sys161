@@ -18,7 +18,7 @@
 #include "lamebus.h"
 
 const char rcsid_dev_net_c[] = 
-    "$Id: dev_net.c,v 1.8 2001/06/05 20:05:06 dholland Exp $";
+    "$Id: dev_net.c,v 1.9 2001/06/08 22:04:56 dholland Exp $";
 
 #define NETREG_READINTR    0
 #define NETREG_WRITEINTR   4
@@ -91,6 +91,7 @@ static
 void
 readdone(struct net_data *nd)
 {
+	TRACE(DOTRACE_NET, ("nic: slot %d: packet received", nd->nd_slot));
 	nd->nd_rirq = NDI_DONE;
 	chkint(nd);
 }
@@ -99,6 +100,7 @@ static
 void
 writedone(struct net_data *nd)
 {
+	TRACE(DOTRACE_NET, ("nic: slot %d: packet sent", nd->nd_slot));
 	nd->nd_wirq = NDI_DONE;
 	chkint(nd);
 }
@@ -137,16 +139,22 @@ keepalive(void *data, u_int32_t junk)
 			msg("nic: slot %d: lost carrier", nd->nd_slot);
 			nd->nd_lostcarrier = 1;
 		}
+		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive rejected", 
+				    nd->nd_slot));
 	}
 	else if (r<0) {
 		msg("nic: slot %d: keepalive failed: %s", nd->nd_slot,
 		    strerror(errno));
+		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive failed", 
+				    nd->nd_slot));
 	}
 	else {
 		if (nd->nd_lostcarrier) {
 			msg("nic: slot %d: carrier detected", nd->nd_slot);
 			nd->nd_lostcarrier = 0;
 		}
+		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive succeeded", 
+				    nd->nd_slot));
 	}
 
 	schedule_event(1000000000, nd, 0, keepalive);
@@ -166,6 +174,9 @@ dosend(struct net_data *nd)
 		hang("Packet size too long");
 		return;
 	}
+
+	TRACE(DOTRACE_NET, ("nic: slot %d: starting send (%u bytes)", 
+			    nd->nd_slot, len));
 
 	/*
 	 * Force the link-level header to the right values
@@ -216,10 +227,13 @@ dorecv(void *data)
 	r = read(nd->nd_socket, nd->nd_rbuf, NET_BUFSIZE);
 	if (r<0) {
 		msg("nic: slot %d: read: %s", nd->nd_slot, strerror(errno));
+		TRACE(DOTRACE_NET, ("nic: slot %d: read error", 
+				    nd->nd_slot));
 		return 0;
 	}
 	if (r < 8) {
-		//msg("nic: slot %d: short packet", nd->nd_slot);
+		TRACE(DOTRACE_NET, ("nic: slot %d: miniscule packet", 
+				    nd->nd_slot));
 		g_stats.s_epkts++;
 		return 0;
 	}
@@ -227,7 +241,8 @@ dorecv(void *data)
 	lh = (struct linkheader *)readbuf;
 
 	if (ntohs(lh->lh_frame) != FRAME_MAGIC) {
-		//msg("nic: slot %d: framing error", nd->nd_slot);
+		TRACE(DOTRACE_NET, ("nic: slot %d: framing error", 
+				    nd->nd_slot));
 		g_stats.s_epkts++;
 		return 0;
 	}
@@ -235,17 +250,28 @@ dorecv(void *data)
 	if (ntohs(lh->lh_to) != (nd->nd_status & NDS_HWADDR) &&
 	    ntohs(lh->lh_to) != BROADCAST_ADDR && 
 	    (nd->nd_control & NDC_PROMISC)==0) {
+		TRACE(DOTRACE_NET, ("nic: slot %d: packet not for us", 
+				    nd->nd_slot));
 		return 0;
 	}
 
 	if (ntohs(lh->lh_packetlen) > r) {
-		//msg("nic: slot %d: truncated packet", nd->nd_slot);
+		TRACE(DOTRACE_NET, ("nic: slot %d: truncated packet", 
+				    nd->nd_slot));
+		g_stats.s_epkts++;
+		return 0;
+	}
+
+	if (ntohs(lh->lh_packetlen) < r) {
+		TRACE(DOTRACE_NET, ("nic: slot %d: garbage on end of packet", 
+				    nd->nd_slot));
 		g_stats.s_epkts++;
 		return 0;
 	}
 
 	if (overrun) {
-		//msg("nic: slot %d: overrun (packet dropped)", nd->nd_slot);
+		TRACE(DOTRACE_NET, ("nic: slot %d: overrun",
+				    nd->nd_slot));
 		g_stats.s_dpkts++;
 		return 0;
 	}

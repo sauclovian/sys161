@@ -6,7 +6,7 @@
 #include "trace.h"
 
 const char rcsid_trace_c[] = 
-	"$Id: trace.c,v 1.2 2001/06/07 19:58:29 dholland Exp $";
+	"$Id: trace.c,v 1.3 2001/06/08 21:37:58 dholland Exp $";
 
 #ifdef USE_TRACE
 
@@ -18,6 +18,7 @@ static const struct {
 	/* Note: not necessarily in same order as DOTRACE flags */
 	{ 'k', DOTRACE_KINSN, "kinsn" },
 	{ 'u', DOTRACE_UINSN, "uinsn" },
+	{ 'j', DOTRACE_JUMP,  "jump" },
 	{ 't', DOTRACE_TLB,   "tlb" },
 	{ 'x', DOTRACE_EXN,   "exn" },
 	{ 'i', DOTRACE_IRQ,   "irq" },

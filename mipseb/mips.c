@@ -19,7 +19,7 @@
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.43 2001/06/07 20:02:21 dholland Exp $";
+	"$Id: mips.c,v 1.45 2001/06/21 21:09:24 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -168,13 +168,25 @@ void
 tlbmsg(struct mipscpu *cpu, int index, const char *what)
 {
 	if (TLB_GLOBAL(cpu->tlb[index])) {
-		msg("%s: index %d, vpn 0x%08lx, global", what, index, 
-		    (unsigned long)(TLB_VPN(cpu->tlb[index])));
+		msg("%s: index %d, vpn 0x%08lx, global, "
+		    "ppn 0x%08lx (%s%s%s)",
+		    what, index, 
+		    (unsigned long)(TLB_VPN(cpu->tlb[index])),
+		    (unsigned long)(TLB_PFN(cpu->tlb[index])),
+		    TLB_VALID(cpu->tlb[index]) ? "V" : "-",
+		    TLB_DIRTY(cpu->tlb[index]) ? "D" : "-",
+		    TLB_NOCACHE(cpu->tlb[index]) ? "N" : "-");
 	}
 	else {
-		msg("%s: index %d, vpn 0x%08lx, pid %ld", what, index,
+		msg("%s: index %d, vpn 0x%08lx, pid %-2ld, "
+		    "ppn 0x%08lx (%s%s%s) ", 
+		    what, index,
 		    (unsigned long)(TLB_VPN(cpu->tlb[index])),
-		    (unsigned long)(TLB_PID(cpu->tlb[index])));
+		    (unsigned long)(TLB_PID(cpu->tlb[index])),
+		    (unsigned long)(TLB_PFN(cpu->tlb[index])),
+		    TLB_VALID(cpu->tlb[index]) ? "V" : "-",
+		    TLB_DIRTY(cpu->tlb[index]) ? "D" : "-",
+		    TLB_NOCACHE(cpu->tlb[index]) ? "N" : "-");
 	}
 }
 
@@ -212,7 +224,8 @@ check_tlb_dups(struct mipscpu *cpu, int newix)
 			msg("Duplicate TLB entries!");
 			tlbmsg(cpu, newix, "New entry");
 			tlbmsg(cpu, i, "Old entry");
-			hang("Duplicate TLB entries for vpage ");
+			hang("Duplicate TLB entries for vpage %x",
+			     TLB_VPN(cpu->tlb[i]));
 		}
 	}
 }
@@ -655,6 +668,7 @@ abranch(struct mipscpu *cpu, u_int32_t addr)
 {
 	// Branches update nextpc (which points to the insn after 
 	// the delay slot).
+	TRACE(DOTRACE_JUMP, ("jump: %x -> %x", cpu->nextpc-8, addr));
 	cpu->nextpc = addr;
 	cpu->jumping = 1;
 }
@@ -667,9 +681,9 @@ ibranch(struct mipscpu *cpu, u_int32_t imm)
 	// address to take the upper bits of is the address of the
 	// jump or the delay slot or what. it just says "the current
 	// program counter", which I shall interpret as the address of
-	// the delay slot. Fortunately, one doesn't isn't likely to
-	// ever be executing a jump that lies across a boundary where
-	// it would matter.
+	// the delay slot. Fortunately, one isn't likely to ever be
+	// executing a jump that lies across a boundary where it would
+	// matter.
 	//
 	// (Note that cpu->pc aims at the delay slot by the time we
 	// get here.)

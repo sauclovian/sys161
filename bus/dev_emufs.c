@@ -114,7 +114,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.10 2001/03/19 21:25:37 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.11 2001/06/08 22:04:50 dholland Exp $";
 
 
 #define MAXHANDLES     64
@@ -277,11 +277,15 @@ emufs_open(struct emufs_data *ed, int flags)
 		return EMU_RES_BADSIZE;
 	}
 
+	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: open %s: ", ed->ed_slot,
+			       ed->ed_buf));
+
 	/* ensure null termination */
 	ed->ed_buf[ed->ed_iolen] = 0;
 
 	handle = pickhandle(ed);
 	if (handle < 0) {
+		TRACE(DOTRACE_EMUFS, ("out of handles"));
 		return EMU_RES_NOHANDLES;
 	}
 
@@ -290,6 +294,7 @@ emufs_open(struct emufs_data *ed, int flags)
 	if (stat(ed->ed_buf, &sbuf)) {
 		if (flags==0) {
 			int err = errno;
+			TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
 			popdir(curdir);
 			return errno_to_code(err);
 		}
@@ -306,8 +311,10 @@ emufs_open(struct emufs_data *ed, int flags)
 	
 	ed->ed_fds[handle] = open(ed->ed_buf, flags, 0664);
 	if (ed->ed_fds[handle]<0) {
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
 		popdir(curdir);
-		return errno_to_code(errno);
+		return errno_to_code(err);
 	}
 
 	popdir(curdir);
@@ -315,6 +322,7 @@ emufs_open(struct emufs_data *ed, int flags)
 	ed->ed_handle = handle;
 	ed->ed_iolen = S_ISDIR(sbuf.st_mode)!=0;
 
+	TRACE(DOTRACE_EMUFS, ("succeeded, handle %d", handle));
 	g_stats.s_memu++;
 
 	return EMU_RES_SUCCESS;
@@ -326,6 +334,8 @@ emufs_close(struct emufs_data *ed)
 {
 	close(ed->ed_fds[ed->ed_handle]);
 	ed->ed_fds[ed->ed_handle] = -1;
+	TRACE(DOTRACE_EMUFS, ("emufs: slot %d: close handle %d",
+			      ed->ed_slot, ed->ed_handle));
 	g_stats.s_memu++;
 	return EMU_RES_SUCCESS;
 }
@@ -341,18 +351,24 @@ emufs_read(struct emufs_data *ed)
 		return EMU_RES_BADSIZE;
 	}
 
+	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: read %u bytes, handle %d: ",
+			       ed->ed_slot, ed->ed_iolen, ed->ed_handle));
+
 	fd = ed->ed_fds[ed->ed_handle];
 
 	lseek(fd, ed->ed_offset, SEEK_SET);
 	len = read(fd, ed->ed_buf, ed->ed_iolen);
 
 	if (len < 0) {
-		return errno_to_code(errno);
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		return errno_to_code(err);
 	}
 
 	ed->ed_offset += len;
 	ed->ed_iolen = len;
 
+	TRACE(DOTRACE_EMUFS, ("success"));
 	g_stats.s_remu++;
 
 	return EMU_RES_SUCCESS;
@@ -364,8 +380,13 @@ emufs_readdir(struct emufs_data *ed)
 {
 	/*
 	 * Grr. There's no way to opendir() an fd.
+	 * XXX of course there is - pushd it and opendir "."
 	 */
 	(void) ed;
+
+	TRACE(DOTRACE_EMUFS, ("emufs: slot %d: readdir unsupported",
+			      ed->ed_slot));
+
 	return EMU_RES_UNSUPP;
 }
 
@@ -380,18 +401,24 @@ emufs_write(struct emufs_data *ed)
 		return EMU_RES_BADSIZE;
 	}
 
+	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: write %u bytes, handle %d: ",
+			       ed->ed_slot, ed->ed_iolen, ed->ed_handle));
+
 	fd = ed->ed_fds[ed->ed_handle];
 
 	lseek(fd, ed->ed_offset, SEEK_SET);
 	len = write(fd, ed->ed_buf, ed->ed_iolen);
 
 	if (len < 0) {
-		return errno_to_code(errno);
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		return errno_to_code(err);
 	}
 
 	ed->ed_offset += len;
 	ed->ed_iolen = len;
 
+	TRACE(DOTRACE_EMUFS, ("success"));
 	g_stats.s_wemu++;
 
 	return EMU_RES_SUCCESS;
@@ -404,13 +431,19 @@ emufs_getsize(struct emufs_data *ed)
 	struct stat sb;
 	int fd;
 
+	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: handle %d length: ",
+			       ed->ed_slot, ed->ed_handle));
+
 	fd = ed->ed_fds[ed->ed_handle];
 	if (fstat(fd, &sb)) {
-		return errno_to_code(errno);
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		return errno_to_code(err);
 	}
 
 	ed->ed_iolen = sb.st_size;
 
+	TRACE(DOTRACE_EMUFS, ("%u", ed->ed_iolen));
 	g_stats.s_memu++;
 
 	return EMU_RES_SUCCESS;
@@ -422,11 +455,17 @@ emufs_trunc(struct emufs_data *ed)
 {
 	int fd;
 
+	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: truncate handle %d to %u: ",
+			       ed->ed_slot, ed->ed_handle, ed->ed_iolen));
+
 	fd = ed->ed_fds[ed->ed_handle];
 	if (ftruncate(fd, ed->ed_iolen)) {
-		return errno_to_code(errno);
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		return errno_to_code(err);
 	}
 
+	TRACE(DOTRACE_EMUFS, ("success"));
 	g_stats.s_wemu++;
 
 	return EMU_RES_SUCCESS;
@@ -477,6 +516,8 @@ emufs_done(void *d, u_int32_t gen)
 	emufs_setresult(ed, ed->ed_busyresult);
 	ed->ed_busy = 0;
 	ed->ed_busyresult = 0;
+	TRACE(DOTRACE_EMUFS, ("emufs: slot %d: Operation complete", 
+			      ed->ed_slot));
 }
 
 static

@@ -1,1 +1,1 @@
-#define VERSION "snap (20010607)"
+#define VERSION "snap (20010626)"

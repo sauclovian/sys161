@@ -8,13 +8,14 @@
 
 #define DOTRACE_KINSN	0	/* trace instructions in kernel mode */
 #define DOTRACE_UINSN	1	/* trace instructions in user mode */
-#define DOTRACE_TLB     2	/* trace tlb operations */
-#define DOTRACE_EXN     3	/* trace exceptions */
-#define DOTRACE_IRQ     4	/* trace exceptions */
-#define DOTRACE_DISK	5	/* trace disk ops */
-#define DOTRACE_NET	6	/* trace net ops */
-#define DOTRACE_EMUFS	7	/* trace emufs ops */
-#define NDOTRACES	8
+#define DOTRACE_JUMP	2	/* trace jump instructions */
+#define DOTRACE_TLB     3	/* trace tlb operations */
+#define DOTRACE_EXN     4	/* trace exceptions */
+#define DOTRACE_IRQ     5	/* trace exceptions */
+#define DOTRACE_DISK	6	/* trace disk ops */
+#define DOTRACE_NET	7	/* trace net ops */
+#define DOTRACE_EMUFS	8	/* trace emufs ops */
+#define NDOTRACES	9
 
 extern int g_traceflags[NDOTRACES];
 
