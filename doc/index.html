@@ -59,7 +59,6 @@ files in it. Go into this directory by typing
 (substitute whatever version you have for the 1.0.)
 <p>
 
-<!-- XXX update this -->
 Now run the configure script. In the simple case, you do this by just
 typing
 <pre>
@@ -71,8 +70,8 @@ someplace other than <tt>~/cs161/root</tt>, pass configure the
 <pre>
 	./configure --installdir=$HOME/bin
 </pre>
-Note that if you use <tt>~/bin</tt> instead of <tt>$HOME/bin</tt> it
-won't work. This is because of the way the Unix shell works.
+Note that, because of the way the Unix shell handles ~, if you use
+<tt>~/bin</tt> instead of <tt>$HOME/bin</tt> it won't work.
 <p>
 
 Now go into the <tt>build</tt> directory, and from there into the

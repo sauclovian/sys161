@@ -1,7 +1,7 @@
-all depend install tidy clean distclean:
+all depend install tidy clean:
 	(cd build && $(MAKE) $@)
 
-distclean: distcleanhere
-distcleanhere:
+distclean:
+	(cd build && $(MAKE) $@)
 	rm -f include/config.h
 	rm -f build/mk/defs.mk

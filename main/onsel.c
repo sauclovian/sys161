@@ -3,12 +3,13 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include "config.h"
 
 #include "console.h"
 #include "onsel.h"
 
 
-const char rcsid_onsel_c[] = "$Id: onsel.c,v 1.4 2001/01/27 00:39:30 dholland Exp $";
+const char rcsid_onsel_c[] = "$Id: onsel.c,v 1.5 2001/01/27 01:43:16 dholland Exp $";
 
 #define MAXSELS 64
 

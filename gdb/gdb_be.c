@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "config.h"
 
 #include "console.h"
 #include "gdb.h"
@@ -14,7 +15,7 @@
 #include "context.h"
 
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.16 2001/01/25 07:35:57 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.17 2001/01/27 01:43:16 dholland Exp $";
 
 // XXX
 #define debug printf

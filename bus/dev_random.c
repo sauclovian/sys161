@@ -2,6 +2,7 @@
 #include <sys/time.h>
 #include <stdlib.h>
 #include <string.h>
+#include "config.h"
 
 #include "console.h"
 
@@ -9,7 +10,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.5 2001/01/25 07:34:34 dholland Exp $";
+const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.6 2001/01/27 01:43:15 dholland Exp $";
 
 static
 void *

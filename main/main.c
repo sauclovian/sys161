@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include "config.h"
 
 #include "console.h"
 #include "gdb.h"
@@ -13,8 +14,11 @@
 #include "onsel.h"
 #include "main.h"
 
+#ifndef __GNUC__
+#define inline
+#endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.4 2001/01/27 00:41:13 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.6 2001/01/27 02:13:52 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -192,7 +196,7 @@ main(int argc, char *argv[])
 	for (j=i; j<argc; j++) {
 		argsize += strlen(argv[i])+1;
 	}
-	argstr = malloc(argsize);
+	argstr = malloc(argsize+1);
 	if (!argstr) {
 		msg("malloc failed");
 		die();

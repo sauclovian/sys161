@@ -5,12 +5,13 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
+#include "config.h"
 
 #include "onsel.h"
 #include "console.h"
 
 
-const char rcsid_console_c[] = "$Id: console.c,v 1.2 2001/01/25 04:49:47 dholland Exp $";
+const char rcsid_console_c[] = "$Id: console.c,v 1.3 2001/01/27 01:43:16 dholland Exp $";
 
 static struct termios savetios;
 static int console_up=0;

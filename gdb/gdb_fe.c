@@ -2,6 +2,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/in.h>
+#include "config.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -17,7 +18,7 @@
 
 #include "context.h"
 
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.8 2001/01/25 04:49:46 dholland Exp $";
+const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.9 2001/01/27 01:43:16 dholland Exp $";
 
 //#include "lamebus.h"
 

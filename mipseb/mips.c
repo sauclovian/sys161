@@ -13,9 +13,12 @@
 #include "mips-ex.h"
 #include "bootrom.h"
 
+#ifndef __GNUC__
+#define inline
+#endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.23 2001/01/27 00:39:12 dholland Exp $";
+	"$Id: mips.c,v 1.24 2001/01/27 01:43:16 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -168,12 +171,12 @@ findtlb(struct mipscpu *cpu, u_int32_t vpage)
 		u_int64_t t = cpu->tlb[i];
 		if (TLB_VPN(t)!=vpage) continue;
 		if (TLB_GLOBAL(t) || TLB_PID(t)==TLB_PID(cpu->tlbentry)) {
-			DEBUG("findtlb: %x -> %d", vpage, i);
+			DEBUG(("findtlb: %x -> %d", vpage, i));
 			return i;
 		}
 	}
 
-	DEBUG("findtlb: %x -> MISS", vpage);
+	DEBUG(("findtlb: %x -> MISS", vpage));
 	return -1;
 }
 
@@ -241,8 +244,8 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 	u_int32_t bits;
 	int boot = (cpu->ex_status & 0x00400000)!=0;
 
-	DEBUG("exception: code %d (%s), expc %x, vaddr %x", 
-	      code, exception_name(code), cpu->expc, vaddr);
+	DEBUG(("exception: code %d (%s), expc %x, vaddr %x", 
+	      code, exception_name(code), cpu->expc, vaddr));
 	PAUSE();
 
 	if (code==EX_IRQ) {
@@ -672,7 +675,7 @@ static short sops[64] = {
  */
 static
 int
-decode_copz(struct mipscpu *cpu, int cn, u_int32_t insn, int *ret)
+decode_copz(struct mipscpu *cpu, int cn, u_int32_t insn, u_int32_t *ret)
 {
 	u_int32_t op;
 	if (cn!=0) {
@@ -744,7 +747,7 @@ decode_copz(struct mipscpu *cpu, int cn, u_int32_t insn, int *ret)
 #define CHKOVF(v) {if (((int64_t)(int32_t)(v))!=(v)) goto overflow;}
 
 static
-int32_t *
+u_int32_t *
 getcop0reg(struct mipscpu *cpu, int reg)
 {
 	switch (reg) {
@@ -766,7 +769,7 @@ static
 void
 domf(struct mipscpu *cpu, int cn, int reg, int32_t *greg)
 {
-	int32_t *creg;
+	u_int32_t *creg;
 	if (cn!=0 || IS_USERMODE(cpu)) {
 		exception(cpu, EX_CPU, cn, 0);
 		return;
@@ -783,7 +786,7 @@ static
 void
 domt(struct mipscpu *cpu, int cn, int reg, int32_t greg)
 {
-	int32_t *creg;
+	u_int32_t *creg;
 	if (cn!=0 || IS_USERMODE(cpu)) {
 		exception(cpu, EX_CPU, cn, 0);
 		return;
@@ -932,194 +935,194 @@ mips_run(struct mipscpu *cpu)
 
 	switch (realop) {
 	    case OP_ADD:
-		DEBUG("at %08x: add %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: add %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		t64 = (int64_t)RS + (int64_t)RT;
 		CHKOVF(t64);
 		RD = (int32_t)t64;
 		break;
 	    case OP_ADDI:
-		DEBUG("at %08x: addi %s, %s, %u", cpu->expc, regname(rt), 
-		      regname(rs), smm);
+		DEBUG(("at %08x: addi %s, %s, %u", cpu->expc, regname(rt), 
+		      regname(rs), smm));
 		t64 = (int64_t)RS + smm;
 		CHKOVF(t64);
 		RT = (int32_t)t64;
 		break;
 	    case OP_ADDIU: 
-		DEBUG("at %08x: addiu %s, %s, %d", cpu->expc, regname(rt), 
-		      regname(rs), smm);
+		DEBUG(("at %08x: addiu %s, %s, %d", cpu->expc, regname(rt), 
+		      regname(rs), smm));
 		RT = RS + smm;
 		break;
 	    case OP_ADDU:
-		DEBUG("at %08x: addu %s, %s, %s", cpu->expc, regname(rd),
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: addu %s, %s, %s", cpu->expc, regname(rd),
+		      regname(rs), regname(rt)));
 		RD = RS + RT;
 		break;
 	    case OP_AND:
-		DEBUG("at %08x: and %s, %s, %s", cpu->expc, regname(rd),
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: and %s, %s, %s", cpu->expc, regname(rd),
+		      regname(rs), regname(rt)));
 		RD = RS & RT;
 		break;
 	    case OP_ANDI:
-		DEBUG("at %08x: andi %s, %s, %u", cpu->expc, regname(rd),
-		      regname(rs), imm);
+		DEBUG(("at %08x: andi %s, %s, %u", cpu->expc, regname(rd),
+		      regname(rs), imm));
 		RT = RS & imm;
 		break;
 	    case OP_BCF:
-		DEBUG("at %08x: bc%df %d", cpu->expc, (op&3), imm);
+		DEBUG(("at %08x: bc%df %d", cpu->expc, (op&3), imm));
 		exception(cpu, EX_CPU, (op&3), 0);
 		break;
 	    case OP_BCT:
-		DEBUG("at %08x: bc%dt %d", cpu->expc, (op&3), imm);
+		DEBUG(("at %08x: bc%dt %d", cpu->expc, (op&3), imm));
 		exception(cpu, EX_CPU, (op&3), 0);
 		break;
 	    case OP_BEQ:
-		DEBUG("at %08x: beq %s, %s, %d", cpu->expc, 
-		      regname(rs), regname(rt), smm);
+		DEBUG(("at %08x: beq %s, %s, %d", cpu->expc, 
+		      regname(rs), regname(rt), smm));
 		if (RS==RT) {
 			rbranch(cpu, smm<<2);
 		}
 		break;
 	    case OP_BGEZAL:
-		DEBUG("at %08x: bgezal %s, %d", cpu->expc, regname(rs), smm);
+		DEBUG(("at %08x: bgezal %s, %d", cpu->expc, regname(rs), smm));
 		LINK;
 		if (RS>=0) {
 			rbranch(cpu, smm<<2); 
 		}
 		break;
 	    case OP_BGEZ:
-		DEBUG("at %08x: bgez %s, %d", cpu->expc, regname(rs), smm);
+		DEBUG(("at %08x: bgez %s, %d", cpu->expc, regname(rs), smm));
 		if (RS>=0) {
 			rbranch(cpu, smm<<2);
 		}
 		break;
 	    case OP_BLTZAL:
-		DEBUG("at %08x: bltzal %s, %d", cpu->expc, regname(rs), smm);
+		DEBUG(("at %08x: bltzal %s, %d", cpu->expc, regname(rs), smm));
 		LINK;
 		if (RS<0) {
 			rbranch(cpu, smm<<2);
 		}
 		break;
 	    case OP_BLTZ:
-		DEBUG("at %08x: bltz %s, %d", cpu->expc, regname(rs), smm);
+		DEBUG(("at %08x: bltz %s, %d", cpu->expc, regname(rs), smm));
 		if (RS<0) {
 			rbranch(cpu, smm<<2);
 		}
 		break;
 	    case OP_BGTZ:
-		DEBUG("at %08x: bgtz %s, %d", cpu->expc, regname(rs), smm);
+		DEBUG(("at %08x: bgtz %s, %d", cpu->expc, regname(rs), smm));
 		if (RS>0) {
 			rbranch(cpu, smm<<2);
 		}
 		break;
 	    case OP_BLEZ:
-		DEBUG("at %08x: blez %s, %d", cpu->expc, regname(rs), smm);
+		DEBUG(("at %08x: blez %s, %d", cpu->expc, regname(rs), smm));
 		if (RS<=0) {
 			rbranch(cpu, smm<<2);
 		}
 		break;
 	    case OP_BNE:
-		DEBUG("at %08x: bne %s, %s, %d", cpu->expc, 
-		      regname(rs), regname(rt), smm);
+		DEBUG(("at %08x: bne %s, %s, %d", cpu->expc, 
+		      regname(rs), regname(rt), smm));
 		if (RS!=RT) {
 			rbranch(cpu, smm<<2);
 		}
 		break;
 	    case OP_CF:
-		DEBUG("at %08x: cfc%d %s, $%u", cpu->expc, op&3, 
-		      regname(rt), rd);
+		DEBUG(("at %08x: cfc%d %s, $%u", cpu->expc, op&3, 
+		      regname(rt), rd));
 		exception(cpu, EX_CPU, (op&3), 0);
 		break;
 	    case OP_CT:
-		DEBUG("at %08x: ctc%d %s, $%u", cpu->expc, op&3, 
-		      regname(rt), rd);
+		DEBUG(("at %08x: ctc%d %s, $%u", cpu->expc, op&3, 
+		      regname(rt), rd));
 		exception(cpu, EX_CPU, (op&3), 0);
 		break;
 	    case OP_J:
-		DEBUG("at %08x: j 0x%x", cpu->expc, targ<<2);
+		DEBUG(("at %08x: j 0x%x", cpu->expc, targ<<2));
 		ibranch(cpu, targ<<2);
 		break;
 	    case OP_JAL:
-		DEBUG("at %08x: jal 0x%x", cpu->expc, targ<<2);
+		DEBUG(("at %08x: jal 0x%x", cpu->expc, targ<<2));
 		LINK;
 		ibranch(cpu, targ<<2);
 		break;
 	    case OP_LB:
-		DEBUG("at %08x: lb %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
-		doload(cpu, S_SBYTE, RS+smm, &RT);
+		DEBUG(("at %08x: lb %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
+		doload(cpu, S_SBYTE, RS+smm, (u_int32_t *) &RT);
 		break;
 	    case OP_LBU:
-		DEBUG("at %08x: lbu %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
-		doload(cpu, S_UBYTE, RS+smm, &RT);
+		DEBUG(("at %08x: lbu %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
+		doload(cpu, S_UBYTE, RS+smm, (u_int32_t *) &RT);
 		break;
 	    case OP_LH:
-		DEBUG("at %08x: lh %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
-		doload(cpu, S_SHALF, RS+smm, &RT);
+		DEBUG(("at %08x: lh %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
+		doload(cpu, S_SHALF, RS+smm, (u_int32_t *) &RT);
 		break;
 	    case OP_LHU:
-		DEBUG("at %08x: lhu %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
-		doload(cpu, S_UHALF, RS+smm, &RT);
+		DEBUG(("at %08x: lhu %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
+		doload(cpu, S_UHALF, RS+smm, (u_int32_t *) &RT);
 		break;
 	    case OP_LUI:
-		DEBUG("at %08x: lui %s 0x%x", cpu->expc, regname(rt), imm);
+		DEBUG(("at %08x: lui %s 0x%x", cpu->expc, regname(rt), imm));
 		RT = imm << 16;
 		break;
 	    case OP_LW:
-		DEBUG("at %08x: lw %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
-		doload(cpu, S_WORD, RS+smm, &RT);
+		DEBUG(("at %08x: lw %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
+		doload(cpu, S_WORD, RS+smm, (u_int32_t *) &RT);
 		break;
 	    case OP_LWC:
-		DEBUG("at %08x: lwc%d $%u, %d(%s)", cpu->expc, op&3, rt, smm,
-		      regname(rs));
+		DEBUG(("at %08x: lwc%d $%u, %d(%s)", cpu->expc, op&3, rt, smm,
+		      regname(rs)));
 		dolwc(cpu, op&3, RS+smm, rt);
 		break;
 	    case OP_LWL:
-		DEBUG("at %08x: lwl %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
-		doload(cpu, S_WORDL, RS+smm, &RT);
+		DEBUG(("at %08x: lwl %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
+		doload(cpu, S_WORDL, RS+smm, (u_int32_t *) &RT);
 		break;
 	    case OP_LWR:
-		DEBUG("at %08x: lwr %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
-		doload(cpu, S_WORDR, RS+smm, &RT);
+		DEBUG(("at %08x: lwr %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
+		doload(cpu, S_WORDR, RS+smm, (u_int32_t *) &RT);
 		break;
 	    case OP_SB:
-		DEBUG("at %08x: sb %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
+		DEBUG(("at %08x: sb %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
 		dostore(cpu, S_UBYTE, RS+smm, RT);
 		break;
 	    case OP_SH:
-		DEBUG("at %08x: sh %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
+		DEBUG(("at %08x: sh %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
 		dostore(cpu, S_UHALF, RS+smm, RT);
 		break;
 	    case OP_SW:
-		DEBUG("at %08x: sw %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
+		DEBUG(("at %08x: sw %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
 		dostore(cpu, S_WORD, RS+smm, RT);
 		break;
 	    case OP_SWC:
-		DEBUG("at %08x: swc%d $%u, %d(%s)", cpu->expc, op&3, rt, smm,
-		      regname(rs));
+		DEBUG(("at %08x: swc%d $%u, %d(%s)", cpu->expc, op&3, rt, smm,
+		      regname(rs)));
 		doswc(cpu, op&3, RS+smm, rt);
 		break;
 	    case OP_SWL:
-		DEBUG("at %08x: swl %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
+		DEBUG(("at %08x: swl %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
 		dostore(cpu, S_WORDL, RS+smm, RT);
 		break;
 	    case OP_SWR:
-		DEBUG("at %08x: swr %s, %d(%s)", cpu->expc, 
-		      regname(rt), smm, regname(rs));
+		DEBUG(("at %08x: swr %s, %d(%s)", cpu->expc, 
+		      regname(rt), smm, regname(rs)));
 		dostore(cpu, S_WORDR, RS+smm, RT);
 		break;
 	    case OP_BREAK:
-		DEBUG("at %08x: break", cpu->expc);
+		DEBUG(("at %08x: break", cpu->expc));
 
 		/*
 		 * If we're in the range that we can debug in (that
@@ -1136,74 +1139,74 @@ mips_run(struct mipscpu *cpu)
 		}
 		break;
 	    case OP_DIV:
-		DEBUG("at %08x: div %s %s", cpu->expc, 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: div %s %s", cpu->expc, 
+		      regname(rs), regname(rt)));
 		WHILO;
 		cpu->lo = RS/RT;
 		cpu->hi = RS%RT;
 		SETHILO(2);
 		break;
 	    case OP_DIVU:
-		DEBUG("at %08x: divu %s %s", cpu->expc, 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: divu %s %s", cpu->expc, 
+		      regname(rs), regname(rt)));
 		WHILO;
 		cpu->lo=RSU/RTU;
 		cpu->hi=RSU%RTU;
 		SETHILO(2);
 		break;
 	    case OP_JR:
-		DEBUG("at %08x: jr %s", cpu->expc, regname(rs));
+		DEBUG(("at %08x: jr %s", cpu->expc, regname(rs)));
 		abranch(cpu, RS);
 		break;
 	    case OP_JALR:
-		DEBUG("at %08x: jalr %s, %s", cpu->expc, regname(rd), 
-		      regname(rs));
+		DEBUG(("at %08x: jalr %s, %s", cpu->expc, regname(rd), 
+		      regname(rs)));
 		LINK2(rd);
 		abranch(cpu, RS);
 		break;
 	    case OP_MF:
-		DEBUG("at %08x: mfc%d %s, $%u", cpu->expc, op&3, 
-		      regname(rt), rd);
+		DEBUG(("at %08x: mfc%d %s, $%u", cpu->expc, op&3, 
+		      regname(rt), rd));
 		domf(cpu, (op&3), rd, &RT);
 		break;
 	    case OP_MFHI:
-		DEBUG("at %08x: mfhi %s", cpu->expc, regname(rd));
+		DEBUG(("at %08x: mfhi %s", cpu->expc, regname(rd)));
 		WHI;
 		RD = cpu->hi;
 		SETHI(2);
 		break;
 	    case OP_MFLO:
-		DEBUG("at %08x: mflo %s", cpu->expc, regname(rd));
+		DEBUG(("at %08x: mflo %s", cpu->expc, regname(rd)));
 		WLO;
 		RD = cpu->lo;
 		SETLO(2);
 		break;
 	    case OP_MT:
-		DEBUG("at %08x: mtc%d %s, $%u", cpu->expc, op&3, 
-		      regname(rt), rd);
+		DEBUG(("at %08x: mtc%d %s, $%u", cpu->expc, op&3, 
+		      regname(rt), rd));
 		domt(cpu, (op&3), rd, RT);
 		break;
 	    case OP_MTHI:
-		DEBUG("at %08x: mthi %s", cpu->expc, regname(rs));
+		DEBUG(("at %08x: mthi %s", cpu->expc, regname(rs)));
 		WHI;
 		cpu->hi = RS;
 		SETHI(2);
 		break;
 	    case OP_MTLO:
-		DEBUG("at %08x: mtlo %s", cpu->expc, regname(rs));
+		DEBUG(("at %08x: mtlo %s", cpu->expc, regname(rs)));
 		WLO;
 		cpu->lo = RS;
 		SETLO(2);
 		break;
 	    case OP_MULT:
-		DEBUG("at %08x: mult %s, %s", cpu->expc, 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: mult %s, %s", cpu->expc, 
+		      regname(rs), regname(rt)));
 		WHILO;
 		t64=(int64_t)rs*(int64_t)rt;
 		goto split64;
 	    case OP_MULTU:
-		DEBUG("at %08x: multu %s, %s", cpu->expc, 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: multu %s, %s", cpu->expc, 
+		      regname(rs), regname(rt)));
 		WHILO;
 		t64=(u_int64_t)rs*(u_int64_t)rt;
 		goto split64;
@@ -1213,123 +1216,123 @@ mips_run(struct mipscpu *cpu)
 		SETHILO(2);
 		break;
 	    case OP_NOR:
-		DEBUG("at %08x: nor %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: nor %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		RD = ~(RS | RT);
 		break;
 	    case OP_OR:
-		DEBUG("at %08x: or %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: or %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		RD = RS | RT;
 		break;
 	    case OP_ORI:
-		DEBUG("at %08x: ori %s, %s, %u", cpu->expc, regname(rd), 
-		      regname(rs), imm);
+		DEBUG(("at %08x: ori %s, %s, %u", cpu->expc, regname(rd), 
+		      regname(rs), imm));
 		RT = RS | imm;
 		break;
 	    case OP_RFE:
-		DEBUG("at %08x: rfe", cpu->expc);
+		DEBUG(("at %08x: rfe", cpu->expc));
 		do_rfe(cpu);
 		break;
 	    case OP_SLL:
-		DEBUG("at %08x: sll %s, %s, %u", cpu->expc, regname(rd), 
-		      regname(rt), sh);
+		DEBUG(("at %08x: sll %s, %s, %u", cpu->expc, regname(rd), 
+		      regname(rt), sh));
 		RD = RT << sh;
 		break;
 	    case OP_SLLV:
-		DEBUG("at %08x: sllv %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rt), regname(rs));
+		DEBUG(("at %08x: sllv %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rt), regname(rs)));
 		RD = RT << (RS&31);
 		break;
 	    case OP_SLT:
-		DEBUG("at %08x: slt %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: slt %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		RD = RS < RT;
 		break;
 	    case OP_SLTI:
-		DEBUG("at %08x: slti %s, %s, %d", cpu->expc, regname(rt), 
-		      regname(rs), smm);
+		DEBUG(("at %08x: slti %s, %s, %d", cpu->expc, regname(rt), 
+		      regname(rs), smm));
 		RT = RS < smm;
 		break;
 	    case OP_SLTIU:
-		DEBUG("at %08x: sltiu %s, %s, %u", cpu->expc, regname(rt), 
-		      regname(rs), imm);
+		DEBUG(("at %08x: sltiu %s, %s, %u", cpu->expc, regname(rt), 
+		      regname(rs), imm));
 		RT = RSU < imm;
 		break;
 	    case OP_SLTU:
-		DEBUG("at %08x: sltu %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: sltu %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		RD = RSU < RTU;
 		break;
 	    case OP_SRA:
-		DEBUG("at %08x: sra %s, %s, %u", cpu->expc, regname(rd), 
-		      regname(rt), sh);
+		DEBUG(("at %08x: sra %s, %s, %u", cpu->expc, regname(rd), 
+		      regname(rt), sh));
 		RD = RT >> sh;
 		break;
 	    case OP_SRAV:
-		DEBUG("at %08x: srav %s, %s, %s", cpu->expc, regname(rd),
-		      regname(rt), regname(rs));
+		DEBUG(("at %08x: srav %s, %s, %s", cpu->expc, regname(rd),
+		      regname(rt), regname(rs)));
 		RD = RT >> (RS&31);
 		break;
 	    case OP_SRL:
-		DEBUG("at %08x: srl %s, %s, %u", cpu->expc, regname(rd), 
-		      regname(rt), sh);
+		DEBUG(("at %08x: srl %s, %s, %u", cpu->expc, regname(rd), 
+		      regname(rt), sh));
 		RD = RTU >> sh;
 		break;
 	    case OP_SRLV:
-		DEBUG("at %08x: srlv %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rt), regname(rs));
+		DEBUG(("at %08x: srlv %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rt), regname(rs)));
 		RD = RTU >> (RS&31);
 		break;
 	    case OP_SUB:
-		DEBUG("at %08x: sub %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: sub %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		t64 = (int64_t)RS - (int64_t)RT;
 		CHKOVF(t64);
 		RD = (int32_t)t64;
 		break;
 	    case OP_SUBU:
-		DEBUG("at %08x: subu %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: subu %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		RD = RS - RT;
 		break;
 	    case OP_SYSCALL:
-		DEBUG("at %08x: syscall", cpu->expc);
+		DEBUG(("at %08x: syscall", cpu->expc));
 		exception(cpu, EX_SYS, 0, 0);
 		break;
 	    case OP_TLBP:
-		DEBUG("at %08x: tlbp", cpu->expc);
+		DEBUG(("at %08x: tlbp", cpu->expc));
 		probetlb(cpu);
 		break;
 	    case OP_TLBR:
-		DEBUG("at %08x: tlbr", cpu->expc);
+		DEBUG(("at %08x: tlbr", cpu->expc));
 		cpu->tlbentry = cpu->tlb[TLBIX(cpu->tlbindex)];
 		break;
 	    case OP_TLBWI:
-		DEBUG("at %08x: tlbwi", cpu->expc);
+		DEBUG(("at %08x: tlbwi", cpu->expc));
 		cpu->tlb[TLBIX(cpu->tlbindex)] = cpu->tlbentry;
 		break;
 	    case OP_TLBWR:
-		DEBUG("at %08x: tlbwr", cpu->expc);
+		DEBUG(("at %08x: tlbwr", cpu->expc));
 		cpu->tlb[TLBIX(cpu->tlbrandom)] = cpu->tlbentry;
 		break;
 	    case OP_WAIT:
-		DEBUG("at %08x: wait", cpu->expc);
+		DEBUG(("at %08x: wait", cpu->expc));
 		do_wait(cpu);
 		break;
 	    case OP_XOR:
-		DEBUG("at %08x: xor %s, %s, %s", cpu->expc, regname(rd), 
-		      regname(rs), regname(rt));
+		DEBUG(("at %08x: xor %s, %s, %s", cpu->expc, regname(rd), 
+		      regname(rs), regname(rt)));
 		RD = RS ^ RT;
 		break;
 	    case OP_XORI:
-		DEBUG("at %08x: xori %s, %s, %u", cpu->expc, regname(rd), 
-		      regname(rs), imm);
+		DEBUG(("at %08x: xori %s, %s, %u", cpu->expc, regname(rd), 
+		      regname(rs), imm));
 		RT = RS ^ imm;
 		break;
 	    case OP_ILL:
 	    default:
-		DEBUG("at %08x: [illegal instruction]", cpu->expc);
+		DEBUG(("at %08x: [illegal instruction]", cpu->expc));
 		exception(cpu, EX_RI, 0, 0); break; 
             pipeline_stall:
 		cpu->nextpc = cpu->pc;

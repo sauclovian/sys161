@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include "config.h"
 
 #include "console.h"
 #include "clock.h"
@@ -14,7 +15,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_disk_c[] = "$Id: dev_disk.c,v 1.8 2001/01/27 00:41:39 dholland Exp $";
+const char rcsid_dev_disk_c[] = "$Id: dev_disk.c,v 1.9 2001/01/27 01:43:15 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -830,7 +831,7 @@ disk_store(void *data, u_int32_t offset, u_int32_t val)
 	return -1;
 }
 
-struct lamebus_device_info disk_device_info = {
+const struct lamebus_device_info disk_device_info = {
 	LBVEND_CS161,
 	LBVEND_CS161_DISK,
 	DISK_REVISION,

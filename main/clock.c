@@ -2,6 +2,7 @@
 #include <sys/time.h>
 #include <stdlib.h>
 #include <string.h>
+#include "config.h"
 
 #include "console.h"
 #include "speed.h"
@@ -11,8 +12,11 @@
 #include "onsel.h"
 #include "main.h"
 
+#ifndef __GNUC__
+#define inline
+#endif
 
-const char rcsid_clock_c[] = "$Id: clock.c,v 1.4 2001/01/27 00:40:24 dholland Exp $";
+const char rcsid_clock_c[] = "$Id: clock.c,v 1.5 2001/01/27 01:43:16 dholland Exp $";
 
 struct timed_action {
 	u_int32_t ta_when_secs;

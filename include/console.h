@@ -24,9 +24,9 @@ void console_pause(void);
         smoke("Assertion failed: %s, line %d of %s", #x, __LINE__, __FILE__))
 
 #ifdef USE_DEBUG
-#define DEBUG(fmt...) msg(fmt)
+#define DEBUG(args) msg args
 #define PAUSE() console_pause()
 #else
-#define DEBUG(fmt...)
+#define DEBUG(args)
 #define PAUSE()
 #endif

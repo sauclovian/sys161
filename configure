@@ -19,6 +19,7 @@ Options are:
     --installdir=DIR    Install into DIR [$HOME/cs161/root]
     --devel             Turn on lots of warnings [default off]
 EOF
+    exit 0
     ;;
 	--with-compiler=*) CC=`echo $1 | sed 's/^[^=]*=//'`;;
 	--installdir=*) INSTALLDIR=`echo $1 | sed 's/^[^=]*=//'`;;
@@ -107,7 +108,7 @@ fi
 
 if [ "x$USEWARNS" != x ]; then
     echo "Checking warning options... $WARN"
-    CFLAGS=`echo $CFLAGS $WARN | sed 's/^ *//;s/ *$//'`
+    CFLAGS=`echo "$CFLAGS $WARN" | sed 's/^ *//;s/ *$//'`
 fi
 
 echo "Checking optimization options... $OPT"
@@ -233,7 +234,7 @@ for size in 8 16 32 64; do
 	    fi
 	fi
 
-	RESULT=`./__confest2 $size $CHARBIT || echo unknown`
+	RESULT=`./__conftest2 $size $CHARBIT 2>/dev/null || echo unknown`
 
 	if [ "x$RESULT" = xunknown ]; then
 	    echo 'oops'
@@ -247,12 +248,110 @@ for size in 8 16 32 64; do
 	    RESULT="signed char"
 	fi
 
+	if [ $sign = "u_int" ]; then
+	    RESULT="unsigned $RESULT"
+	fi
+
 	echo "typedef $RESULT ${sign}${size}_t;" >> __config.h;
 
     done
 done
 
 echo 'ok'
+
+############################################################
+
+echo -n "Checking for struct sockaddr_storage... "
+
+cat >__conftest.c <<EOF
+#include <sys/types.h>
+#include <sys/socket.h>
+static struct sockaddr_storage testing;
+char *foo() { return (char *)&testing; }
+EOF
+
+if $CC -c __conftest.c >/dev/null 2>&1; then
+    echo "ok"
+else
+    echo "missing"
+    echo '#include <sys/types.h>' >> __config.h
+    echo '#include <sys/socket.h>' >> __config.h
+    echo 'struct sockaddr_storage { struct sockaddr data; };' >> __config.h
+fi
+
+############################################################
+
+echo -n "Checking for socklen_t... "
+cat >__conftest.c <<EOF
+#include <sys/types.h>
+#include <sys/socket.h>
+int foo() {
+  socklen_t testing;
+  return accept(0, (struct sockaddr *)0, &testing);
+}
+EOF
+
+if $CC -c __conftest.c >/dev/null 2>&1; then
+    echo "socklen_t"
+else
+    OK=0
+    for TRY in int size_t long unsigned "unsigned long"; do
+	if $CC -D"socklen_t=$TRY" -c __conftest.c >/dev/null 2>&1; then
+	    echo "$TRY"
+	    echo "typedef $TRY socklen_t;" >> __config.h
+	    OK=1;
+	    break;
+	fi
+    done
+    if [ $OK != 1 ]; then
+	echo 'missing'
+	echo 'Cannot determine type for socklen_t... help!'
+	rm -f __conf*
+	exit 1
+    fi
+fi
+
+############################################################
+
+echo -n "Checking for snprintf... "
+cat >__conftest.c <<EOF
+#include <stdio.h>
+#include <string.h>
+int main() {
+    char buf[32];
+    snprintf(buf, 8, "abcdef%s", "ghijkl");
+    if (!strcmp(buf, "abcdefg")) return 0;
+    return 1;
+}
+EOF
+
+OK=0
+if $CC __conftest.c -o __conftest >/dev/null 2>&1; then
+    if ./__conftest >/dev/null 2>&1; then
+	echo 'ok'
+	OK=1
+    fi
+fi
+
+if [ $OK = 0 ]; then
+    for TRY in -lsnprintf -ldb; do
+	if $CC __conftest.c $TRY -o __conftest >/dev/null 2>&1; then
+	    if ./__conftest; then
+		echo $TRY
+		LIBS=`echo "$LIBS $TRY" | sed 's/^ *//;s/ *$//'`
+		OK=1
+		break
+	    fi
+	fi
+     done
+fi
+
+if [ $OK = 0 ]; then
+    echo 'missing'
+    echo 'Cannot find snprintf... help!'
+    rm -f __conf*
+    exit 1
+fi
 
 ############################################################
 
@@ -273,8 +372,8 @@ echo 'Generating defs.mk'
     echo "CC=$CC"
     echo "CFLAGS=$CFLAGS"
     echo "OPT=$OPT"
-    echo "LDFLAGS="
-    echo "LIBS="
+    echo "LDFLAGS=$LDFLAGS"
+    echo "LIBS=$LIBS"
     echo
     echo "INSTALLDIR=$INSTALLDIR"
 ) > build/mk/defs.mk

@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include "config.h"
 
 #include "speed.h"
 #include "console.h"
@@ -11,7 +12,7 @@
 
 
 
-const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.6 2001/01/27 00:41:39 dholland Exp $";
+const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.7 2001/01/27 01:43:16 dholland Exp $";
 
 #define SERREG_CHAR   0x0
 #define SERREG_WIRQ   0x4

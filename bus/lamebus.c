@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "config.h"
 
 #include "bus.h"
 #include "cpu.h"
@@ -23,7 +24,7 @@
  * For now, 16M.
  */
 
-const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.18 2001/01/25 04:49:46 dholland Exp $";
+const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.19 2001/01/27 01:43:16 dholland Exp $";
 
 #define MAXMEM (16*1024*1024)
 

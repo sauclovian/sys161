@@ -3,13 +3,16 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include "config.h"
+
 #include "console.h"
 #include "cpu.h"
 #include "elf.h"
+
 #include "ram.h"
 
 
-const char rcsid_boot_c[] = "$Id: boot.c,v 1.6 2001/01/25 04:49:45 dholland Exp $";
+const char rcsid_boot_c[] = "$Id: boot.c,v 1.7 2001/01/27 01:43:15 dholland Exp $";
 
 static
 void

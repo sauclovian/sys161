@@ -96,11 +96,13 @@
  */
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include "config.h"
 
 #include "util.h"
 #include "console.h"
@@ -109,7 +111,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.5 2001/01/25 04:49:45 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.6 2001/01/27 01:43:15 dholland Exp $";
 
 
 #define MAXHANDLES     64
@@ -500,7 +502,7 @@ emufs_cleanup(void *data)
 	free(ed);
 }
 
-struct lamebus_device_info emufs_device_info = {
+const struct lamebus_device_info emufs_device_info = {
 	LBVEND_CS161,
 	LBVEND_CS161_EMUFS,
 	EMUFS_REVISION,
