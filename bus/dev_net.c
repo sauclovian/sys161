@@ -19,7 +19,7 @@
 #include "lamebus.h"
 
 const char rcsid_dev_net_c[] = 
-    "$Id: dev_net.c,v 1.16 2002/01/22 19:35:55 dholland Exp $";
+    "$Id: dev_net.c,v 1.17 2002/05/01 02:40:20 dholland Exp $";
 
 #define NETREG_READINTR    0
 #define NETREG_WRITEINTR   4
@@ -356,12 +356,12 @@ net_fetch(void *d, u_int32_t offset, u_int32_t *val)
 
 	if (offset >= NET_READBUF && offset < NET_READBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_rbuf[offset - NET_READBUF];
-		*val = *(u_int32_t *)ptr;
+		*val = ntohl(*(u_int32_t *)ptr);
 		return 0;
 	}
 	else if (offset >= NET_WRITEBUF && offset < NET_WRITEBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_wbuf[offset - NET_WRITEBUF];
-		*val = *(u_int32_t *)ptr;
+		*val = ntohl(*(u_int32_t *)ptr);
 		return 0;
 	}
 	switch (offset) {
@@ -381,12 +381,12 @@ net_store(void *d, u_int32_t offset, u_int32_t val)
 
 	if (offset >= NET_READBUF && offset < NET_READBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_rbuf[offset - NET_READBUF];
-		*(u_int32_t *)ptr = val;
+		*(u_int32_t *)ptr = htonl(val);
 		return 0;
 	}
 	else if (offset >= NET_WRITEBUF && offset < NET_WRITEBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_wbuf[offset - NET_WRITEBUF];
-		*(u_int32_t *)ptr = val;
+		*(u_int32_t *)ptr = htonl(val);
 		return 0;
 	}
 	switch (offset) {
