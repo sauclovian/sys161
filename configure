@@ -25,6 +25,7 @@ Options are:
     --help              Print this message
     --with-compiler=CC  Use CC as compiler [probed]
     --installdir=DIR    Install into DIR [$HOME/cs161/root]
+    --etcdir=DIR        Install sample config into DIR [INSTALLDIR]
     --docdir=DIR        Install docs into DIR [INSTALLDIR/man/sys161]
     --devel             Turn on lots of warnings [default off]
     --debug             Turn on debug symbols for sys161 itself [default off]
@@ -35,6 +36,7 @@ EOF
     ;;
 	--with-compiler=*) CC=`echo $1 | sed 's/^[^=]*=//'`;;
 	--installdir=*) INSTALLDIR=`echo $1 | sed 's/^[^=]*=//'`;;
+	--etcdir=*) ETCDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--docdir=*) DOCDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--devel) USEWARNS=1;;
 	--debug) USEDEBUG=1;;
@@ -169,6 +171,25 @@ if [ "x$USEDEBUG" = x1 ]; then
 fi
 
 echo "Checking optimization options... $OPT"
+
+############################################################
+
+echo -n "Checking if compiler understands inline... "
+cat >__conftest.c <<EOF
+static inline int foo(void) {
+    return 6;
+}
+int bar(int x) {
+    return foo()*x;
+}
+EOF
+
+if $CC -c __conftest.c >/dev/null 2>&1; then
+    echo "yes"
+else
+    echo "no"
+    echo "#define inline" >> __config.h
+fi
 
 ############################################################
 
@@ -370,6 +391,27 @@ fi
 
 ############################################################
 
+echo -n "Checking if struct sockaddr_un has sun_len... "
+cat >__conftest.c <<EOF
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+int foo() {
+    struct sockaddr_un mysun;
+    mysun.sun_len = 6;
+    return mysun.sun_len;
+}
+EOF
+
+if $CC -c __conftest.c >/dev/null 2>&1; then
+    echo "yes"
+    echo '#define HAS_SUN_LEN 1' >> __config.h
+else
+    echo "no"
+fi
+
+############################################################
+
 echo -n "Checking for snprintf... "
 cat >__conftest.c <<EOF
 #include <stdio.h>
@@ -419,6 +461,14 @@ if [ "x$INSTALLDIR" = x ]; then
 fi
 
 echo "$INSTALLDIR"
+
+echo -n "Checking config directory... "
+
+if [ "x$ETCDIR" = x ]; then
+    ETCDIR="$INSTALLDIR"
+fi
+
+echo "$ETCDIR"
 
 echo -n "Checking doc directory... "
 
@@ -512,6 +562,7 @@ echo 'Generating build-doc/defs.mk'
 
 (
     echo "DOCDIR=$DOCDIR"
+    echo "ETCDIR=$ETCDIR"
     echo "INSTALLDIR=$INSTALLDIR"
     echo
     case "$SRCDIR" in

@@ -12,12 +12,19 @@
 #include "onsel.h"
 #include "main.h"
 
-#ifndef __GNUC__
-#define inline
-#endif
+/*
+ * random() is a BSD function that is usually documented to return
+ * values in the range 0 to 2^31-1, independent of RAND_MAX. It
+ * appears, on some systems, that this is in fact the case and that
+ * RAND_MAX must be ignored. So define RANDOM_MAX for our own purposes.
+ * (Also see comment in dev_random.c.)
+ */
+
+#define RANDOM_MAX 0x7fffffffUL
+
 
 const char rcsid_clock_c[] =
-    "$Id: clock.c,v 1.14 2001/07/18 23:49:51 dholland Exp $";
+    "$Id: clock.c,v 1.15 2002/01/17 22:09:17 dholland Exp $";
 
 struct timed_action {
 	struct timed_action *ta_next;
@@ -102,11 +109,7 @@ schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 	u_int64_t clocks;
 	struct timed_action *n, **p;
 
-#if RAND_MAX != 0x7fffffff
-#error check RAND_MAX
-#endif
-
-	nsecs += (u_int64_t)((random()*nsecs*0.01)/RAND_MAX);
+	nsecs += (u_int64_t)((random()*nsecs*0.01)/RANDOM_MAX);
 
 	clocks = nsecs / NSECS_PER_CLOCK;
 

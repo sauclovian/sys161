@@ -102,6 +102,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <dirent.h>
 #include "config.h"
 
 #include "util.h"
@@ -114,7 +115,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.12 2001/07/18 23:49:47 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.13 2002/01/21 22:27:35 dholland Exp $";
 
 
 #define MAXHANDLES     64
@@ -378,16 +379,82 @@ static
 u_int32_t
 emufs_readdir(struct emufs_data *ed)
 {
+	struct dirent *dp;
+	DIR *d;
+
+	u_int32_t ct, len;
+	int herefd, fd;
+
+	if (ed->ed_iolen > EMU_BUF_SIZE) {
+		return EMU_RES_BADSIZE;
+	}
+
+	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: readdir %u bytes, handle %d: ",
+			       ed->ed_slot, ed->ed_iolen, ed->ed_handle));
+
+	herefd = open(".", O_RDONLY);
+	if (herefd<0) {
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		return errno_to_code(err);
+	}
+
+	fd = ed->ed_fds[ed->ed_handle];
+
+	if (fchdir(fd)<0) {
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		close(herefd);
+		return errno_to_code(err);
+	}
+
+	d = opendir(".");
+	if (d==NULL) {
+		int err = errno;
+		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		fchdir(herefd);
+		close(herefd);
+		return errno_to_code(err);
+	}
+
+	dp = NULL;
+	for (ct = 0; ct <= ed->ed_offset; ct++) {
+		dp = readdir(d);
+		if (dp == NULL) {
+			break;
+		}
+	}
+	if (dp != NULL) {
+		TRACE(DOTRACE_EMUFS, ("got %s", dp->d_name));
+		len = strlen(dp->d_name);
+		if (len > ed->ed_iolen) {
+			len = ed->ed_iolen;
+		}
+		memcpy(ed->ed_buf, dp->d_name, len);
+		ed->ed_iolen = len;
+		ed->ed_offset++;
+		g_stats.s_remu++;
+	}
+	else {
+		TRACE(DOTRACE_EMUFS, ("EOF"));
+		ed->ed_iolen = 0;
+	}
+
+	closedir(d);
+	fchdir(herefd);
+	close(herefd);
+
+	return EMU_RES_SUCCESS;
+#if 0	
 	/*
-	 * Grr. There's no way to opendir() an fd.
-	 * XXX of course there is - pushd it and opendir "."
+	 * without fchdir, can't do it - there's no fdopendir() or equivalent.
 	 */
 	(void) ed;
-
 	TRACE(DOTRACE_EMUFS, ("emufs: slot %d: readdir unsupported",
 			      ed->ed_slot));
 
 	return EMU_RES_UNSUPP;
+#endif
 }
 
 static

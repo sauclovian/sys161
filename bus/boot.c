@@ -12,7 +12,7 @@
 #include "cpu-elf.h"
 
 
-const char rcsid_boot_c[] = "$Id: boot.c,v 1.10 2001/07/20 20:19:24 dholland Exp $";
+const char rcsid_boot_c[] = "$Id: boot.c,v 1.11 2002/01/17 22:05:22 dholland Exp $";
 
 static
 void
@@ -104,6 +104,7 @@ load_elf(int fd)
 		switch (ph.p_type) {
 		    case PT_NULL: /* skip */ continue;
 		    case PT_PHDR: /* skip */ continue;
+		    case PT_MIPS_REGINFO: /* skip */ continue;
 		    case PT_LOAD: break;
 		    default:
 			msg("Boot image contained unknown segment type %d", 

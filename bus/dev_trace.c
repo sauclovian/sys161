@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <string.h>
+#include "config.h"
 
 #include "main.h"
 
@@ -7,7 +8,7 @@
 #include "busids.h"
 
 const char rcsid_dev_trace_c[] =
-    "$Id: dev_trace.c,v 1.3 2001/07/18 23:49:47 dholland Exp $";
+    "$Id: dev_trace.c,v 1.4 2002/01/17 22:07:45 dholland Exp $";
 
 #define TRACEREG_ON     0
 #define TRACEREG_OFF    4

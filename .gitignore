@@ -1,3 +1,5 @@
 Makefile
+build-doc
+build-hub161
 build-sys161
 build-trace161

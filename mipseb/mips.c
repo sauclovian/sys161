@@ -19,12 +19,9 @@
 // XXX: For now, leave this off, as it isn't compatible with address space ids
 //#define USE_TLBMAP
 
-#ifndef __GNUC__
-#define inline
-#endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.75 2001/07/22 01:08:15 dholland Exp $";
+	"$Id: mips.c,v 1.76 2002/01/17 22:10:02 dholland Exp $";
 
 
 /* number of tlb entries */

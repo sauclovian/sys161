@@ -17,11 +17,8 @@
 #include "main.h"
 #include "version.h"
 
-#ifndef __GNUC__
-#define inline
-#endif
-
-const char rcsid_main_c[] = "$Id: main.c,v 1.24 2001/07/21 23:52:35 dholland Exp $";
+const char rcsid_main_c[] =
+    "$Id: main.c,v 1.27 2002/01/17 22:20:23 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -273,11 +270,15 @@ usage(void)
 	msg("     -c config      Use alternate config file");
 #ifdef USE_TRACE
 	msg("     -f file        Trace to specified file");
+#else
+	msg("     -f file        (trace161 only)");
 #endif
 	msg("     -p port        Listen for gdb over TCP on specified port");
 	msg("     -s             Pass signal-generating characters through");
 #ifdef USE_TRACE
 	msg("     -t[kujtxidne]  Set tracing flags");
+#else
+	msg("     -t[flags]      (trace161 only)");
 #endif
 	msg("     -w             Wait for debugger before starting");
 	die();
@@ -344,6 +345,9 @@ main(int argc, char *argv[])
 		strcat(argstr, argv[j]);
 		if (j<argc-1) strcat(argstr, " ");
 	}
+
+	/* This must come before bus_config in case a network card needs it */
+	mkdir(".sockets", 0700);
 	
 	console_init(pass_signals);
 	clock_init();
@@ -355,7 +359,6 @@ main(int argc, char *argv[])
 		gdb_inet_init(port);
 	}
 	else {
-		mkdir(".sockets", 0700);
 		unlink(".sockets/gdb");
 		gdb_unix_init(".sockets/gdb");
 	}

@@ -19,7 +19,7 @@
 
 #include "context.h"
 
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.13 2001/07/20 18:54:18 dholland Exp $";
+const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.16 2002/01/22 23:59:04 dholland Exp $";
 
 //#include "lamebus.h"
 
@@ -49,10 +49,17 @@ gdb_dumpstate(void)
 		return;
 	}
 
-	if (su.sun_family == AF_UNIX || su.sun_family == AF_LOCAL) {
+	if (su.sun_family == AF_UNIX) {
+		len -= (sizeof(su) - sizeof(su.sun_path));
+		msg("%.*s", (int) len, su.sun_path);
+		return;
+	}
+#if defined(AF_LOCAL) && AF_LOCAL!=AF_UNIX  /* just in case */
+	if (su.sun_family == AF_LOCAL) {
 		msg("%s", su.sun_path);
 		return;
 	}
+#endif
 
 	if (su.sun_family != AF_INET) {
 		msg("[unknown address family %d]", su.sun_family);
@@ -278,6 +285,7 @@ int
 setup_unix(const char *name)
 {
 	struct sockaddr_un sun;
+	socklen_t len;
 	int sfd;
 
 	sfd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -289,8 +297,12 @@ setup_unix(const char *name)
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", name);
+	len = SUN_LEN(&sun);
+#ifdef HAS_SUN_LEN
+	sun.sun_len = len;
+#endif
 
-	if (bind(sfd, (struct sockaddr *) &sun, sizeof(sun)) < 0) {
+	if (bind(sfd, (struct sockaddr *) &sun, len) < 0) {
 		msg("bind: %s", strerror(errno));
 		return -1;
 	}

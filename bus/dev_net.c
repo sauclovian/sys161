@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <limits.h>
 #include <errno.h>
 #include "config.h"
 
@@ -18,7 +19,7 @@
 #include "lamebus.h"
 
 const char rcsid_dev_net_c[] = 
-    "$Id: dev_net.c,v 1.11 2001/07/18 23:49:47 dholland Exp $";
+    "$Id: dev_net.c,v 1.16 2002/01/22 19:35:55 dholland Exp $";
 
 #define NETREG_READINTR    0
 #define NETREG_WRITEINTR   4
@@ -34,10 +35,13 @@ const char rcsid_dev_net_c[] =
 
 #define FRAME_MAGIC     0xa4b3
 
+#define NETWORK_LATENCY		2000000  /* ns: 2ms for every packet */
+
 struct net_data {
 	int nd_slot;
 
 	struct sockaddr_un nd_hubaddr;
+	socklen_t nd_hubaddrlen;
 	int nd_socket;
 	
 	int nd_lostcarrier;
@@ -129,9 +133,9 @@ keepalive(void *data, u_int32_t junk)
 	lh.lh_to = htons(HUB_ADDR);
 
 	r = sendto(nd->nd_socket, &lh, sizeof(lh), 0, 
-	       (struct sockaddr *)&nd->nd_hubaddr, nd->nd_hubaddr.sun_len);
+	       (struct sockaddr *)&nd->nd_hubaddr, nd->nd_hubaddrlen);
 
-	if (r<0 && errno==ECONNREFUSED) {
+	if (r<0 && (errno==ECONNREFUSED || errno==ENOENT || errno==ENOTSOCK)) {
 		/*
 		 * No carrier.
 		 */
@@ -139,12 +143,12 @@ keepalive(void *data, u_int32_t junk)
 			msg("nic: slot %d: lost carrier", nd->nd_slot);
 			nd->nd_lostcarrier = 1;
 		}
-		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive rejected", 
-				    nd->nd_slot));
+		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive rejected: %s", 
+				    nd->nd_slot, strerror(errno)));
 	}
 	else if (r<0) {
-		msg("nic: slot %d: keepalive failed: %s", nd->nd_slot,
-		    strerror(errno));
+		msg("nic: slot %d: keepalive to %s failed: %s", nd->nd_slot,
+		    nd->nd_hubaddr.sun_path, strerror(errno));
 		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive failed", 
 				    nd->nd_slot));
 	}
@@ -185,14 +189,13 @@ dosend(struct net_data *nd)
 	lh->lh_from = htons(nd->nd_status & NDS_HWADDR);
 
 	r = sendto(nd->nd_socket, nd->nd_wbuf, len, 0, 
-	       (struct sockaddr *)&nd->nd_hubaddr, nd->nd_hubaddr.sun_len);
+	       (struct sockaddr *)&nd->nd_hubaddr, nd->nd_hubaddrlen);
 	if (r<0) {
 		msg("nic: slot %d: sendto: %s", nd->nd_slot, strerror(errno));
 	}
 
 	g_stats.s_wpkts++;
 
-	// XXX latency
 	writedone(nd);
 }
 
@@ -278,8 +281,6 @@ dorecv(void *data)
 
 	g_stats.s_rpkts++;
 
-	// XXX latency?
-
 	readdone(nd);
 
 	return 0;
@@ -307,6 +308,18 @@ setirq(struct net_data *nd, u_int32_t val, int isread)
 
 static
 void
+triggersend(void *n, u_int32_t code)
+{
+	struct net_data *nd = n;
+
+	(void)code;
+
+	dosend(nd);
+	nd->nd_control &= ~NDC_START;
+}
+
+static
+void
 setctl(struct net_data *nd, u_int32_t val)
 {
 	if ((val & NDC_ZERO) != 0) {
@@ -314,8 +327,20 @@ setctl(struct net_data *nd, u_int32_t val)
 	}
 	else {
 		if (val & NDC_START) {
-			dosend(nd);
-			val &= ~NDC_START;
+			if (nd->nd_control & NDC_START) {
+				hang("Network packet send started while "
+				     "send already in progress");
+			}
+			else {
+				schedule_event(NETWORK_LATENCY,
+					       nd, 0,
+					       triggersend,
+					       "packet send");
+			}
+		}
+		else if (nd->nd_control & NDC_START) {
+			/* cannot turn it off explicitly */
+			val |= NDC_START;
 		}
 		nd->nd_control = val;
 	}
@@ -395,14 +420,17 @@ net_init(int slot, int argc, char *argv[])
 	struct net_data *nd = domalloc(sizeof(struct net_data));
 	const char *hubname = ".sockets/hub";
 	u_int16_t hwaddr = HUB_ADDR;
+	char cwd[PATH_MAX];
+	int len;
 
 	struct sockaddr_un mysun;
+	socklen_t mylen;
 
 	int i, one=1;
 
 	for (i=1; i<argc; i++) {
-		if (!strncmp(argv[i], "hub=", 7)) {
-			hubname = argv[i]+7;
+		if (!strncmp(argv[i], "hub=", 4)) {
+			hubname = argv[i]+4;
 		}
 		else if (!strncmp(argv[i], "hwaddr=", 7)) {
 			hwaddr = atoi(argv[i]+7);
@@ -415,6 +443,11 @@ net_init(int slot, int argc, char *argv[])
 
 	if (hwaddr == BROADCAST_ADDR || hwaddr == HUB_ADDR) {
 		msg("nic: slot %d: invalid hwaddr or hwaddr not set", slot);
+		die();
+	}
+
+	if (getcwd(cwd, sizeof(cwd))==NULL) {
+		msg("nic: slot %d: getcwd: %s", slot, strerror(errno));
 		die();
 	}
 
@@ -432,14 +465,21 @@ net_init(int slot, int argc, char *argv[])
 
 	memset(&mysun, 0, sizeof(mysun));
 	mysun.sun_family = AF_UNIX;
-	snprintf(mysun.sun_path, sizeof(mysun.sun_path),
-		 ".sockets/net-%04x", hwaddr);
-	mysun.sun_len = SUN_LEN(&mysun);
+	len = snprintf(mysun.sun_path, sizeof(mysun.sun_path),
+		       "%s/.sockets/net-%04x", cwd, hwaddr);
+	if (len < 0 || len >= (int) sizeof(mysun.sun_path)) {
+		msg("nic: slot %d: current directory %s too long", slot, cwd);
+		die();
+	}
+	mylen = SUN_LEN(&mysun);
+#ifdef HAS_SUN_LEN
+	mysun.sun_len = mylen;
+#endif
 
 	unlink(mysun.sun_path);
 	setsockopt(nd->nd_socket, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 
-	if (bind(nd->nd_socket, (struct sockaddr *)&mysun, mysun.sun_len)<0) {
+	if (bind(nd->nd_socket, (struct sockaddr *)&mysun, mylen)<0) {
 		msg("nic: slot %d: bind: %s", slot, strerror(errno));
 		die();
 	}
@@ -447,7 +487,10 @@ net_init(int slot, int argc, char *argv[])
 	memset(&nd->nd_hubaddr, 0, sizeof(nd->nd_hubaddr));
 	nd->nd_hubaddr.sun_family = AF_UNIX;
 	strcpy(nd->nd_hubaddr.sun_path, hubname);
-	nd->nd_hubaddr.sun_len = SUN_LEN(&nd->nd_hubaddr);
+	nd->nd_hubaddrlen = SUN_LEN(&nd->nd_hubaddr);
+#ifdef HAS_SUN_LEN
+	nd->nd_hubaddr.sun_len = nd->nd_hubaddrlen;
+#endif
 
 	onselect(nd->nd_socket, nd, dorecv, NULL);
 

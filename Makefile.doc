@@ -13,5 +13,5 @@ install:
 	  done
 	cp lb-cpu.html $(DOCDIR)/lb-cpu.html
 	chmod 644 $(DOCDIR)/lb-cpu.html
-	cp $S/sys161.conf.sample $(INSTALLDIR)/sys161.conf.sample
-	chmod 644 $(INSTALLDIR)/sys161.conf.sample
+	cp $S/sys161.conf.sample $(ETCDIR)/sys161.conf.sample
+	chmod 644 $(ETCDIR)/sys161.conf.sample

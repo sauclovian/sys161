@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
+#include "config.h"
 
 #include "array.h"
 
@@ -37,6 +38,7 @@ struct linkheader {
 struct sender {
 	u_int16_t sdr_addr;
 	struct sockaddr_un sdr_sun;
+	socklen_t sdr_len;
 	int sdr_errors;
 };
 
@@ -49,10 +51,11 @@ static int sock;
 
 static
 void
-checksender(u_int16_t addr, struct sockaddr_un *rsun)
+checksender(u_int16_t addr, struct sockaddr_un *rsun, socklen_t rlen)
 {
 	int n, i;
 	struct sender *sdr;
+	int pathlen;
 
 	assert(senders != NULL);
 	assert(rsun != NULL);
@@ -64,6 +67,7 @@ checksender(u_int16_t addr, struct sockaddr_un *rsun)
 		assert(sdr != NULL);
 		if (sdr->sdr_addr == addr) {
 			memcpy(&sdr->sdr_sun, rsun, sizeof(*rsun));
+			sdr->sdr_len = rlen;
 			return;
 		}
 	}
@@ -74,10 +78,18 @@ checksender(u_int16_t addr, struct sockaddr_un *rsun)
 		exit(1);
 	}
 
-	printf("hub161: adding %04x\n", addr);
+	pathlen = rlen;
+	pathlen = pathlen - (sizeof(*rsun) - sizeof(rsun->sun_path));
+
+	printf("hub161: adding %04x from %.*s\n", addr, pathlen, 
+	       rsun->sun_path);
+	if (rsun->sun_path[0]!='/') {
+		printf("hub161: (not absolute pathname, may not work)\n");
+	}
 
 	sdr->sdr_addr = addr;
 	memcpy(&sdr->sdr_sun, rsun, sizeof(*rsun));
+	sdr->sdr_len = rlen;
 	sdr->sdr_errors = 0;
 
 	if (array_add(senders, sdr)) {
@@ -102,10 +114,10 @@ dosend(const char *pkt, size_t len)
 		assert(sdr != NULL);
 		r = sendto(sock, pkt, len, 0, 
 			   (struct sockaddr *)&sdr->sdr_sun,
-			   sdr->sdr_sun.sun_len);
+			   sdr->sdr_len);
 		if (r < 0) {
-			fprintf(stderr, "hub161: sendto: %s\n", 
-				strerror(errno));
+			fprintf(stderr, "hub161: sendto %04x: %s\n",
+				sdr->sdr_addr, strerror(errno));
 			sdr->sdr_errors++;
 		}
 	}
@@ -129,6 +141,7 @@ killsenders(void)
 			printf("hub161: dropping %04x\n", sdr->sdr_addr);
 			array_remove(senders, i);
 			i--;
+			n--;
 			free(sdr);
 		}
 	}
@@ -141,6 +154,7 @@ void
 opensock(const char *sockname)
 {
 	struct sockaddr_un sun;
+	socklen_t len;
 	struct stat st;
 	int one=1;
 
@@ -170,9 +184,12 @@ opensock(const char *sockname)
 
 	sun.sun_family = AF_UNIX;
 	strcpy(sun.sun_path, sockname);
-	sun.sun_len = SUN_LEN(&sun);
+	len = SUN_LEN(&sun);
+#ifdef HAS_SUN_LEN
+	sun.sun_len = len;
+#endif
 
-	if (bind(sock, (struct sockaddr *)&sun, sun.sun_len) < 0) {
+	if (bind(sock, (struct sockaddr *)&sun, len) < 0) {
 		fprintf(stderr, "hub161: bind: %s\n", strerror(errno));
 		exit(1);
 	}
@@ -199,6 +216,7 @@ loop(void)
 	int r;
 	
 	while (1) {
+		rlen = sizeof(rsun);
 		r = recvfrom(sock, packetbuf, sizeof(packetbuf), 0,
 			     (struct sockaddr *)&rsun, &rlen);
 		if (r<0) {
@@ -209,8 +227,25 @@ loop(void)
 		packetlen = r;
 
 		assert(rlen <= sizeof(rsun));
-		assert(rlen == rsun.sun_len);
+		assert(rsun.sun_family==AF_UNIX);
 		assert(packetlen <= sizeof(packetbuf));
+#ifdef HAS_SUN_LEN
+		assert(rlen <= rsun.sun_len);
+		if (rlen < rsun.sun_len) {
+			/*
+			 * This means the address (pathname) didn't fit
+			 * in the sockaddr.
+			 *
+			 * Beware: rsun.sun_path isn't necessarily null
+			 * terminated, so don't print it without a length
+			 * limit.
+			 */
+			fprintf(stderr, "hub161: packet from too-long "
+				"pathname\n");
+			continue;
+		}
+		assert(rlen == rsun.sun_len);
+#endif
 
 		if (packetlen < sizeof(struct linkheader)) {
 			fprintf(stderr, "hub161: miniscule packet (size %u)\n",
@@ -238,9 +273,9 @@ loop(void)
 			continue;
 		}
 
-		checksender(ntohs(lh->lh_from), &rsun);
+		checksender(ntohs(lh->lh_from), &rsun, rlen);
 
-		if (ntohs(lh->lh_from) == HUB_ADDR) {
+		if (ntohs(lh->lh_to) == HUB_ADDR) {
 			/* to us - don't forward it */
 			continue;
 		}

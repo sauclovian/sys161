@@ -6,7 +6,7 @@
 
 
 const char rcsid_util_c[] = 
-    "$Id: util.c,v 1.3 2001/07/18 23:46:04 dholland Exp $";
+    "$Id: util.c,v 1.4 2002/01/22 23:59:32 dholland Exp $";
 
 void *
 domalloc(size_t len)
@@ -51,7 +51,8 @@ dohexdump(const char *buf, size_t len)
 			}
 			msgl("%c", c);
 		}
-		msg(" ");
+		/* gcc warns if we just do msg("") */
+		msg("%s", "");
 	}
 	msg("%6x:", x);
 }

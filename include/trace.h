@@ -31,8 +31,8 @@ void trace(const char *fmt, ...) PF(1,2);    /* trace output */
 void tracel(const char *fmt, ...) PF(1,2);   /* trace w/o newline */
 
 
-#define TRACEL(k, args)   (g_traceflags[(k)] ? tracel args : 0)
-#define TRACE(k, args)    (g_traceflags[(k)] ? trace args : 0)
+#define TRACEL(k, args)   (g_traceflags[(k)] ? tracel args : (void)0)
+#define TRACE(k, args)    (g_traceflags[(k)] ? trace args : (void)0)
 
 
 

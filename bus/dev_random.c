@@ -9,8 +9,16 @@
 #include "lamebus.h"
 #include "busids.h"
 
+/*
+ * Note. We assume that random() ^ (random() << 16) fills a u_int32_t with
+ * 32 good random bits. random() is a BSD function that appears to be
+ * defined to return values in the range 0 to 2^31-1, no matter what
+ * RAND_MAX may be. The configure script should probably attempt to check
+ * the random generator. (FUTURE)
+ */
 
-const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.8 2001/07/18 23:49:47 dholland Exp $";
+
+const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.9 2002/01/17 22:07:32 dholland Exp $";
 
 static
 void *
@@ -33,14 +41,6 @@ rand_init(int slot, int argc, char *argv[])
 			    slot, argv[i]);
 			die();
 		}
-	}
-
-	if (RAND_MAX < 0xffff) {
-		/*
-		 * The code below assumes random() ^ random() << 16 fills
-		 * a u_int32_t.
-		 */
-		msg("random: warning: RAND_MAX too small");
 	}
 
 	srandom(seed);
