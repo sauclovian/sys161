@@ -7,8 +7,8 @@ bootrom.o: ../../mipseb/bootrom.c ../../include/config.h \
 lamebus.o: ../../bus/lamebus.c ../../include/config.h \
  ../../include/bus.h ../../include/cpu.h ../../include/speed.h \
  ../../include/console.h ../../include/gdb.h ../../include/onsel.h \
- ../../include/main.h ../../bus/lamebus.h ../../bus/busids.h \
- ../../bus/busdefs.h ../../bus/ram.h
+ ../../include/clock.h ../../include/main.h ../../bus/lamebus.h \
+ ../../bus/busids.h ../../bus/busdefs.h ../../bus/ram.h
 boot.o: ../../bus/boot.c ../../include/config.h \
  ../../include/console.h ../../include/cpu.h ../../include/elf.h \
  ../../bus/ram.h

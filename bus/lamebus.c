@@ -12,6 +12,7 @@
 #include "console.h"
 #include "gdb.h"
 #include "onsel.h"
+#include "clock.h"
 #include "main.h"
 
 #include "lamebus.h"
@@ -24,7 +25,7 @@
  * For now, 16M.
  */
 
-const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.19 2001/01/27 01:43:16 dholland Exp $";
+const char rcsid_lamebus_c[] = "$Id: lamebus.c,v 1.20 2001/01/30 02:43:15 dholland Exp $";
 
 #define MAXMEM (16*1024*1024)
 
@@ -259,6 +260,22 @@ lamebus_controller_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 	return -1;
 }
 
+static
+void
+dopoweroff(void *junk1, u_int32_t junk2)
+{
+	(void)junk1;
+	(void)junk2;
+
+	/*
+	 * This is never seen by the processor, but it breaks the clock
+	 * module out of the idle loop.
+	 */
+	RAISE_IRQ(LAMEBUS_CONTROLLER_SLOT);
+
+	main_poweroff();
+}
+
 static int lamebus_controller_store(void *data, u_int32_t offset, 
 				   u_int32_t val)
 {
@@ -272,7 +289,7 @@ static int lamebus_controller_store(void *data, u_int32_t offset,
 	switch (cfgoffset) {
 	    case LBC_OFFSET_POWER:
 		if (val==0) {
-			main_poweroff();
+			schedule_event(POWEROFF_NSECS, NULL, 0, dopoweroff);
 		}
 		return 0;
 	    default:

@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/time.h>
+#include <sys/stat.h> // for mkdir()
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,13 +19,13 @@
 #define inline
 #endif
 
-const char rcsid_main_c[] = "$Id: main.c,v 1.7 2001/01/29 03:37:52 dholland Exp $";
+const char rcsid_main_c[] = "$Id: main.c,v 1.9 2001/01/30 02:45:30 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
 
-/* Cycles until poweroff, or -1 */
-static int shutofftime = -1;
+/* Flag for interrupting runloop or stoploop due to poweroff */
+static int shutoff_flag;
 
 /* Flag for interrupting stoploop() */
 static int continue_flag;
@@ -35,9 +36,7 @@ static int stop_flag;
 void
 main_poweroff(void)
 {
-	if (shutofftime < 0) {
-		shutofftime = POWEROFF_CLOCKS;
-	}
+	shutoff_flag = 1;
 }
 
 void
@@ -57,8 +56,8 @@ void
 stoploop(void)
 {
 	gdb_startbreak();
-	stop_flag = 0;
-	while (!stop_flag) {
+	continue_flag = 0;
+	while (!continue_flag && !shutoff_flag) {
 		tryselect(0, 0, 0);
 	}
 }
@@ -74,7 +73,6 @@ onecycle(void)
 	hitbp = cpu_cycle();
 	if (!hitbp) {
 		clock_tick();
-		if (shutofftime > 0) shutofftime--;
 	}
 	return hitbp;
 }
@@ -88,7 +86,7 @@ runloop(void)
 {
 	int rotor=0;
 
-	while (shutofftime != 0) {
+	while (!shutoff_flag) {
 		stop_flag = 0;
 
 		if (onecycle()) {
@@ -219,6 +217,7 @@ main(int argc, char *argv[])
 	}
 	else {
 		mkdir(".sockets", 0700);
+		unlink(".sockets/gdb");
 		gdb_unix_init(".sockets/gdb");
 	}
 

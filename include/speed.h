@@ -5,7 +5,7 @@
 #define NSECS_PER_CLOCK  40
 
 // Poweroff takes 5 ms = 5 million ns
-#define POWEROFF_CLOCKS (5000000 / NSECS_PER_CLOCK)
+#define POWEROFF_NSECS 5000000
 
 // 19200 bps serial.
 //
