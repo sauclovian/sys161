@@ -111,7 +111,7 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.7 2001/01/31 02:34:17 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.8 2001/01/31 23:27:12 dholland Exp $";
 
 
 #define MAXHANDLES     64
@@ -279,15 +279,20 @@ emufs_open(struct emufs_data *ed, int flags)
 	curdir = pushdir(ed->ed_fds[ed->ed_handle], ed->ed_handle);
 
 	if (stat(ed->ed_buf, &sbuf)) {
-		popdir(curdir);
-		return errno_to_code(errno);
-	}
-
-	if (S_ISDIR(sbuf.st_mode) && flags==0) {
-		flags |= O_RDONLY;
+		if (flags==0) {
+			int err = errno;
+			popdir(curdir);
+			return errno_to_code(err);
+		}
+		flags |= O_RDWR;
 	}
 	else {
-		flags |= O_RDWR;
+		if (S_ISDIR(sbuf.st_mode) && flags==0) {
+			flags |= O_RDONLY;
+		}
+		else {
+			flags |= O_RDWR;
+		}
 	}
 	
 	ed->ed_fds[handle] = open(ed->ed_buf, flags, 0664);
