@@ -34,6 +34,6 @@ extern u_int32_t bus_interrupts;
 
 #define RAISE_IRQ(slot) (bus_interrupts |= (1<<(u_int32_t)(slot)))
 #define LOWER_IRQ(slot) (bus_interrupts &= ~(1<<(u_int32_t)(slot)))
-#define CHECK_IRQ(slot) ((bus_interrupts & (u_int32_t)(slot)) != 0)
+#define CHECK_IRQ(slot) ((bus_interrupts & (1<<(u_int32_t)(slot))) != 0)
 
 #endif /* LAMEBUS_H */

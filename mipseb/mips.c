@@ -18,7 +18,7 @@
 #endif
 
 const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.24 2001/01/27 01:43:16 dholland Exp $";
+	"$Id: mips.c,v 1.26 2001/01/31 19:43:59 dholland Exp $";
 
 
 #ifndef QUAD_HIGHWORD
@@ -270,7 +270,7 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 	// roll the status bits
 	bits = cpu->ex_status & 0x3f;
 	bits <<= 2;
-	cpu->ex_status = (cpu->ex_status & 0xffffffc0) | bits;
+	cpu->ex_status = (cpu->ex_status & 0xffffffc0) | (bits & 0x3f);
 
 	cpu->ex_vaddr = vaddr;
 	cpu->ex_context &= 0xffe00000;
@@ -1202,13 +1202,13 @@ mips_run(struct mipscpu *cpu)
 		DEBUG(("at %08x: mult %s, %s", cpu->expc, 
 		      regname(rs), regname(rt)));
 		WHILO;
-		t64=(int64_t)rs*(int64_t)rt;
+		t64=(int64_t)RS*(int64_t)RT;
 		goto split64;
 	    case OP_MULTU:
 		DEBUG(("at %08x: multu %s, %s", cpu->expc, 
 		      regname(rs), regname(rt)));
 		WHILO;
-		t64=(u_int64_t)rs*(u_int64_t)rt;
+		t64=(u_int64_t)RS*(u_int64_t)RT;
 		goto split64;
             split64:  
 		cpu->hi = (t64>>32);

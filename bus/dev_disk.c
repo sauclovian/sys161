@@ -15,7 +15,8 @@
 #include "busids.h"
 
 
-const char rcsid_dev_disk_c[] = "$Id: dev_disk.c,v 1.9 2001/01/27 01:43:15 dholland Exp $";
+const char rcsid_dev_disk_c[] =
+    "$Id: dev_disk.c,v 1.10 2001/01/31 02:34:17 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -796,7 +797,7 @@ disk_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 	if (offset >= DISK_BUF_START && offset < DISK_BUF_END) {
 		offset -= DISK_BUF_START;
 		ptr = (u_int32_t *)(dd->dd_buf + offset);
-		*ret = *ptr;
+		*ret = ntohl(*ptr);
 		return 0;
 	}
 
@@ -819,7 +820,7 @@ disk_store(void *data, u_int32_t offset, u_int32_t val)
 	if (offset >= DISK_BUF_START && offset < DISK_BUF_END) {
 		offset -= DISK_BUF_START;
 		ptr = (u_int32_t *)(dd->dd_buf + offset);
-		*ptr = val;
+		*ptr = htonl(val);
 		return 0;
 	}
 

@@ -111,10 +111,11 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.6 2001/01/27 01:43:15 dholland Exp $";
+const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.7 2001/01/31 02:34:17 dholland Exp $";
 
 
 #define MAXHANDLES     64
+#define EMU_ROOTHANDLE  0
 
 #define EMU_BUF_START  32768
 #define EMU_BUF_SIZE   16384
@@ -155,10 +156,10 @@ struct emufs_data {
 	int ed_slot;
 
 	char ed_buf[EMU_BUF_SIZE];
-	u_int32_t ed_handle;
-	u_int32_t ed_offset;
-	u_int32_t ed_iolen;
-	u_int32_t ed_result;
+	u_int32_t ed_handle;		/* file handle register */
+	u_int32_t ed_offset;		/* offset register */
+	u_int32_t ed_iolen;		/* iolen register */
+	u_int32_t ed_result;		/* result register */
 
 	/* Handles from ed_handle are indexes into here */
 	int ed_fds[MAXHANDLES];
@@ -170,13 +171,14 @@ pushdir(int fd, int h)
 {
 	int oldfd;
 
-	oldfd = open(".", O_RDWR);
+	oldfd = open(".", O_RDONLY);
 	if (oldfd<0) {
 		smoke(".: %s", strerror(errno));
 	}
 
 	if (fchdir(fd)) {
-		smoke("emufs: fchdir [handle %d]: %s", h, strerror(errno));
+		smoke("emufs: fchdir [handle %d, fd %d]: %s", h, fd, 
+		      strerror(errno));
 	}
 
 	return oldfd;
@@ -235,6 +237,23 @@ pickhandle(struct emufs_data *ed)
 		}
 	}
 	return -1;
+}
+
+static
+void
+emufs_openfirst(struct emufs_data *ed, const char *dir)
+{
+	int fd;
+
+	Assert(ed->ed_fds[EMU_ROOTHANDLE]<0);
+
+	fd = open(dir, O_RDONLY);
+	if (fd<0) {
+		msg("emufs: slot %d: %s: %s", ed->ed_slot, dir, 
+		    strerror(errno));
+		die();
+	}
+	ed->ed_fds[EMU_ROOTHANDLE] = fd;
 }
 
 static
@@ -392,15 +411,23 @@ static
 u_int32_t
 emufs_op(struct emufs_data *ed, u_int32_t op)
 {
+	switch (op) {
+	    case EMU_OP_OPEN:       return emufs_open(ed, 0);
+	    case EMU_OP_CREATE:     return emufs_open(ed, O_CREAT);
+	    case EMU_OP_EXCLCREATE: return emufs_open(ed, O_CREAT|O_EXCL);
+	    default: break;
+	}
 
 	if (ed->ed_handle >= MAXHANDLES || ed->ed_fds[ed->ed_handle]<0) {
 		return EMU_RES_BADHANDLE;
 	}
 
 	switch (op) {
-	    case EMU_OP_OPEN:       return emufs_open(ed, 0);
-	    case EMU_OP_CREATE:     return emufs_open(ed, O_CREAT);
-	    case EMU_OP_EXCLCREATE: return emufs_open(ed, O_CREAT|O_EXCL);
+	    case EMU_OP_OPEN:
+	    case EMU_OP_CREATE:
+	    case EMU_OP_EXCLCREATE:
+		/* ? */
+		break;
 	    case EMU_OP_CLOSE:      return emufs_close(ed);
 	    case EMU_OP_READ:       return emufs_read(ed);
 	    case EMU_OP_READDIR:    return emufs_readdir(ed);
@@ -431,6 +458,7 @@ emufs_init(int slot, int argc, char *argv[])
 	}
 
 	ed->ed_slot = slot;
+	ed->ed_buf[0] = 0;
 	ed->ed_handle = 0;
 	ed->ed_offset = 0;
 	ed->ed_iolen = 0;
@@ -440,7 +468,7 @@ emufs_init(int slot, int argc, char *argv[])
 		ed->ed_fds[i] = -1;
 	}
 
-	// XXX
+	emufs_openfirst(ed, dir);
 
 	return ed;
 }
@@ -455,7 +483,7 @@ emufs_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 	if (offset >= EMU_BUF_START && offset < EMU_BUF_END) {
 		offset -= EMU_BUF_START;
 		ptr = (u_int32_t *)(ed->ed_buf + offset);
-		*ret = *ptr;
+		*ret = ntohl(*ptr);
 		return 0;
 	}
 
@@ -479,7 +507,7 @@ emufs_store(void *data, u_int32_t offset, u_int32_t val)
 	if (offset >= EMU_BUF_START && offset < EMU_BUF_END) {
 		offset -= EMU_BUF_START;
 		ptr = (u_int32_t *)(ed->ed_buf + offset);
-		*ptr = val;
+		*ptr = htonl(val);
 		return 0;
 	}
 
