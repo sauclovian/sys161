@@ -14,7 +14,7 @@
 
 
 
-const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.10 2002/05/28 21:32:18 dholland Exp $";
+const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.11 2005/08/26 09:50:28 dholland Exp $";
 
 #define SERREG_CHAR   0x0
 #define SERREG_WIRQ   0x4
@@ -229,7 +229,7 @@ serial_dumpstate(void *data)
 	c[0] = sd->sd_readch;
 	c[1] = 0;
 	msg("    Last character typed: %s (%ld)", 
-	    isprint(c[0]) ? c : "(?)",
+	    isprint((int)c[0]) ? c : "(?)",
 	    (unsigned long) sd->sd_readch);
 	msg("    Read interrupts %s%s", 
 	    sd->sd_rirq.si_on ? "active" : "inactive",

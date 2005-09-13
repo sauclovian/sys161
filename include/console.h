@@ -4,8 +4,10 @@
 /* Tell GCC to check printf formats. */
 #ifdef __GNUC__
 #define PF(a,b) __attribute__((__format__(__printf__, a, b)))
+#define DEAD  __attribute__((__noreturn__))
 #else
 #define PF(a,b)
+#define DEAD
 #endif
 
 void console_earlyinit(void);
@@ -19,7 +21,7 @@ void console_onkey(void *, void (*func)(void *, int));
 void die(void);
 void msg(const char *fmt, ...) PF(1,2);    /* general messages */
 void msgl(const char *fmt, ...) PF(1,2);   /* msg w/o newline */
-void smoke(const char *fmt, ...) PF(1,2);  /* for internal errors */
+void smoke(const char *fmt, ...) PF(1,2) DEAD; /* for internal errors */
 void hang(const char *fmt, ...) PF(1,2);   /* for errors programming the hw */
 
 void console_pause(void);

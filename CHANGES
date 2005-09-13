@@ -1,3 +1,7 @@
+20050826 dholland	Minor patches for clean build with gcc 4.0.1.
+20040430 dholland	Add -P, which was missing, to the usage message.
+
+20040415 dholland	System/161 1.12 released.
 20040415 dholland	Minor compile fixes for gcc >= 3.0.
 20040415 dholland	Fix bug in PC translation caching code.
 			(Thanks to Pat Swieskowski for crucial diagnosis info.)

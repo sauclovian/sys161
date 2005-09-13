@@ -20,7 +20,7 @@
 #include "version.h"
 
 const char rcsid_main_c[] =
-    "$Id: main.c,v 1.30 2002/09/09 21:26:08 dholland Exp $";
+    "$Id: main.c,v 1.31 2004/04/30 20:12:39 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -273,8 +273,10 @@ usage(void)
 	msg("     -c config      Use alternate config file");
 #ifdef USE_TRACE
 	msg("     -f file        Trace to specified file");
+	msg("     -P             Collect kernel execution profile");
 #else
 	msg("     -f file        (trace161 only)");
+	msg("     -P             (trace161 only)");
 #endif
 	msg("     -p port        Listen for gdb over TCP on specified port");
 	msg("     -s             Pass signal-generating characters through");
