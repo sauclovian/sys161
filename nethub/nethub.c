@@ -262,7 +262,7 @@ loop(void)
 			continue;
 		}
 
-		if (ntohs(lh->lh_packetlen) != packetlen) {
+		if ((size_t)ntohs(lh->lh_packetlen) != packetlen) {
 			fprintf(stderr, "hub161: bad size [%04x %04x]\n",
 				ntohs(lh->lh_packetlen), packetlen);
 			continue;

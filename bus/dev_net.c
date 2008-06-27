@@ -19,7 +19,7 @@
 #include "lamebus.h"
 
 const char rcsid_dev_net_c[] = 
-    "$Id: dev_net.c,v 1.18 2004/02/03 22:10:37 dholland Exp $";
+    "$Id: dev_net.c,v 1.19 2008/06/27 21:56:21 dholland Exp $";
 
 #define NETREG_READINTR    0
 #define NETREG_WRITEINTR   4
@@ -250,7 +250,7 @@ dorecv(void *data)
 		return 0;
 	}
 
-	if (ntohs(lh->lh_to) != (nd->nd_status & NDS_HWADDR) &&
+	if (ntohs(lh->lh_to) != (u_int16_t)(nd->nd_status & NDS_HWADDR) &&
 	    ntohs(lh->lh_to) != BROADCAST_ADDR && 
 	    (nd->nd_control & NDC_PROMISC)==0) {
 		TRACE(DOTRACE_NET, ("nic: slot %d: packet not for us", 

@@ -1,3 +1,8 @@
+20080627 dholland	System/161 1.14 released.
+20080627 dholland	Make it work with gdb 6.6.
+20080627 dholland	Fix broken build under NetBSD-current.
+
+20050913 dholland	System/161 1.13 released.
 20050826 dholland	Minor patches for clean build with gcc 4.0.1.
 20040430 dholland	Add -P, which was missing, to the usage message.
 

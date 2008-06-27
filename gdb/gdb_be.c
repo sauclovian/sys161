@@ -18,7 +18,7 @@
 
 //#define SHOW_PACKETS
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.26 2004/01/31 15:20:12 dholland Exp $";
+const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.27 2008/06/27 21:29:27 dholland Exp $";
 
 extern struct gdbcontext g_ctx;
 extern int g_ctx_inuse;
@@ -95,10 +95,17 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 		//unset_breakcond();
 		break;
 	    case 'q':
-		if(strcmp(pkt+2, "Offsets") == 0) {
+		if (strcmp(pkt+2, "Offsets") == 0) {
 			debug_notsupp(ctx);
-		} else if(strcmp(pkt + 2, "C") == 0) {
+		}
+		else if (strcmp(pkt+2, "Supported") == 0) {
+			debug_notsupp(ctx);
+		}
+		else if (strcmp(pkt + 2, "C") == 0) {
 			debug_send(ctx,"C=000");
+		}
+		else {
+			debug_notsupp(ctx);
 		}
 		break;
 	    case 'Z':
@@ -130,6 +137,9 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 		debug_restart(ctx, pkt + 2);
 		onecycle();
 		debug_send(ctx, "S05");
+		break;
+	    default:
+		debug_notsupp(ctx);
 		break;
 	}
 }
@@ -168,6 +178,9 @@ void
 debug_notsupp(struct gdbcontext *ctx)
 {
 	const char rep[] = "$\0#00";
+#ifdef SHOW_PACKETS
+	msg("Sending $\\0#00");
+#endif
 	write(ctx->myfd, rep, sizeof(rep) - 1);
 }
 

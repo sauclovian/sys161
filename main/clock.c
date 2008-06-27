@@ -18,13 +18,18 @@
  * appears, on some systems, that this is in fact the case and that
  * RAND_MAX must be ignored. So define RANDOM_MAX for our own purposes.
  * (Also see comment in dev_random.c.)
+ *
+ * Nowadays NetBSD defines RANDOM_MAX for us; maybe other systems will
+ * sometime too.
  */
 
+#ifndef RANDOM_MAX
 #define RANDOM_MAX 0x7fffffffUL
+#endif
 
 
 const char rcsid_clock_c[] =
-    "$Id: clock.c,v 1.15 2002/01/17 22:09:17 dholland Exp $";
+    "$Id: clock.c,v 1.16 2008/06/27 21:24:27 dholland Exp $";
 
 struct timed_action {
 	struct timed_action *ta_next;
@@ -109,7 +114,7 @@ schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 	u_int64_t clocks;
 	struct timed_action *n, **p;
 
-	nsecs += (u_int64_t)((random()*nsecs*0.01)/RANDOM_MAX);
+	nsecs += (u_int64_t)((random()*(nsecs*0.01))/RANDOM_MAX);
 
 	clocks = nsecs / NSECS_PER_CLOCK;
 
