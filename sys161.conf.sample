@@ -12,13 +12,25 @@
 #
 # The devices are:
 #
-#   busctl    The LAMEbus controller card. Must go in slot 31, and only
-#             in slot 31. Required argument "ramsize=NUMBER" specifies
-#             the amount of physical RAM in the system. This amount must
-#             be a multiple of the hardware page size (which is probably 
-#             4096 or 8192.) The maximum amount of RAM allowed is 16M;
-#             this restriction is meant as a sanity check and can be 
-#             altered by recompiling System/161.
+#   mainboard The multiprocessor LAMEbus controller card. Must go in
+#             slot 31, and only in slot 31. Required argument
+#             "ramsize=NUMBER" specifies the amount of physical RAM in
+#             the system. This amount must be a multiple of the
+#             hardware page size (which is probably 4096 or 8192.) The
+#             maximum amount of RAM allowed is 16M; this restriction
+#             is meant as a sanity check and can be altered by
+#             recompiling System/161. The argument "cpus=NUMBER"
+#             selects the number of CPUs; the default is 1 and the
+#             maximum 32.
+#
+#   oldmainboard  The uniprocessor LAMEbus controller card, fully
+#             backwards compatible with OS/161 1.x. In general,
+#             uniprocessor kernels should nonetheless work on the
+#             multiprocessor mainboard; therefore this device will
+#             probably be removed in the future. Configuration is the
+#             same as the multiprocessor mainboard, except that the
+#             "cpus" argument is not accepted. The OS/161 1.x name
+#             "busctl" is an alias for "oldmainboard".
 #
 #   trace     The System/161 trace controller device. This can be used
 #             by software for various debugging purposes. You can have
@@ -118,4 +130,6 @@
 28	random	autoseed
 29	timer
 30	trace
-31	busctl	ramsize=524288
+31	mainboard  ramsize=524288  cpus=1
+#31	mainboard  ramsize=524288  cpus=2
+#31	mainboard  ramsize=524288  cpus=4

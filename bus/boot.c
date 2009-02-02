@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -144,7 +145,7 @@ load_elf(int fd)
 		bzero(ram+paddr+ph.p_filesz, ph.p_memsz - ph.p_filesz);
 	}
 
-	cpu_set_entrypoint(eh.e_entry);
+	cpu_set_entrypoint(0, eh.e_entry);
 }
 
 static
@@ -169,7 +170,7 @@ setstack(const char *argument)
 		die();
 	}
 
-	cpu_set_stack(vaddr-4, vaddr);
+	cpu_set_stack(0, vaddr-4, vaddr);
 }
 
 void

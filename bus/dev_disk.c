@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -695,8 +696,8 @@ disk_work(struct disk_data *dd)
 	}
 
 	if (dd->dd_sect >= dd->dd_totsectors) {
-		TRACE(DOTRACE_DISK, ("disk: slot %d: Invalid sector", 
-				     dd->dd_slot));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: Invalid sector", 
+			dd->dd_slot);
 		INVSECT(dd->dd_stat);
 		dd->dd_worktries = 0;
 		return;
@@ -704,15 +705,16 @@ disk_work(struct disk_data *dd)
 
 	dd->dd_worktries++;
 	if (dd->dd_worktries > MAX_WORKTRIES) {
-		msg("Geometry modeling fault! Please report to maintainer.)");
-		TRACE(DOTRACE_DISK, ("disk: slot %d: Too many loops through "
-				     "timing code!", dd->dd_slot));
-		TRACE(DOTRACE_DISK, ("disk: current track %d; arrival %u.%09u;"
-				     "iostatus %d",
-				     dd->dd_current_track,
-				     dd->dd_trackarrival_secs,
-				     dd->dd_trackarrival_nsecs,
-				     dd->dd_iostatus));
+		msg("Geometry modeling fault! Please report to maintainer.");
+		HWTRACE(DOTRACE_DISK,
+			"disk: slot %d: Too many loops through timing code!",
+			dd->dd_slot);
+		HWTRACE(DOTRACE_DISK,
+			"disk: current track %d; arrival %u.%09u; iostatus %d",
+			dd->dd_current_track,
+			dd->dd_trackarrival_secs,
+			dd->dd_trackarrival_nsecs,
+			dd->dd_iostatus);
 
 		dd->dd_current_track = 0;
 		clock_time(&dd->dd_trackarrival_secs, 
@@ -733,8 +735,8 @@ disk_work(struct disk_data *dd)
 		u_int32_t nsecs;
 		int distance;
 
-		TRACE(DOTRACE_DISK, ("disk: slot %d: seeking to track %d",
-				     dd->dd_slot, cyl));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: seeking to track %d",
+			dd->dd_slot, cyl);
 
 		distance = cyl - dd->dd_current_track;
 		if (distance<0) {
@@ -749,8 +751,8 @@ disk_work(struct disk_data *dd)
 	}
 
 	if (dd->dd_stat & DISKBIT_ISWRITE && dd->dd_iostatus < 1) {
-		//TRACE(DOTRACE_DISK, ("disk: slot %d: write copy latency", 
-		//		     dd->dd_slot));
+		//HWTRACE(DOTRACE_DISK, "disk: slot %d: write copy latency", 
+		//		     dd->dd_slot);
 		dd->dd_timedop = 1;
 		schedule_event(CACHE_WRITE_TIME, dd, 1, disk_waitdone,
 			       "disk cache write");
@@ -765,23 +767,23 @@ disk_work(struct disk_data *dd)
 			rotdelay = disk_readrotdelay(dd, cyl, rotoffset);
 		}
 		if (rotdelay > 0) {
-			TRACE(DOTRACE_DISK, ("disk: slot %d: rotdelay %u ns", 
-					     dd->dd_slot, rotdelay));
+			HWTRACE(DOTRACE_DISK, "disk: slot %d: rotdelay %u ns", 
+				dd->dd_slot, rotdelay);
 			dd->dd_timedop = 1;
 			schedule_event(rotdelay, dd, 2, disk_waitdone,
 				       "disk rotation");
 			return;
 		}
 		else {
-			TRACE(DOTRACE_DISK, ("disk: slot %d: rotdelay 0 ns", 
-					     dd->dd_slot));
+			HWTRACE(DOTRACE_DISK, "disk: slot %d: rotdelay 0 ns", 
+				dd->dd_slot);
 			dd->dd_iostatus = 2;
 		}
 	}
 
 	if ((dd->dd_stat & DISKBIT_ISWRITE)==0 && dd->dd_iostatus < 3) {
-		//TRACE(DOTRACE_DISK, ("disk: slot %d: read copy latency", 
-		//		     dd->dd_slot));
+		//HWTRACE(DOTRACE_DISK, "disk: slot %d: read copy latency", 
+		//		     dd->dd_slot);
 		dd->dd_timedop = 1;
 		schedule_event(CACHE_WRITE_TIME, dd, 3, disk_waitdone,
 			       "disk cache read");
@@ -794,19 +796,19 @@ disk_work(struct disk_data *dd)
 	 * We're here.
 	 */
 	if (dd->dd_stat & DISKBIT_ISWRITE) {
-		TRACE(DOTRACE_DISK, ("disk: slot %d: write sector %u", 
-				     dd->dd_slot, dd->dd_sect));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: write sector %u", 
+			dd->dd_slot, dd->dd_sect);
 		err = disk_writesector(dd);
 	}
 	else {
-		TRACE(DOTRACE_DISK, ("disk: slot %d: read sector %u", 
-				     dd->dd_slot, dd->dd_sect));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: read sector %u", 
+			dd->dd_slot, dd->dd_sect);
 		err = disk_readsector(dd);
 	}
 
 	if (err) {
-		TRACE(DOTRACE_DISK, ("disk: slot %d: media error", 
-				     dd->dd_slot));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: media error", 
+			dd->dd_slot);
 		MEDIAERR(dd->dd_stat);
 		dd->dd_worktries = 0;
 	}
@@ -825,10 +827,10 @@ disk_update(struct disk_data *dd)
 	disk_work(dd);
 
 	if (dd->dd_stat & DISKBIT_COMPLETE) {
-		RAISE_IRQ(dd->dd_slot);
+		raise_irq(dd->dd_slot);
 	}
 	else {
-		LOWER_IRQ(dd->dd_slot);
+		lower_irq(dd->dd_slot);
 	}
 }
 
@@ -840,17 +842,17 @@ disk_setstatus(struct disk_data *dd, u_int32_t val)
 {
 	switch (val) {
 	    case DISKSTAT_IDLE:
-		TRACE(DOTRACE_DISK, ("disk: slot %d: idle", dd->dd_slot));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: idle", dd->dd_slot);
 		dd->dd_iostatus = -1;
 		break;
 	    case DISKSTAT_READING:
-		TRACE(DOTRACE_DISK, ("disk: slot %d: read starts",
-				     dd->dd_slot));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: read starts",
+			dd->dd_slot);
 		dd->dd_iostatus = 0;
 		break;
 	    case DISKSTAT_WRITING:
-		TRACE(DOTRACE_DISK, ("disk: slot %d: write starts", 
-				     dd->dd_slot));
+		HWTRACE(DOTRACE_DISK, "disk: slot %d: write starts", 
+			dd->dd_slot);
 		dd->dd_iostatus = 0;
 		break;
 	    default:
@@ -865,10 +867,12 @@ disk_setstatus(struct disk_data *dd, u_int32_t val)
 
 static
 int
-disk_fetch(void *data, u_int32_t offset, u_int32_t *ret)
+disk_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 {
 	struct disk_data *dd = data;
 	u_int32_t *ptr;
+
+	(void)cpunum;
 
 	if (offset >= DISK_BUF_START && offset < DISK_BUF_END) {
 		offset -= DISK_BUF_START;
@@ -888,10 +892,12 @@ disk_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-disk_store(void *data, u_int32_t offset, u_int32_t val)
+disk_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
 {
 	struct disk_data *dd = data;
 	u_int32_t *ptr;
+
+	(void)cpunum;
 
 	if (offset >= DISK_BUF_START && offset < DISK_BUF_END) {
 		offset -= DISK_BUF_START;
@@ -914,7 +920,7 @@ disk_dumpstate(void *data)
 {
 	struct disk_data *dd = data;
 
-	msg("CS161 disk rev %d", DISK_REVISION);
+	msg("System/161 disk rev %d", DISK_REVISION);
 	msg("    Paranoid flag: %s", dd->dd_paranoid ? "ON" : "off");
 	msg("    Tracks: %lu  Total sectors: %lu  RPM: %lu",
 	    (unsigned long) dd->dd_tracks,
@@ -937,8 +943,8 @@ disk_dumpstate(void *data)
 }
 
 const struct lamebus_device_info disk_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_DISK,
+	LBVEND_SYS161,
+	LBVEND_SYS161_DISK,
 	DISK_REVISION,
 	disk_init,
 	disk_fetch,

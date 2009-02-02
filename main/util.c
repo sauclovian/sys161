@@ -41,7 +41,7 @@ dohexdump(const char *buf, size_t len)
 		}
 		skipping = 0;
 		saidanything = 1;
-		msgl("%6x:", x);
+		msgl("%6lx:", (unsigned long) x);
 		for (i=0; i<16 && x+i<len; i++) {
 			msgl("%02x ", (unsigned)(unsigned char)buf[x+i]);
 		}
@@ -55,5 +55,5 @@ dohexdump(const char *buf, size_t len)
 		/* gcc warns if we just do msg("") */
 		msg("%s", "");
 	}
-	msg("%6x:", x);
+	msg("%6lx:", (unsigned long) x);
 }

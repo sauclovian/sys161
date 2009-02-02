@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include "config.h"
 #include "bootrom.h"

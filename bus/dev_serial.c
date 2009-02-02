@@ -75,10 +75,10 @@ setirq(struct ser_data *sd)
 	int rirq = sd->sd_rirq.si_on && sd->sd_rirq.si_ready;
 	int wirq = sd->sd_wirq.si_on && sd->sd_wirq.si_ready;
 	if (rirq || wirq) {
-		RAISE_IRQ(sd->sd_slot);
+		raise_irq(sd->sd_slot);
 	}
 	else {
-		LOWER_IRQ(sd->sd_slot);
+		lower_irq(sd->sd_slot);
 	}
 }
 
@@ -148,9 +148,12 @@ serial_input(void *d, int ch)
 
 static
 int
-serial_fetch(void *d, u_int32_t offset, u_int32_t *val)
+serial_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
 {
 	struct ser_data *sd = d;
+
+	(void)cpunum;
+
 	switch (offset) {
 	    case SERREG_CHAR: 
 		*val = sd->sd_readch;
@@ -168,9 +171,12 @@ serial_fetch(void *d, u_int32_t offset, u_int32_t *val)
 
 static
 int
-serial_store(void *d, u_int32_t offset, u_int32_t val)
+serial_store(unsigned cpunum, void *d, u_int32_t offset, u_int32_t val)
 {
 	struct ser_data *sd = d;
+
+	(void)cpunum;
+
 	switch (offset) {
 	    case SERREG_CHAR: 
 		    if (!sd->sd_wbusy) {
@@ -225,7 +231,7 @@ serial_dumpstate(void *data)
 	struct ser_data *sd = data;
 	char c[2];
 
-	msg("CS161 serial port rev %d", SERIAL_REVISION);
+	msg("System/161 serial port rev %d", SERIAL_REVISION);
 	c[0] = sd->sd_readch;
 	c[1] = 0;
 	msg("    Last character typed: %s (%ld)", 
@@ -246,8 +252,8 @@ serial_dumpstate(void *data)
 }
 
 const struct lamebus_device_info serial_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_SERIAL,
+	LBVEND_SYS161,
+	LBVEND_SYS161_SERIAL,
 	SERIAL_REVISION,
 	serial_init,
 	serial_fetch,

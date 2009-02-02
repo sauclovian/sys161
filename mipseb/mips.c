@@ -1,7 +1,9 @@
 #include <sys/types.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include "config.h"
- 
+
+#include "util.h" 
 #include "cpu.h"
 #include "bus.h"
 #include "console.h"
@@ -37,9 +39,11 @@ const char rcsid_mips_c[] =
 #define TLB_PAGEFRAME		0xfffff000
 
 /* status register fields */
-#define STATUS_BITS		0xf07ff800	/* these go in status_bits */
+#define STATUS_BITS		0xf07f7000	/* these go in status_bits */
 /*				0x0f800000  	   RESERVED set to 0 */
-#define STATUS_HARDMASK		0x00000400	/* mask bit for lamebus irq */
+#define STATUS_HARDMASK_TIMER	0x00008000	/* on-chip timer irq enabled */
+#define STATUS_HARDMASK_IPI	0x00000800	/* lamebus ipi enabled */
+#define STATUS_HARDMASK_LB	0x00000400	/* lamebus irq enabled */
 #define STATUS_SOFTMASK		0x00000300	/* mask bits for soft irqs */
 /*				0x000000c0  	   RESERVED set to 0 */
 #define STATUS_KUo		0x00000020	/* old_usermode */
@@ -54,8 +58,10 @@ const char rcsid_mips_c[] =
 /*				0x40000000	   RESERVED set to 0 */
 #define CAUSE_CE		0x30000000	/* coprocessor # of exn */
 /*				0x0fff0000	   RESERVED set to 0 */
-/*				0x0000f800	   unused hardware irqs */
-#define CAUSE_HARDIRQ		0x00000400	/* lamebus hardware irq bit */
+#define CAUSE_HARDIRQ_TIMER	0x00008000	/* on-chip timer bit */
+/*				0x00007000	   unused hardware irqs */
+#define CAUSE_HARDIRQ_IPI	0x00000800	/* lamebus IPI bit */
+#define CAUSE_HARDIRQ_LB	0x00000400	/* lamebus hardware irq bit */
 #define CAUSE_SOFTIRQ		0x00000300	/* soft interrupt triggers */
 /*				0x000000c0	   RESERVED set to 0 */
 #define CAUSE_EXCODE		0x0000003c	/* exception code */
@@ -71,7 +77,9 @@ const char rcsid_mips_c[] =
 #define C0_TLBLO   2
 #define C0_CONTEXT 4
 #define C0_VADDR   8
+#define C0_COUNT   9
 #define C0_TLBHI   10
+#define C0_COMPARE 11
 #define C0_STATUS  12
 #define C0_CAUSE   13
 #define C0_EPC     14
@@ -101,7 +109,20 @@ struct mipstlb {
 	u_int32_t mt_pid;	// address space id (note: shifted left 6)
 };
 
+/* possible states for a cpu */
+enum cpustates {
+	CPU_DISABLED,
+	CPU_IDLE,
+	CPU_RUNNING,
+};
+
 struct mipscpu {
+	// state of this cpu
+	enum cpustates state;
+
+	// my cpu number
+	unsigned cpunum;
+
 	// general registers
 	int32_t r[NREGS];
 
@@ -162,7 +183,9 @@ struct mipscpu {
 	int prev_irqon;
 	int current_usermode;
 	int current_irqon;
-	int status_hardmask;		// true if lamebus irq is masked
+	int status_hardmask_lb;		// true if lamebus irq is enabled
+	int status_hardmask_ipi;	// true if ipi is enabled
+	int status_hardmask_timer;	// true if on-chip timer irq is enabled
 	u_int32_t status_softmask;	// soft interrupt masking bits
 	u_int32_t status_bits;  // unsplit bits from status register
 	
@@ -174,15 +197,50 @@ struct mipscpu {
 	u_int32_t cause_softirq;	// already shifted
 	u_int32_t cause_code;		// already shifted
 
+	/*
+	 * other cop0 registers
+	 */
 	u_int32_t ex_context;	// cop0 register 4
 	u_int32_t ex_epc;	// cop0 register 14
 	u_int32_t ex_vaddr;	// cop0 register 8
 	u_int32_t ex_prid;	// cop0 register 15
+	u_int32_t ex_count;	// cop0 register 9
+	u_int32_t ex_compare;	// cop0 register 11
+	int ex_compare_used;	// timer irq disabled if not set
+
+	/*
+	 * interrupt bits
+	 */
+	int irq_lamebus;
+	int irq_ipi;
+	int irq_timer;
+
+	/*
+	 * LL/SC hooks
+	 */
+	int ll_active;
+	u_int32_t ll_addr;
+	u_int32_t ll_value;
 };
 
 #define IS_USERMODE(cpu) ((cpu)->current_usermode)
 
-static struct mipscpu mycpu;
+static struct mipscpu *mycpus;
+static unsigned ncpus;
+
+/*
+ * CPU seen by debugger. Automatically switched when we hit a breakpoint,
+ * to allow getting backtraces.
+ */
+static unsigned debug_cpu = 0;
+
+/*
+ * Hold cpu->state == CPU_RUNNING across all cpus, for rapid testing.
+ */
+u_int32_t cpu_running_mask;
+
+#define RUNNING_MASK_OFF(cn) (cpu_running_mask &= ~((u_int32_t)1 << (cn)))
+#define RUNNING_MASK_ON(cn)  (cpu_running_mask |= (u_int32_t)1 << (cn))
 
 /*************************************************************/
 
@@ -242,41 +300,33 @@ reset_tlbentry(struct mipstlb *mt, int index)
 
 static
 void
-mips_init(struct mipscpu *cpu)
+mips_init(struct mipscpu *cpu, unsigned cpunum)
 {
 	int i;
+
+	cpu->state = CPU_DISABLED;
+	cpu->cpunum = cpunum;
 	for (i=0; i<NREGS; i++) {
 		cpu->r[i] = 0;
 	}
 	cpu->lo = cpu->hi = 0;
 	cpu->lowait = cpu->hiwait = 0;
 
-	cpu->jumping = cpu->in_jumpdelay = 0;
-
-	cpu->expc = 0;
-
-	/* pc starts at 0xbfc00000; nextpc at 0xbfc00004 */
-	cpu->pc = 0xbfc00000;
-	cpu->nextpc = 0xbfc00004;
-	if (precompute_pc(cpu)) {
-		smoke("precompute_pc failed in mips_init");
-	}
-	if (precompute_nextpc(cpu)) {
-		smoke("precompute_nextpc failed in mips_init");
-	}
-
 	for (i=0; i<NTLB; i++) {
 		reset_tlbentry(&cpu->tlb[i], i);
 	}
-	reset_tlbentry(&cpu->tlb[i], NTLB);
+	reset_tlbentry(&cpu->tlbentry, NTLB);
 #ifdef USE_TLBMAP
 	memset(cpu->tlbmap, TM_NOPAGE, sizeof(cpu->tlbmap));
 #endif
 	cpu->tlbindex = 0;
+	cpu->tlbpf = 0;
 	cpu->tlbrandom = RANDREG_MAX-1;
 
 	cpu->status_bits = 0x00400000;
-	cpu->status_hardmask = 0;
+	cpu->status_hardmask_lb = 0;
+	cpu->status_hardmask_ipi = 0;
+	cpu->status_hardmask_timer = 0;
 	cpu->status_softmask = 0;
 	cpu->old_usermode = 0;
 	cpu->old_irqon = 0;
@@ -294,6 +344,33 @@ mips_init(struct mipscpu *cpu)
 	cpu->ex_epc = 0;
 	cpu->ex_vaddr = 0;
 	cpu->ex_prid = 0x03ff;  // implementation 3, revision 0xff (XXX)
+	cpu->ex_count = 1;
+	cpu->ex_compare = 0;
+	cpu->ex_compare_used = 0;
+
+	cpu->irq_lamebus = 0;
+	cpu->irq_ipi = 0;
+	cpu->irq_timer = 0;
+
+	cpu->ll_active = 0;
+	cpu->ll_addr = 0;
+	cpu->ll_value = 0;
+
+	cpu->jumping = cpu->in_jumpdelay = 0;
+	cpu->expc = 0;
+
+	/* pc starts at 0xbfc00000; nextpc at 0xbfc00004 */
+	cpu->pc = 0xbfc00000;
+	cpu->nextpc = 0xbfc00004;
+
+	/* this must be last after other stuff is initialized */
+	if (precompute_pc(cpu)) {
+		smoke("precompute_pc failed in mips_init");
+	}
+	if (precompute_nextpc(cpu)) {
+		smoke("precompute_nextpc failed in mips_init");
+	}
+
 }
 
 static
@@ -344,16 +421,18 @@ tlbsethi(struct mipstlb *mt, u_int32_t val)
 	mt->mt_pid = val & TLBHI_PID;
 }
 
-#define TLBTRP(t) TRACEL(DOTRACE_TLB, \
-			("%05x %s%s%s%s", \
+#define TLBTRP(t) CPUTRACEL(DOTRACE_TLB, \
+			    cpu->cpunum, \
+			    "%05x %s%s%s%s", \
 				(t)->mt_pfn >> 12, \
 				(t)->mt_global ? "G" : "-", \
 				(t)->mt_valid ? "V" : "-", \
 				(t)->mt_dirty ? "D" : "-", \
-				(t)->mt_nocache ? "N" : "-"))
-#define TLBTRV(t) TRACEL(DOTRACE_TLB, \
-			("%05x/%03x -> ", \
-				(t)->mt_vpn >> 12, (t)->mt_pid))
+				(t)->mt_nocache ? "N" : "-")
+#define TLBTRV(t) CPUTRACEL(DOTRACE_TLB, \
+			    cpu->cpunum, \
+			    "%05x/%03x -> ", \
+				(t)->mt_vpn >> 12, (t)->mt_pid)
 #define TLBTR(t) {TLBTRV(t);TLBTRP(t);}
 
 static
@@ -461,16 +540,16 @@ probetlb(struct mipscpu *cpu)
 	vpage = cpu->tlbentry.mt_vpn;
 	ix = findtlb(cpu, vpage);
 
-	TRACEL(DOTRACE_TLB, ("tlbp:       "));
+	CPUTRACEL(DOTRACE_TLB, cpu->cpunum, "tlbp:       ");
 	TLBTRV(&cpu->tlbentry);
 
 	if (ix<0) {
-		TRACE(DOTRACE_TLB, ("NOT FOUND"));
+		CPUTRACE(DOTRACE_TLB, cpu->cpunum, "NOT FOUND");
 		cpu->tlbpf = 1;
 	}
 	else {
 		TLBTRP(&cpu->tlb[ix]);
-		TRACE(DOTRACE_TLB, (": [%d]", ix));
+		CPUTRACE(DOTRACE_TLB, cpu->cpunum, ": [%d]", ix);
 		cpu->tlbindex = ix;
 		cpu->tlbpf = 0;
 	}
@@ -481,11 +560,11 @@ void
 writetlb(struct mipscpu *cpu, int ix, const char *how)
 {
 	(void)how;
-	TRACEL(DOTRACE_TLB,("%s: [%2d] ", how, ix));
+	CPUTRACEL(DOTRACE_TLB, cpu->cpunum, "%s: [%2d] ", how, ix);
 	TLBTR(&cpu->tlb[ix]);
-	TRACEL(DOTRACE_TLB, (" ==> "));
+	CPUTRACEL(DOTRACE_TLB, cpu->cpunum, " ==> ");
 	TLBTR(&cpu->tlbentry);
-	TRACE(DOTRACE_TLB, (" "));
+	CPUTRACE(DOTRACE_TLB, cpu->cpunum, " ");
 
 #ifdef USE_TLBMAP
 	cpu->tlbmap[cpu->tlb[ix].mt_vpn >> 12] = TM_NOPAGE;
@@ -512,9 +591,11 @@ static
 void
 do_wait(struct mipscpu *cpu)
 {
-	(void)cpu;
-	TRACE(DOTRACE_IRQ, ("Waiting for interrupt"));
-	clock_waitirq();
+	/* Only wait if no interrupts are already pending */
+	if (!cpu->irq_lamebus && !cpu->irq_ipi && !cpu->irq_timer) {
+		cpu->state = CPU_IDLE;
+		RUNNING_MASK_OFF(cpu->cpunum);
+	}
 }
 
 static
@@ -531,9 +612,10 @@ do_rfe(struct mipscpu *cpu)
 	cpu->current_irqon = cpu->prev_irqon;
 	cpu->prev_usermode = cpu->old_usermode;
 	cpu->prev_irqon = cpu->old_irqon;
-	TRACE(DOTRACE_EXN, ("Return from exception: %s mode, interrupts %s",
-			    (cpu->current_usermode) ? "user" : "kernel",
-			    (cpu->current_irqon) ? "on" : "off"));
+	CPUTRACE(DOTRACE_EXN, cpu->cpunum,
+		 "Return from exception: %s mode, interrupts %s",
+		 (cpu->current_usermode) ? "user" : "kernel",
+		 (cpu->current_irqon) ? "on" : "off");
 
 	/*
 	 * Re-lookup the translations for the pc, because we might have
@@ -557,6 +639,8 @@ do_rfe(struct mipscpu *cpu)
  * cpu->expc as the place execution stopped; in that case something
  * vaguely reasonable will happen if some nimrod puts a breakpoint in
  * a branch delay slot.
+ *
+ * This does not invalidate ll_active.
  */
 static
 void
@@ -586,8 +670,9 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 	//u_int32_t bits;
 	int boot = (cpu->status_bits & 0x00400000)!=0;
 
-	TRACE(DOTRACE_EXN, ("exception: code %d (%s), expc %x, vaddr %x", 
-	      code, exception_name(code), cpu->expc, vaddr));
+	CPUTRACE(DOTRACE_EXN, cpu->cpunum,
+		 "exception: code %d (%s), expc %x, vaddr %x", 
+		 code, exception_name(code), cpu->expc, vaddr);
 
 	if (code==EX_IRQ) {
 		g_stats.s_irqs++;
@@ -607,6 +692,8 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 
 	cpu->jumping = 0;
 	cpu->in_jumpdelay = 0;
+	
+	cpu->ll_active = 0;
 
 	// roll the status bits
 	cpu->old_usermode = cpu->prev_usermode;
@@ -689,8 +776,9 @@ translatemem(struct mipscpu *cpu, u_int32_t vaddr, int iswrite, u_int32_t *ret)
 		vpage = vaddr & 0xfffff000;
 		off   = vaddr & 0x00000fff;
 
-		TRACEL(DOTRACE_TLB, ("tlblookup:  %05x/%03x -> ", 
-				     vpage >> 12, cpu->tlbentry.mt_pid));
+		CPUTRACEL(DOTRACE_TLB, cpu->cpunum,
+			  "tlblookup:  %05x/%03x -> ", 
+			  vpage >> 12, cpu->tlbentry.mt_pid);
 
 		cpu->tlbentry.mt_vpn = vpage;
 		ix = findtlb(cpu, vpage);
@@ -698,25 +786,25 @@ translatemem(struct mipscpu *cpu, u_int32_t vaddr, int iswrite, u_int32_t *ret)
 		if (ix<0) {
 			int exc = iswrite ? EX_TLBS : EX_TLBL;
 			int isuseraddr = vaddr < 0x80000000;
-			TRACE(DOTRACE_TLB, ("MISS"));
+			CPUTRACE(DOTRACE_TLB, cpu->cpunum, "MISS");
 			exception(cpu, exc, isuseraddr, vaddr);
 			return -1;
 		}
 		TLBTRP(&cpu->tlb[ix]);
-		TRACEL(DOTRACE_TLB, (": [%d]", ix));
+		CPUTRACEL(DOTRACE_TLB, cpu->cpunum, ": [%d]", ix);
 
 		if (!cpu->tlb[ix].mt_valid) {
 			int exc = iswrite ? EX_TLBS : EX_TLBL;
-			TRACE(DOTRACE_TLB, (" - INVALID"));
+			CPUTRACE(DOTRACE_TLB, cpu->cpunum, " - INVALID");
 			exception(cpu, exc, 0, vaddr);
 			return -1;
 		}
 		if (iswrite && !cpu->tlb[ix].mt_dirty) {
-			TRACE(DOTRACE_TLB, (" - READONLY"));
+			CPUTRACE(DOTRACE_TLB, cpu->cpunum, " - READONLY");
 			exception(cpu, EX_MOD, 0, vaddr);
 			return -1;
 		}
-		TRACE(DOTRACE_TLB, (" - OK"));
+		CPUTRACE(DOTRACE_TLB, cpu->cpunum, " - OK");
 		ppage = cpu->tlb[ix].mt_pfn;
 		paddr = ppage|off;
 	}
@@ -757,27 +845,28 @@ debug_translatemem(const struct mipscpu *cpu, u_int32_t vaddr,
 		vpage = vaddr & 0xfffff000;
 		off   = vaddr & 0x00000fff;
 
-		TRACEL(DOTRACE_TLB, ("tlblookup (debugger):  %05x/%03x -> ", 
-				     vpage >> 12, cpu->tlbentry.mt_pid));
+		CPUTRACEL(DOTRACE_TLB, cpu->cpunum,
+			  "tlblookup (debugger):  %05x/%03x -> ", 
+			  vpage >> 12, cpu->tlbentry.mt_pid);
 
 		ix = findtlb(cpu, vpage);
 
 		if (ix<0) {
-			TRACE(DOTRACE_TLB, ("MISS"));
+			CPUTRACE(DOTRACE_TLB, cpu->cpunum, "MISS");
 			return -1;
 		}
 		TLBTRP(&cpu->tlb[ix]);
-		TRACEL(DOTRACE_TLB, (": [%d]", ix));
+		CPUTRACEL(DOTRACE_TLB, cpu->cpunum, ": [%d]", ix);
 
 		if (!cpu->tlb[ix].mt_valid) {
-			TRACE(DOTRACE_TLB, (" - INVALID"));
+			CPUTRACE(DOTRACE_TLB, cpu->cpunum, " - INVALID");
 			return -1;
 		}
 		if (iswrite && !cpu->tlb[ix].mt_dirty) {
-			TRACE(DOTRACE_TLB, (" - READONLY"));
+			CPUTRACE(DOTRACE_TLB, cpu->cpunum, " - READONLY");
 			return -1;
 		}
-		TRACE(DOTRACE_TLB, (" - OK"));
+		CPUTRACE(DOTRACE_TLB, cpu->cpunum, " - OK");
 		ppage = cpu->tlb[ix].mt_pfn;
 		paddr = ppage|off;
 	}
@@ -820,10 +909,12 @@ accessmem(struct mipscpu *cpu, u_int32_t paddr, int iswrite, u_int32_t *val)
 	}
 	else if (paddr < 0x20000000) {
 		if (iswrite) {
-			buserr = bus_io_store(paddr-0x1fe00000, *val);
+			buserr = bus_io_store(cpu->cpunum,
+					      paddr-0x1fe00000, *val);
 		}
 		else {
-			buserr = bus_io_fetch(paddr-0x1fe00000, val);
+			buserr = bus_io_fetch(cpu->cpunum,
+					      paddr-0x1fe00000, val);
 		}
 	}
 	else {
@@ -1108,7 +1199,8 @@ static
 void
 abranch(struct mipscpu *cpu, u_int32_t addr)
 {
-	TRACE(DOTRACE_JUMP, ("jump: %x -> %x", cpu->nextpc-8, addr));
+	CPUTRACE(DOTRACE_JUMP, cpu->cpunum, 
+		 "jump: %x -> %x", cpu->nextpc-8, addr);
 
 	if ((addr & 0x3) != 0) {
 		exception(cpu, EX_ADEL, 0, addr);
@@ -1171,7 +1263,9 @@ getstatus(struct mipscpu *cpu)
 {
 	u_int32_t val;
 	val = cpu->status_bits | cpu->status_softmask;
-	if (cpu->status_hardmask) val |= STATUS_HARDMASK;
+	if (cpu->status_hardmask_lb) val |= STATUS_HARDMASK_LB;
+	if (cpu->status_hardmask_ipi) val |= STATUS_HARDMASK_IPI;
+	if (cpu->status_hardmask_timer) val |= STATUS_HARDMASK_TIMER;
 	if (cpu->old_usermode) val |= STATUS_KUo;
 	if (cpu->old_irqon) val |= STATUS_IEo;
 	if (cpu->prev_usermode) val |= STATUS_KUp;
@@ -1186,7 +1280,9 @@ void
 setstatus(struct mipscpu *cpu, u_int32_t val)
 {
 	cpu->status_bits = val & STATUS_BITS;
-	cpu->status_hardmask = val & STATUS_HARDMASK;
+	cpu->status_hardmask_timer = val & STATUS_HARDMASK_TIMER;
+	cpu->status_hardmask_ipi = val & STATUS_HARDMASK_IPI;
+	cpu->status_hardmask_lb = val & STATUS_HARDMASK_LB;
 	cpu->status_softmask = val & STATUS_SOFTMASK;
 	cpu->old_usermode = val & STATUS_KUo;
 	cpu->old_irqon = val & STATUS_IEo;
@@ -1208,8 +1304,14 @@ getcause(struct mipscpu *cpu)
 		val |= CAUSE_BD;
 	}
 
-	if (bus_interrupts) {
-		val |= CAUSE_HARDIRQ;
+	if (cpu->irq_lamebus) {
+		val |= CAUSE_HARDIRQ_LB;
+	}
+	if (cpu->irq_ipi) {
+		val |= CAUSE_HARDIRQ_IPI;
+	}
+	if (cpu->irq_timer) {
+		val |= CAUSE_HARDIRQ_TIMER;
 	}
 
 	return val;
@@ -1338,8 +1440,8 @@ static int tracehow;		// how to trace the current instruction
 #define OVF	  { exception(cpu, EX_OVF, 0, 0); }
 #define CHKOVF(v) {if (((int64_t)(int32_t)(v))!=(v)) { OVF; return; }}
 
-#define TRL(args)  TRACEL(tracehow, args)
-#define TR(args)   TRACE(tracehow, args)
+#define TRL(...)  CPUTRACEL(tracehow, cpu->cpunum, __VA_ARGS__)
+#define TR(...)   CPUTRACE(tracehow, cpu->cpunum, __VA_ARGS__)
 
 #define NEEDRS	 u_int32_t rs = (insn & 0x03e00000) >> 21	// register
 #define NEEDRT	 u_int32_t rt = (insn & 0x001f0000) >> 16	// register
@@ -1368,7 +1470,9 @@ domf(struct mipscpu *cpu, int cn, int reg, int32_t *greg)
 	    case C0_TLBLO:   *greg = tlbgetlo(&cpu->tlbentry); break;
 	    case C0_CONTEXT: *greg = cpu->ex_context; break;
 	    case C0_VADDR:   *greg = cpu->ex_vaddr; break;
+	    case C0_COUNT:   *greg = cpu->ex_count; break;
 	    case C0_TLBHI:   *greg = tlbgethi(&cpu->tlbentry); break;
+	    case C0_COMPARE: *greg = cpu->ex_compare; break;
 	    case C0_STATUS:  *greg = getstatus(cpu); break;
 	    case C0_CAUSE:   *greg = getcause(cpu); break;
 	    case C0_EPC:     *greg = cpu->ex_epc; break;
@@ -1393,7 +1497,17 @@ domt(struct mipscpu *cpu, int cn, int reg, int32_t greg)
 	    case C0_TLBLO:   tlbsetlo(&cpu->tlbentry, greg); break;
 	    case C0_CONTEXT: cpu->ex_context = greg; break;
 	    case C0_VADDR:   cpu->ex_vaddr = greg; break;
+	    case C0_COUNT:   cpu->ex_count = greg; break;
 	    case C0_TLBHI:   tlbsethi(&cpu->tlbentry, greg); break;
+	    case C0_COMPARE:
+		cpu->ex_compare = greg;
+		cpu->ex_compare_used = 1;
+		if (cpu->ex_count > cpu->ex_compare) {
+			/* XXX is this right? */
+			cpu->ex_count = 0;
+		}
+		cpu->irq_timer = 0;
+		break;
 	    case C0_STATUS:  setstatus(cpu, greg); break;
 	    case C0_CAUSE:   setcause(cpu, greg); break;
 	    case C0_EPC:     /* read-only register */ break;
@@ -1430,12 +1544,12 @@ mx_add(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRS; NEEDRT; NEEDRD;
 	int64_t t64;
 
-	TRL(("add %s, %s, %s: %ld + %ld -> ",
-	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	TRL("add %s, %s, %s: %ld + %ld -> ",
+	    regname(rd), regname(rs), regname(rt), RSsp, RTsp);
 	t64 = (int64_t)RSs + (int64_t)RTs;
 	CHKOVF(t64);
 	RDx = (int32_t)t64;
-	TR(("%ld", RDsp));
+	TR("%ld", RDsp);
 }
 
 static
@@ -1446,12 +1560,12 @@ mx_addi(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRS; NEEDRT; NEEDSMM;
 	int64_t t64;
 
-	TRL(("addi %s, %s, %lu: %ld + %ld -> ",
-	     regname(rt), regname(rs), (unsigned long)imm, RSsp, (long)smm));
+	TRL("addi %s, %s, %lu: %ld + %ld -> ",
+	    regname(rt), regname(rs), (unsigned long)imm, RSsp, (long)smm);
 	t64 = (int64_t)RSs + smm;
 	CHKOVF(t64);
 	RTx = (int32_t)t64;
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -1460,13 +1574,13 @@ void
 mx_addiu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("addiu %s, %s, %lu: %ld + %ld -> ", 
-	     regname(rt), regname(rs), (unsigned long)imm, RSsp, (long)smm));
+	TRL("addiu %s, %s, %lu: %ld + %ld -> ", 
+	    regname(rt), regname(rs), (unsigned long)imm, RSsp, (long)smm);
 
 	/* must add as unsigned, or overflow behavior is not defined */
 	RTx = RSu + (u_int32_t)smm;
 
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -1475,10 +1589,10 @@ void
 mx_addu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("addu %s, %s, %s: %ld + %ld -> ",
-	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	TRL("addu %s, %s, %s: %ld + %ld -> ",
+	    regname(rd), regname(rs), regname(rt), RSsp, RTsp);
 	RDx = RSu + RTu;
-	TR(("%ld", RDsp));
+	TR("%ld", RDsp);
 }
 
 static
@@ -1487,10 +1601,10 @@ void
 mx_and(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("and %s, %s, %s: 0x%lx & 0x%lx -> ", 
-	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	TRL("and %s, %s, %s: 0x%lx & 0x%lx -> ", 
+	    regname(rd), regname(rs), regname(rt), RSup, RTup);
 	RDx = RSu & RTu;
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -1499,11 +1613,11 @@ void
 mx_andi(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
-	TRL(("andi %s, %s, %lu: 0x%lx & 0x%lx -> ", 
-	     regname(rt), regname(rs), (unsigned long) imm, RSup, 
-	     (unsigned long) imm));
+	TRL("andi %s, %s, %lu: 0x%lx & 0x%lx -> ", 
+	    regname(rt), regname(rs), (unsigned long) imm, RSup, 
+	    (unsigned long) imm);
 	RTx = RSu & imm;
-	TR(("0x%lx", RTup));
+	TR("0x%lx", RTup);
 }
 
 static
@@ -1513,7 +1627,7 @@ mx_bcf(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDSMM; NEEDCN;
 	(void)smm;
-	TR(("bc%df %ld", cn, (long)smm));
+	TR("bc%df %ld", cn, (long)smm);
 	exception(cpu, EX_CPU, cn, 0);
 }
 
@@ -1524,7 +1638,7 @@ mx_bct(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDSMM; NEEDCN;
 	(void)smm;
-	TR(("bc%dt %ld", cn, (long)smm));
+	TR("bc%dt %ld", cn, (long)smm);
 	exception(cpu, EX_CPU, cn, 0);
 }
 
@@ -1534,14 +1648,14 @@ void
 mx_beq(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRS; NEEDSMM;
-	TRL(("beq %s, %s, %ld: %lu==%lu? ", 
-	     regname(rs), regname(rt), (long)smm, RSup, RTup));
+	TRL("beq %s, %s, %ld: %lu==%lu? ", 
+	    regname(rs), regname(rt), (long)smm, RSup, RTup);
 	if (RSu==RTu) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2);
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1551,14 +1665,14 @@ void
 mx_bgezal(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bgezal %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp));
+	TRL("bgezal %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp);
 	LINK;
 	if (RSs>=0) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2); 
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1568,13 +1682,13 @@ void
 mx_bgez(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bgez %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp));
+	TRL("bgez %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp);
 	if (RSs>=0) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2);
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1584,14 +1698,14 @@ void
 mx_bltzal(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bltzal %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp));
+	TRL("bltzal %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp);
 	LINK;
 	if (RSs<0) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2);
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1601,13 +1715,13 @@ void
 mx_bltz(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bltz %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp));
+	TRL("bltz %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp);
 	if (RSs<0) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2);
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1617,13 +1731,13 @@ void
 mx_bgtz(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("bgtz %s, %ld: %ld>0? ", regname(rs), (long)smm, RSsp));
+	TRL("bgtz %s, %ld: %ld>0? ", regname(rs), (long)smm, RSsp);
 	if (RSs>0) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2);
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1633,13 +1747,13 @@ void
 mx_blez(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDSMM;
-	TRL(("blez %s, %ld: %ld<=0? ", regname(rs), (long)smm, RSsp));
+	TRL("blez %s, %ld: %ld<=0? ", regname(rs), (long)smm, RSsp);
 	if (RSs<=0) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2);
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1649,14 +1763,14 @@ void
 mx_bne(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
-	TRL(("bne %s, %s, %ld: %lu!=%lu? ", 
-	     regname(rs), regname(rt), (long)smm, RSup, RTup));
+	TRL("bne %s, %s, %ld: %lu!=%lu? ", 
+	    regname(rs), regname(rt), (long)smm, RSup, RTup);
 	if (RSu!=RTu) {
-		TR(("yes"));
+		TR("yes");
 		rbranch(cpu, smm<<2);
 	}
 	else {
-		TR(("no"));
+		TR("no");
 	}
 }
 
@@ -1668,7 +1782,7 @@ mx_cf(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRT; NEEDRD; NEEDCN;
 	(void)rt;
 	(void)rd;
-	TR(("cfc%d %s, $%u", cn, regname(rt), rd));
+	TR("cfc%d %s, $%u", cn, regname(rt), rd);
 	exception(cpu, EX_CPU, cn, 0);
 }
 
@@ -1680,7 +1794,7 @@ mx_ct(struct mipscpu *cpu, u_int32_t insn)
 	NEEDRT; NEEDRD; NEEDCN;
 	(void)rt;
 	(void)rd;
-	TR(("ctc%d %s, $%u", cn, regname(rt), rd));
+	TR("ctc%d %s, $%u", cn, regname(rt), rd);
 	exception(cpu, EX_CPU, cn, 0);
 }
 
@@ -1690,7 +1804,7 @@ void
 mx_j(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDTARG;
-	TR(("j 0x%lx", (unsigned long)(targ<<2)));
+	TR("j 0x%lx", (unsigned long)(targ<<2));
 	ibranch(cpu, targ<<2);
 }
 
@@ -1700,7 +1814,7 @@ void
 mx_jal(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDTARG;
-	TR(("jal 0x%lx", (unsigned long)(targ<<2)));
+	TR("jal 0x%lx", (unsigned long)(targ<<2));
 	LINK;
 	ibranch(cpu, targ<<2);
 #ifdef USE_TRACE
@@ -1714,10 +1828,10 @@ void
 mx_lb(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TRL(("lb %s, %ld(%s): [0x%lx] -> ", 
-	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	TRL("lb %s, %ld(%s): [0x%lx] -> ", 
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
 	doload(cpu, S_SBYTE, addr, (u_int32_t *) &RTx);
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -1726,10 +1840,10 @@ void
 mx_lbu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TRL(("lbu %s, %ld(%s): [0x%lx] -> ",
-	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	TRL("lbu %s, %ld(%s): [0x%lx] -> ",
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
 	doload(cpu, S_UBYTE, addr, (u_int32_t *) &RTx);
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -1738,10 +1852,10 @@ void
 mx_lh(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TRL(("lh %s, %ld(%s): [0x%lx] -> ", 
-	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	TRL("lh %s, %ld(%s): [0x%lx] -> ", 
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
 	doload(cpu, S_SHALF, addr, (u_int32_t *) &RTx);
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -1750,10 +1864,31 @@ void
 mx_lhu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TRL(("lhu %s, %ld(%s): [0x%lx] -> ", 
-	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	TRL("lhu %s, %ld(%s): [0x%lx] -> ", 
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
 	doload(cpu, S_UHALF, addr, (u_int32_t *) &RTx);
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
+}
+
+static
+inline
+void
+mx_ll(struct mipscpu *cpu, u_int32_t insn)
+{
+	NEEDRT; NEEDADDR;
+	TRL("ll %s, %ld(%s): [0x%lx] -> ", 
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
+	if (domem(cpu, addr, (u_int32_t *) &RTx, 0, 0)) {
+		/* exception */
+		return;
+	}
+
+	/* load linked: just save what we did */
+	cpu->ll_active = 1;
+	cpu->ll_addr = addr;
+	cpu->ll_value = RTs;
+
+	TR("%ld", RTsp);
 }
 
 static
@@ -1762,7 +1897,7 @@ void
 mx_lui(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDIMM;
-	TR(("lui %s, 0x%x", regname(rt), imm));
+	TR("lui %s, 0x%x", regname(rt), imm);
 	RTx = imm << 16;
 }
 
@@ -1772,10 +1907,10 @@ void
 mx_lw(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TRL(("lw %s, %ld(%s): [0x%lx] -> ", 
-	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	TRL("lw %s, %ld(%s): [0x%lx] -> ", 
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
 	domem(cpu, addr, (u_int32_t *) &RTx, 0, 0);
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -1784,7 +1919,7 @@ void
 mx_lwc(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR; NEEDCN;
-	TR(("lwc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs)));
+	TR("lwc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs));
 	dolwc(cpu, cn, addr, rt);
 }
 
@@ -1794,10 +1929,10 @@ void
 mx_lwl(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TRL(("lwl %s, %ld(%s): [0x%lx] -> ", 
-	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	TRL("lwl %s, %ld(%s): [0x%lx] -> ", 
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
 	doload(cpu, S_WORDL, addr, (u_int32_t *) &RTx);
-	TR(("0x%lx", RTup));
+	TR("0x%lx", RTup);
 }
 
 static
@@ -1806,10 +1941,10 @@ void
 mx_lwr(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TRL(("lwr %s, %ld(%s): [0x%lx] -> ", 
-	     regname(rt), (long)smm, regname(rs), (unsigned long)addr));
+	TRL("lwr %s, %ld(%s): [0x%lx] -> ", 
+	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
 	doload(cpu, S_WORDR, addr, (u_int32_t *) &RTx);
-	TR(("0x%lx", RTup));
+	TR("0x%lx", RTup);
 }
 
 static
@@ -1818,10 +1953,84 @@ void
 mx_sb(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TR(("sb %s, %ld(%s): %d -> [0x%lx]", 
-	    regname(rt), (long)smm, regname(rs),
-	    (int)(RTu&0xff), (unsigned long)addr));
+	TR("sb %s, %ld(%s): %d -> [0x%lx]", 
+	   regname(rt), (long)smm, regname(rs),
+	   (int)(RTu&0xff), (unsigned long)addr);
 	dostore(cpu, S_UBYTE, addr, RTu);
+}
+
+static
+inline
+void
+mx_sc(struct mipscpu *cpu, u_int32_t insn)
+{
+	u_int32_t temp;
+	NEEDRT; NEEDADDR;
+	TR("sw %s, %ld(%s): %ld -> [0x%lx]", 
+	   regname(rt), (long)smm, regname(rs), RTsp, (unsigned long)addr);
+
+	/*
+	 * Store conditional.
+	 *
+	 * This implementation uses the observation that if the target
+	 * memory address contains the same value we loaded earlier
+	 * with LL, then execution is completely equivalent to
+	 * performing an atomic operation that reads it now. This is
+	 * true even if the target memory has been written to in
+	 * between, even though allowing that is formally against the
+	 * spec. (Other operations that might allow distinguishing
+	 * such a case, such as reading other memory regions with or
+	 * without using LL, lead to the behavior of the SC being
+	 * formally unpredictable or undefined.)
+	 *
+	 * The address of the SC must be the same as the LL. That's
+	 * supposed to mean both vaddr and paddr, as well as caching
+	 * mode and any memory bus consistency mode. If they don't
+	 * match, the behavior of the SC is undefined. We check the
+	 * vaddr and fail if it doesn't match; if someone does
+	 * something reckless to make the vaddr but not the paddr
+	 * match, they deserve the consequences. (This can only happen
+	 * in kernel mode; changing MMU mappings from user mode
+	 * requires a trap, which invalidates the LL.)
+	 *
+	 * So:
+	 *
+	 * 1. If we don't have an LL active, SC fails.
+	 * 2. If the target vaddr is not the same as the one on file
+	 *    from LL, SC fails.
+	 * 3. We reread from the address; if the read fails, we
+	 *    have taken an exception, so just return.
+	 * 4. If the result value is different from the one on file
+	 *    from LL, SC fails.
+	 * 5. We write to the address; if the write fails, we have
+	 *    taken an exception, so just return.
+	 * 6. SC succeeds.
+	 */
+
+	if (!cpu->ll_active) {
+		goto fail;
+	}
+	if (cpu->ll_addr != addr) {
+		goto fail;
+	}
+	if (domem(cpu, addr, &temp, 0, 1)) {
+		/* exception */
+		return;
+	}
+	if (temp != cpu->ll_value) {
+		goto fail;
+	}
+	if (domem(cpu, addr, (u_int32_t *) &RTx, 1, 1)) {
+		/* exception */
+		return;
+	}
+	/* success */
+	RTx = 1;
+	return;
+
+ fail:
+	/* failure */
+	RTx = 0;
 }
 
 static
@@ -1830,9 +2039,9 @@ void
 mx_sh(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TR(("sh %s, %ld(%s): %d -> [0x%lx]", 
-	    regname(rt), (long)smm, regname(rs),
-	    (int)(RTu&0xffff), (unsigned long)addr));
+	TR("sh %s, %ld(%s): %d -> [0x%lx]", 
+	   regname(rt), (long)smm, regname(rs),
+	   (int)(RTu&0xffff), (unsigned long)addr);
 	dostore(cpu, S_UHALF, addr, RTu);
 }
 
@@ -1842,8 +2051,8 @@ void
 mx_sw(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TR(("sw %s, %ld(%s): %ld -> [0x%lx]", 
-	    regname(rt), (long)smm, regname(rs), RTsp, (unsigned long)addr));
+	TR("sw %s, %ld(%s): %ld -> [0x%lx]", 
+	   regname(rt), (long)smm, regname(rs), RTsp, (unsigned long)addr);
 	domem(cpu, addr, (u_int32_t *) &RTx, 1, 1);
 }
 
@@ -1853,7 +2062,7 @@ void
 mx_swc(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR; NEEDCN;
-	TR(("swc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs)));
+	TR("swc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs));
 	doswc(cpu, cn, addr, rt);
 }
 
@@ -1863,8 +2072,8 @@ void
 mx_swl(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TR(("swl %s, %ld(%s): 0x%lx -> [0x%lx]", 
-	    regname(rt), (long)smm, regname(rs), RTup, (unsigned long)addr));
+	TR("swl %s, %ld(%s): 0x%lx -> [0x%lx]", 
+	   regname(rt), (long)smm, regname(rs), RTup, (unsigned long)addr);
 	dostore(cpu, S_WORDL, addr, RTu);
 }
 
@@ -1874,8 +2083,8 @@ void
 mx_swr(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDADDR;
-	TR(("swr %s, %ld(%s): 0x%lx -> [0x%lx]", 
-	    regname(rt), (long)smm, regname(rs), RTup, (unsigned long)addr));
+	TR("swr %s, %ld(%s): 0x%lx -> [0x%lx]", 
+	   regname(rt), (long)smm, regname(rs), RTup, (unsigned long)addr);
 	dostore(cpu, S_WORDR, addr, RTu);
 }
 
@@ -1885,7 +2094,7 @@ void
 mx_break(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("break"));
+	TR("break");
 	exception(cpu, EX_BP, 0, 0);
 }
 
@@ -1895,8 +2104,8 @@ void
 mx_div(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
-	TRL(("div %s %s: %ld / %ld -> ", 
-	     regname(rs), regname(rt), RSsp, RTsp));
+	TRL("div %s %s: %ld / %ld -> ", 
+	    regname(rs), regname(rt), RSsp, RTsp);
 
 	WHILO;
 	if (RTs==0) {
@@ -1918,13 +2127,13 @@ mx_div(struct mipscpu *cpu, u_int32_t insn)
 			cpu->lo = 0x7fffffff;
 		}
 		cpu->hi = 0;
-		TR(("ERR"));
+		TR("ERR");
 	}
 	else {
 		cpu->lo = RSs/RTs;
 		cpu->hi = RSs%RTs;
-		TR(("%ld, remainder %ld", 
-		    (long)(int32_t)cpu->lo, (long)(int32_t)cpu->hi));
+		TR("%ld, remainder %ld", 
+		   (long)(int32_t)cpu->lo, (long)(int32_t)cpu->hi);
 	}
 	SETHILO(2);
 }
@@ -1935,8 +2144,8 @@ void
 mx_divu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
-	TRL(("divu %s %s: %lu / %lu -> ", 
-	     regname(rs), regname(rt), RSup, RTup));
+	TRL("divu %s %s: %lu / %lu -> ", 
+	    regname(rs), regname(rt), RSup, RTup);
 
 	WHILO;
 	if (RTu==0) {
@@ -1945,14 +2154,14 @@ mx_divu(struct mipscpu *cpu, u_int32_t insn)
 		 */
 		cpu->lo = 0xffffffff;
 		cpu->hi = 0;
-		TR(("ERR"));
+		TR("ERR");
 	}
 	else {
 		cpu->lo=RSu/RTu;
 		cpu->hi=RSu%RTu;
-		TR(("%lu, remainder %lu", 
-		    (unsigned long)(u_int32_t)cpu->lo, 
-		    (unsigned long)(u_int32_t)cpu->hi));
+		TR("%lu, remainder %lu", 
+		   (unsigned long)(u_int32_t)cpu->lo, 
+		   (unsigned long)(u_int32_t)cpu->hi);
 	}
 	SETHILO(2);
 }
@@ -1963,7 +2172,7 @@ void
 mx_jr(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS;
-	TR(("jr %s: 0x%lx", regname(rs), RSup));
+	TR("jr %s: 0x%lx", regname(rs), RSup);
 	abranch(cpu, RSu);
 }
 
@@ -1973,7 +2182,7 @@ void
 mx_jalr(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRD;
-	TR(("jalr %s, %s: 0x%lx", regname(rd), regname(rs), RSup));
+	TR("jalr %s, %s: 0x%lx", regname(rd), regname(rs), RSup);
 	LINK2(rd);
 	abranch(cpu, RSu);
 #ifdef USE_TRACE
@@ -1987,9 +2196,9 @@ void
 mx_mf(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN;
-	TRL(("mfc%d %s, $%u: ... -> ", cn, regname(rt), rd));
+	TRL("mfc%d %s, $%u: ... -> ", cn, regname(rt), rd);
 	domf(cpu, cn, rd, &RTx);
-	TR(("0x%lx", RTup));
+	TR("0x%lx", RTup);
 }
 
 static
@@ -1998,11 +2207,11 @@ void
 mx_mfhi(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD;
-	TRL(("mfhi %s: ... -> ", regname(rd)));
+	TRL("mfhi %s: ... -> ", regname(rd));
 	WHI;
 	RDx = cpu->hi;
 	SETHI(2);
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2011,11 +2220,11 @@ void
 mx_mflo(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD;
-	TRL(("mflo %s: ... -> ", regname(rd)));
+	TRL("mflo %s: ... -> ", regname(rd));
 	WLO;
 	RDx = cpu->lo;
 	SETLO(2);
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2024,7 +2233,7 @@ void
 mx_mt(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN;
-	TR(("mtc%d %s, $%u: 0x%lx -> ...", cn, regname(rt), rd, RTup));
+	TR("mtc%d %s, $%u: 0x%lx -> ...", cn, regname(rt), rd, RTup);
 	domt(cpu, cn, rd, RTs);
 }
 
@@ -2034,7 +2243,7 @@ void
 mx_mthi(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS;
-	TR(("mthi %s: 0x%lx -> ...", regname(rs), RSup));
+	TR("mthi %s: 0x%lx -> ...", regname(rs), RSup);
 	WHI;
 	cpu->hi = RSu;
 	SETHI(2);
@@ -2046,7 +2255,7 @@ void
 mx_mtlo(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS;
-	TR(("mtlo %s: 0x%lx -> ...", regname(rs), RSup));
+	TR("mtlo %s: 0x%lx -> ...", regname(rs), RSup);
 	WLO;
 	cpu->lo = RSu;
 	SETLO(2);
@@ -2059,14 +2268,14 @@ mx_mult(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
 	int64_t t64;
-	TRL(("mult %s, %s: %ld * %ld -> ", 
-	     regname(rs), regname(rt), RSsp, RTsp));
+	TRL("mult %s, %s: %ld * %ld -> ", 
+	    regname(rs), regname(rt), RSsp, RTsp);
 	WHILO;
 	t64=(int64_t)RSs*(int64_t)RTs;
 	cpu->hi = (((u_int64_t)t64)&0xffffffff00000000ULL) >> 32;
 	cpu->lo = (u_int32_t)(((u_int64_t)t64)&0x00000000ffffffffULL);
 	SETHILO(2);
-	TR(("%ld %ld", (long)(int32_t)cpu->hi, (long)(int32_t)cpu->lo));
+	TR("%ld %ld", (long)(int32_t)cpu->hi, (long)(int32_t)cpu->lo);
 }
 
 static
@@ -2076,16 +2285,16 @@ mx_multu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT;
 	u_int64_t t64;
-	TRL(("multu %s, %s: %lu * %lu -> ", 
-	     regname(rs), regname(rt), RSup, RTup));
+	TRL("multu %s, %s: %lu * %lu -> ", 
+	    regname(rs), regname(rt), RSup, RTup);
 	WHILO;
 	t64=(u_int64_t)RSu*(u_int64_t)RTu;
 	cpu->hi = (t64&0xffffffff00000000ULL) >> 32;
 	cpu->lo = (u_int32_t)(t64&0x00000000ffffffffULL);
 	SETHILO(2);
-	TR(("%lu %lu",
-	    (unsigned long)(u_int32_t)cpu->hi,
-	    (unsigned long)(u_int32_t)cpu->lo));
+	TR("%lu %lu",
+	   (unsigned long)(u_int32_t)cpu->hi,
+	   (unsigned long)(u_int32_t)cpu->lo);
 }
 
 static
@@ -2094,10 +2303,10 @@ void
 mx_nor(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("nor %s, %s, %s: ~(0x%lx | 0x%lx) -> ",
-	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	TRL("nor %s, %s, %s: ~(0x%lx | 0x%lx) -> ",
+	    regname(rd), regname(rs), regname(rt), RSup, RTup);
 	RDx = ~(RSu | RTu);
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2106,10 +2315,10 @@ void
 mx_or(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("or %s, %s, %s: 0x%lx | 0x%lx -> ", 
-	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	TRL("or %s, %s, %s: 0x%lx | 0x%lx -> ", 
+	    regname(rd), regname(rs), regname(rt), RSup, RTup);
 	RDx = RSu | RTu;
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2118,11 +2327,11 @@ void
 mx_ori(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
-	TRL(("ori %s, %s, %lu: 0x%lx | 0x%lx -> ", 
-	     regname(rt), regname(rs), (unsigned long)imm,
-	     RSup, (unsigned long)imm));
+	TRL("ori %s, %s, %lu: 0x%lx | 0x%lx -> ", 
+	    regname(rt), regname(rs), (unsigned long)imm,
+	    RSup, (unsigned long)imm);
 	RTx = RSu | imm;
-	TR(("0x%lx", RTup));
+	TR("0x%lx", RTup);
 }
 
 static
@@ -2131,7 +2340,7 @@ void
 mx_rfe(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("rfe"));
+	TR("rfe");
 	do_rfe(cpu);
 }
 
@@ -2141,10 +2350,10 @@ void
 mx_sll(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
-	TRL(("sll %s, %s, %u: 0x%lx << %u -> ", 
-	     regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh));
+	TRL("sll %s, %s, %u: 0x%lx << %u -> ", 
+	    regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh);
 	RDx = RTu << sh;
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2154,10 +2363,10 @@ mx_sllv(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDRS;
 	unsigned vsh = (RSu&31);
-	TRL(("sllv %s, %s, %s: 0x%lx << %u -> ", 
-	     regname(rd), regname(rt), regname(rs), RTup, vsh));
+	TRL("sllv %s, %s, %s: 0x%lx << %u -> ", 
+	    regname(rd), regname(rt), regname(rs), RTup, vsh);
 	RDx = RTu << vsh;
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2166,10 +2375,10 @@ void
 mx_slt(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("slt %s, %s, %s: %ld < %ld -> ", 
-	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	TRL("slt %s, %s, %s: %ld < %ld -> ", 
+	    regname(rd), regname(rs), regname(rt), RSsp, RTsp);
 	RDx = RSs < RTs;
-	TR(("%ld", RDsp));
+	TR("%ld", RDsp);
 }
 
 static
@@ -2178,10 +2387,10 @@ void
 mx_slti(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
-	TRL(("slti %s, %s, %ld: %ld < %ld -> ", 
-	     regname(rt), regname(rs), (long)smm, RSsp, (long)smm));
+	TRL("slti %s, %s, %ld: %ld < %ld -> ", 
+	    regname(rt), regname(rs), (long)smm, RSsp, (long)smm);
 	RTx = RSs < smm;
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -2190,13 +2399,13 @@ void
 mx_sltiu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
-	TRL(("sltiu %s, %s, %lu: %lu < %lu -> ", 
-	     regname(rt), regname(rs), (unsigned long)imm, RSup, 
-	     (unsigned long)(u_int32_t)smm));
+	TRL("sltiu %s, %s, %lu: %lu < %lu -> ", 
+	    regname(rt), regname(rs), (unsigned long)imm, RSup, 
+	    (unsigned long)(u_int32_t)smm);
 	// Yes, the immediate is sign-extended then treated as
 	// unsigned, according to my mips book. Blech.
 	RTx = RSu < (u_int32_t) smm;
-	TR(("%ld", RTsp));
+	TR("%ld", RTsp);
 }
 
 static
@@ -2205,10 +2414,10 @@ void
 mx_sltu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("sltu %s, %s, %s: %lu < %lu -> ", 
-	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	TRL("sltu %s, %s, %s: %lu < %lu -> ", 
+	    regname(rd), regname(rs), regname(rt), RSup, RTup);
 	RDx = RSu < RTu;
-	TR(("%ld", RDsp));
+	TR("%ld", RDsp);
 }
 
 static
@@ -2231,10 +2440,10 @@ void
 mx_sra(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
-	TRL(("sra %s, %s, %u: 0x%lx >> %u -> ", 
-	     regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh));
+	TRL("sra %s, %s, %u: 0x%lx >> %u -> ", 
+	    regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh);
 	RDx = signedshift(RTu, sh);
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2244,10 +2453,10 @@ mx_srav(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	unsigned vsh = (RSu&31);
-	TRL(("srav %s, %s, %s: 0x%lx >> %u -> ", 
-	     regname(rd), regname(rt), regname(rs), RTup, vsh));
+	TRL("srav %s, %s, %s: 0x%lx >> %u -> ", 
+	    regname(rd), regname(rt), regname(rs), RTup, vsh);
 	RDx = signedshift(RTu, vsh);
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2256,10 +2465,10 @@ void
 mx_srl(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
-	TRL(("srl %s, %s, %u: 0x%lx >> %u -> ", 
-	     regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh));
+	TRL("srl %s, %s, %u: 0x%lx >> %u -> ", 
+	    regname(rd), regname(rt), (unsigned)sh, RTup, (unsigned)sh);
 	RDx = RTu >> sh;
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2269,10 +2478,10 @@ mx_srlv(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	unsigned vsh = (RSu&31);
-	TRL(("srlv %s, %s, %s: 0x%lx >> %u -> ", 
-	     regname(rd), regname(rt), regname(rs), RTup, vsh));
+	TRL("srlv %s, %s, %s: 0x%lx >> %u -> ", 
+	    regname(rd), regname(rt), regname(rs), RTup, vsh);
 	RDx = RTu >> vsh;
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2282,12 +2491,12 @@ mx_sub(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	int64_t t64;
-	TRL(("sub %s, %s, %s: %ld - %ld -> ", 
-	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	TRL("sub %s, %s, %s: %ld - %ld -> ", 
+	    regname(rd), regname(rs), regname(rt), RSsp, RTsp);
 	t64 = (int64_t)RSs - (int64_t)RTs;
 	CHKOVF(t64);
 	RDx = (int32_t)t64;
-	TR(("%ld", RDsp));
+	TR("%ld", RDsp);
 }
 
 static
@@ -2296,10 +2505,10 @@ void
 mx_subu(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("subu %s, %s, %s: %ld - %ld -> ", 
-	     regname(rd), regname(rs), regname(rt), RSsp, RTsp));
+	TRL("subu %s, %s, %s: %ld - %ld -> ", 
+	    regname(rd), regname(rs), regname(rt), RSsp, RTsp);
 	RDx = RSu - RTu;
-	TR(("%ld", RDsp));
+	TR("%ld", RDsp);
 }
 
 static
@@ -2308,7 +2517,7 @@ void
 mx_syscall(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("syscall"));
+	TR("syscall");
 	exception(cpu, EX_SYS, 0, 0);
 }
 
@@ -2318,7 +2527,7 @@ void
 mx_tlbp(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("tlbp"));
+	TR("tlbp");
 	probetlb(cpu);
 }
 
@@ -2328,11 +2537,11 @@ void
 mx_tlbr(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("tlbr"));
+	TR("tlbr");
 	cpu->tlbentry = cpu->tlb[cpu->tlbindex];
-	TRACEL(DOTRACE_TLB, ("tlbr:  [%2d] ", cpu->tlbindex));
+	CPUTRACEL(DOTRACE_TLB, cpu->cpunum, "tlbr:  [%2d] ", cpu->tlbindex);
 	TLBTR(&cpu->tlbentry);
-	TRACE(DOTRACE_TLB, (" "));
+	CPUTRACE(DOTRACE_TLB, cpu->cpunum, " ");
 }
 
 static
@@ -2341,7 +2550,7 @@ void
 mx_tlbwi(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("tlbwi"));
+	TR("tlbwi");
 	writetlb(cpu, cpu->tlbindex, "tlbwi");
 }
 
@@ -2351,7 +2560,7 @@ void
 mx_tlbwr(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("tlbwr"));
+	TR("tlbwr");
 	cpu->tlbrandom %= RANDREG_MAX;
 	writetlb(cpu, cpu->tlbrandom+RANDREG_OFFSET, "tlbwr");
 }
@@ -2362,7 +2571,7 @@ void
 mx_wait(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("wait"));
+	TR("wait");
 	do_wait(cpu);
 }
 
@@ -2372,10 +2581,10 @@ void
 mx_xor(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
-	TRL(("xor %s, %s, %s: 0x%lx ^ 0x%lx -> ",
-	     regname(rd), regname(rs), regname(rt), RSup, RTup));
+	TRL("xor %s, %s, %s: 0x%lx ^ 0x%lx -> ",
+	    regname(rd), regname(rs), regname(rt), RSup, RTup);
 	RDx = RSu ^ RTu;
-	TR(("0x%lx", RDup));
+	TR("0x%lx", RDup);
 }
 
 static
@@ -2384,11 +2593,11 @@ void
 mx_xori(struct mipscpu *cpu, u_int32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
-	TRL(("xori %s, %s, %lu: 0x%lx ^ 0x%lx -> ",
-	     regname(rt), regname(rs), (unsigned long)imm, 
-	     RSup, (unsigned long)imm));
+	TRL("xori %s, %s, %lu: 0x%lx ^ 0x%lx -> ",
+	    regname(rt), regname(rs), (unsigned long)imm, 
+	    RSup, (unsigned long)imm);
 	RTx = RSu ^ imm;
-	TR(("0x%lx", RTup));
+	TR("0x%lx", RTup);
 }
 
 static
@@ -2397,7 +2606,7 @@ void
 mx_ill(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
-	TR(("[illegal instruction %08lx]", (unsigned long) insn));
+	TR("[illegal instruction %08lx]", (unsigned long) insn);
 	exception(cpu, EX_RI, 0, 0);
 }
 
@@ -2458,9 +2667,22 @@ mx_copz(struct mipscpu *cpu, u_int32_t insn)
 int
 cpu_cycle(void)
 {
-	struct mipscpu *cpu = &mycpu;
 	u_int32_t insn;
 	u_int32_t op;
+	unsigned whichcpu;
+	unsigned breakpoints = 0;
+
+	for (whichcpu=0; whichcpu < ncpus; whichcpu++) {
+		struct mipscpu *cpu = &mycpus[whichcpu];
+
+		if (cpu->state != CPU_RUNNING) {
+			// don't check this on the critical path
+			//Assert((cpu_running_mask & thiscpumask) == 0);
+			g_stats.s_percpu[cpu->cpunum].sp_icycles++;
+			continue;
+		}
+
+	/* INDENT HORROR BEGIN */
 
 	/*
 	 * First, update exception PC.
@@ -2484,8 +2706,12 @@ cpu_cycle(void)
 	 */
 	if (cpu->current_irqon) {
 		u_int32_t soft = cpu->status_softmask & cpu->cause_softirq;
-		if ((cpu->status_hardmask && bus_interrupts) || soft) {
-			TRACE(DOTRACE_IRQ, ("Taking interrupt"));
+		int lb = cpu->irq_lamebus && cpu->status_hardmask_lb;
+		int ipi = cpu->irq_ipi && cpu->status_hardmask_ipi;
+		int timer = cpu->irq_timer && cpu->status_hardmask_timer;
+
+		if (lb || ipi || timer || soft) {
+			CPUTRACE(DOTRACE_IRQ, cpu->cpunum, "Taking interrupt");
 			exception(cpu, EX_IRQ, 0, 0);
 			/*
 			 * Start processing the interrupt this cycle.
@@ -2504,13 +2730,13 @@ cpu_cycle(void)
 	}
 
 	if (IS_USERMODE(cpu)) {
-		g_stats.s_ucycles++;
+		g_stats.s_percpu[cpu->cpunum].sp_ucycles++;
 #ifdef USE_TRACE
 		tracehow = DOTRACE_UINSN;
 #endif
 	}
 	else {
-		g_stats.s_kcycles++;
+		g_stats.s_percpu[cpu->cpunum].sp_kcycles++;
 #ifdef USE_TRACE
 		tracehow = DOTRACE_KINSN;
 #endif
@@ -2544,15 +2770,15 @@ cpu_cycle(void)
 			cpu->nextpcoff = 0;
 		}
 		else if (precompute_nextpc(cpu)) {
-			/* exception */
-			return 1;
+			/* exception. on to next cpu. */
+			continue;
 		}
 	}
 	else {
 		cpu->nextpcoff += 4;
 	}
 
-	TRL(("at %08x: ", cpu->expc));
+	TRL("at %08x: ", cpu->expc);
 	
 	/*
 	 * Decode instruction.
@@ -2585,7 +2811,13 @@ cpu_cycle(void)
 				/*
 				 * Don't bill time for hitting the breakpoint.
 				 */
-				return 0;
+				breakpoints++;
+				cpu->ex_count--;
+				/*
+				 * Expose this cpu to the debugger
+				 */
+				debug_cpu = cpu->cpunum;
+				continue;
 			}
 			mx_break(cpu, insn);
 			break;
@@ -2650,15 +2882,22 @@ cpu_cycle(void)
 	    case OPM_SWL: mx_swl(cpu, insn); break;
 	    case OPM_SW: mx_sw(cpu, insn); break;
 	    case OPM_SWR: mx_swr(cpu, insn); break;
-	    case OPM_LWC0:
+	    case OPM_LWC0: /* LWC0 == LL */ mx_ll(cpu, insn); break;
 	    case OPM_LWC1:
 	    case OPM_LWC2:
 	    case OPM_LWC3: mx_lwc(cpu, insn); break;
-	    case OPM_SWC0:
+	    case OPM_SWC0: /* SWC0 == SC */ mx_sc(cpu, insn); break;
 	    case OPM_SWC1:
 	    case OPM_SWC2:
 	    case OPM_SWC3: mx_swc(cpu, insn); break;
 	    default: mx_ill(cpu, insn); break;
+	}
+
+	/* Timer. Take interrupt on next cycle; call it a pipeline effect. */
+	cpu->ex_count++;
+	if (cpu->ex_compare_used && cpu->ex_count == cpu->ex_compare) {
+		cpu->ex_count = 0; /* XXX is this right? */
+		cpu->irq_timer = 1;
 	}
 
 	if (cpu->lowait > 0) {
@@ -2672,86 +2911,163 @@ cpu_cycle(void)
 	
 	cpu->tlbrandom++;
 
-	return 1;
+	/* INDENT HORROR END */
+
+	}
+
+	if (cpu_running_mask == 0) {
+		HWTRACE(DOTRACE_IRQ, ("Waiting for interrupt"));
+		clock_waitirq();
+	}
+
+	if (breakpoints == 0) {
+		return 1;
+	}
+	if (breakpoints == ncpus) {
+		return 1;
+	}
+
+	/*
+	 * Some CPUs took a cycle, but one or more hit a builtin
+	 * breakpoint and didn't.
+	 *
+	 * Ideally we should roll back the ones that did, or account
+	 * for the time properly in some other fashion. Or stop using
+	 * a global clock.
+	 *
+	 * For the time being, slip the clock. This makes builtin
+	 * breakpoints not quite noninvasive on multiprocessor
+	 * configs. Sigh.
+	 */
+	return 0;
 }
 
 /*************************************************************/
 
 void
-cpu_init(void)
+cpu_init(unsigned numcpus)
 {
-	mips_init(&mycpu);
+	unsigned i;
+
+	Assert(numcpus <= 32);
+
+	ncpus = numcpus;
+	mycpus = domalloc(ncpus * sizeof(*mycpus));
+	for (i=0; i<numcpus; i++) {
+		mips_init(&mycpus[i], i);
+	}
+
+	mycpus[0].state = CPU_RUNNING;
+	cpu_running_mask = 0x1;
 }
 
 void
 cpu_dumpstate(void)
 {
+	struct mipscpu *cpu;
 	int i;
+	unsigned j;
 
-	msg("1 cpu: MIPS r2000");
+	msg("%u cpus: MIPS r3000", ncpus);
+	for (j=0; j<ncpus; j++) {
+		cpu = &mycpus[j];
+		msg("cpu %d:", j);
+
+	/* BEGIN INDENT HORROR */
+
 	for (i=0; i<NREGS; i++) {
 		msgl("r%d:%s 0x%08lx  ", i, i<10 ? " " : "",
-		     (unsigned long) mycpu.r[i]);
+		     (unsigned long) cpu->r[i]);
 		if (i%4==3) {
 			msg(" ");
 		}
 	}
 	msg("lo:  0x%08lx  hi:  0x%08lx  pc:  0x%08lx  npc: 0x%08lx", 
-	    (unsigned long) mycpu.lo,
-	    (unsigned long) mycpu.hi,
-	    (unsigned long) mycpu.pc,
-	    (unsigned long) mycpu.nextpc);
+	    (unsigned long) cpu->lo,
+	    (unsigned long) cpu->hi,
+	    (unsigned long) cpu->pc,
+	    (unsigned long) cpu->nextpc);
 
 	for (i=0; i<NTLB; i++) {
-		tlbmsg("TLB", i, &mycpu.tlb[i]);
+		tlbmsg("TLB", i, &cpu->tlb[i]);
 	}
-	tlbmsg("TLB", -1, &mycpu.tlbentry);
-	msg("tlb index: %d %s", mycpu.tlbindex, 
-	    mycpu.tlbpf ? "[last probe failed]" : "");
-	msg("tlb random: %d", (mycpu.tlbrandom%RANDREG_MAX)+RANDREG_OFFSET);
+	tlbmsg("TLB", -1, &cpu->tlbentry);
+	msg("tlb index: %d %s", cpu->tlbindex, 
+	    cpu->tlbpf ? "[last probe failed]" : "");
+	msg("tlb random: %d", (cpu->tlbrandom%RANDREG_MAX)+RANDREG_OFFSET);
 
 	msgl("Status register: ");
 	msgl("%s%s%s%s-----",
-	     mycpu.status_bits & 0x80000000 ? "3" : "-",
-	     mycpu.status_bits & 0x40000000 ? "2" : "-",
-	     mycpu.status_bits & 0x20000000 ? "1" : "-",
-	     mycpu.status_bits & 0x10000000 ? "0" : "-");
+	     cpu->status_bits & 0x80000000 ? "3" : "-",
+	     cpu->status_bits & 0x40000000 ? "2" : "-",
+	     cpu->status_bits & 0x20000000 ? "1" : "-",
+	     cpu->status_bits & 0x10000000 ? "0" : "-");
 	msgl("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
-	     mycpu.status_bits & 0x00400000 ? "B" : "-",
-	     mycpu.status_bits & 0x00200000 ? "T" : "-",
-	     mycpu.status_bits & 0x00100000 ? "E" : "-",
-	     mycpu.status_bits & 0x00080000 ? "M" : "-",
-	     mycpu.status_bits & 0x00040000 ? "Z" : "-",
-	     mycpu.status_bits & 0x00020000 ? "S" : "-",
-	     mycpu.status_bits & 0x00010000 ? "I" : "-",
-	     mycpu.status_bits & 0x00008000 ? "h" : "-",
-	     mycpu.status_bits & 0x00004000 ? "h" : "-",
-	     mycpu.status_bits & 0x00002000 ? "h" : "-",
-	     mycpu.status_bits & 0x00001000 ? "h" : "-",
-	     mycpu.status_bits & 0x00000800 ? "h" : "-",
-	     mycpu.status_hardmask ? "H" : "-",
-	     mycpu.status_softmask & 0x0200 ? "S" : "-",
-	     mycpu.status_softmask & 0x0100 ? "S" : "-");
+	     cpu->status_bits & 0x00400000 ? "B" : "-",
+	     cpu->status_bits & 0x00200000 ? "T" : "-",
+	     cpu->status_bits & 0x00100000 ? "E" : "-",
+	     cpu->status_bits & 0x00080000 ? "M" : "-",
+	     cpu->status_bits & 0x00040000 ? "Z" : "-",
+	     cpu->status_bits & 0x00020000 ? "S" : "-",
+	     cpu->status_bits & 0x00010000 ? "I" : "-",
+	     cpu->status_hardmask_timer ? "H" : "-",
+	     cpu->status_bits & 0x00004000 ? "h" : "-",
+	     cpu->status_bits & 0x00002000 ? "h" : "-",
+	     cpu->status_bits & 0x00001000 ? "h" : "-",
+	     cpu->status_hardmask_ipi ? "H" : "-",
+	     cpu->status_hardmask_lb ? "H" : "-",
+	     cpu->status_softmask & 0x0200 ? "S" : "-",
+	     cpu->status_softmask & 0x0100 ? "S" : "-");
 	msg("--%s%s%s%s%s%s",
-	    mycpu.old_usermode ? "U" : "-",
-	    mycpu.old_irqon ? "I" : "-",
-	    mycpu.prev_usermode ? "U" : "-",
-	    mycpu.prev_irqon ? "I" : "-",
-	    mycpu.current_usermode ? "U" : "-",
-	    mycpu.current_irqon ? "I" : "-");
+	    cpu->old_usermode ? "U" : "-",
+	    cpu->old_irqon ? "I" : "-",
+	    cpu->prev_usermode ? "U" : "-",
+	    cpu->prev_irqon ? "I" : "-",
+	    cpu->current_usermode ? "U" : "-",
+	    cpu->current_irqon ? "I" : "-");
 
-	msg("Cause register: %s %d -----%s%s%s %d [%s]",
-	    mycpu.cause_bd ? "B" : "-",
-	    mycpu.cause_ce >> 28,
-	    bus_interrupts ? "H" : "-",
-	    (mycpu.cause_softirq & 0x200) ? "S" : "-",
-	    (mycpu.cause_softirq & 0x100) ? "S" : "-",
-	    mycpu.cause_code >> 2,
-	    exception_name(mycpu.cause_code>>2));
+	msg("Cause register: %s %d %s---%s%s%s%s %d [%s]",
+	    cpu->cause_bd ? "B" : "-",
+	    cpu->cause_ce >> 28,
+	    cpu->irq_timer ? "H" : "-",
+	    cpu->irq_ipi ? "H" : "-",
+	    cpu->irq_lamebus ? "H" : "-",
+	    (cpu->cause_softirq & 0x200) ? "S" : "-",
+	    (cpu->cause_softirq & 0x100) ? "S" : "-",
+	    cpu->cause_code >> 2,
+	    exception_name(cpu->cause_code>>2));
 
-	msg("VAddr register: 0x%08lx", (unsigned long)mycpu.ex_vaddr);
-	msg("Context register: 0x%08lx", (unsigned long)mycpu.ex_context);
-	msg("EPC register: 0x%08lx", (unsigned long)mycpu.ex_epc);
+	msg("VAddr register: 0x%08lx", (unsigned long)cpu->ex_vaddr);
+	msg("Context register: 0x%08lx", (unsigned long)cpu->ex_context);
+	msg("EPC register: 0x%08lx", (unsigned long)cpu->ex_epc);
+
+	/* END INDENT HORROR */
+
+	}
+}
+
+void
+cpu_enable(unsigned cpunum)
+{
+	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
+	cpu = &mycpus[cpunum];
+
+	cpu->state = CPU_RUNNING;
+	RUNNING_MASK_ON(cpunum);
+}
+
+void
+cpu_disable(unsigned cpunum)
+{
+	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
+	cpu = &mycpus[cpunum];
+
+	cpu->state = CPU_DISABLED;
+	RUNNING_MASK_OFF(cpunum);
 }
 
 #define BETWEEN(addr, size, base, top) \
@@ -2785,30 +3101,68 @@ cpu_get_load_vaddr(u_int32_t paddr, u_int32_t size, u_int32_t *vaddr)
 }
 
 void
-cpu_set_entrypoint(u_int32_t addr)
+cpu_set_entrypoint(unsigned cpunum, u_int32_t addr)
 {
+	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
+	cpu = &mycpus[cpunum];
+
 	if ((addr & 0x3) != 0) {
 		hang("Kernel entry point is not properly aligned");
 		addr &= 0xfffffffc;
 	}
-	mycpu.expc = addr;
-	mycpu.pc = addr;
-	mycpu.nextpc = addr+4;
-	if (precompute_pc(&mycpu)) {
+	cpu->expc = addr;
+	cpu->pc = addr;
+	cpu->nextpc = addr+4;
+	if (precompute_pc(cpu)) {
 		hang("Kernel entry point is an invalid address");
 	}
-	if (precompute_nextpc(&mycpu)) {
+	if (precompute_nextpc(cpu)) {
 		hang("Kernel entry point is an invalid address");
 	}
 }
 
 void
-cpu_set_stack(u_int32_t stackaddr, u_int32_t argument)
+cpu_set_stack(unsigned cpunum, u_int32_t stackaddr, u_int32_t argument)
 {
-	mycpu.r[29] = stackaddr;   /* register 29: stack pointer */
-	mycpu.r[4] = argument;     /* register 4: first argument */
+	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
+	cpu = &mycpus[cpunum];
+
+	cpu->r[29] = stackaddr;   /* register 29: stack pointer */
+	cpu->r[4] = argument;     /* register 4: first argument */
 	
 	/* don't need to set $gp - in the ELF model it's start's problem */
+}
+
+u_int32_t
+cpu_get_secondary_start_stack(u_int32_t lboffset)
+{
+	/* lboffset is the offset from the LAMEbus mapping base. */
+	/* XXX why don't we have a constant for 1fe00000? */
+	return KSEG0 + 0x1fe00000 + lboffset;
+}
+
+void
+cpu_set_irqs(unsigned cpunum, int lamebus, int ipi)
+{
+	Assert(cpunum < ncpus);
+
+	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
+	cpu = &mycpus[cpunum];
+	cpu->irq_lamebus = lamebus;
+	cpu->irq_ipi = ipi;
+
+	/* cpu->irq_timer is on-chip, and cannot get set when CPU_IDLE */
+
+	if (cpu->state == CPU_IDLE && (lamebus || ipi)) {
+		cpu->state = CPU_RUNNING;
+		RUNNING_MASK_ON(cpunum);
+	}
 }
 
 void
@@ -2823,6 +3177,7 @@ cpudebug_fetch_byte(u_int32_t va, u_int8_t *byte)
 {
 	u_int32_t pa;
 	u_int32_t aligned_va;
+	struct mipscpu *cpu;
 
 	aligned_va = va & 0xfffffffc;
 
@@ -2830,7 +3185,8 @@ cpudebug_fetch_byte(u_int32_t va, u_int8_t *byte)
 	 * For now, only allow KSEG0/1
 	 */
 
-	if (debug_translatemem(&mycpu, aligned_va, 0, &pa)) {
+	cpu = &mycpus[debug_cpu];
+	if (debug_translatemem(cpu, aligned_va, 0, &pa)) {
 		return -1;
 	}
 
@@ -2846,13 +3202,14 @@ int
 cpudebug_fetch_word(u_int32_t va, u_int32_t *word)
 {
 	u_int32_t pa;
+	struct mipscpu *cpu;
 
 	/*
 	 * For now, only allow KSEG0/1
 	 */
 	
-
-	if (debug_translatemem(&mycpu, va, 0, &pa)) {
+	cpu = &mycpus[debug_cpu];
+	if (debug_translatemem(cpu, va, 0, &pa)) {
 		return -1;
 	}
 
@@ -2866,12 +3223,15 @@ int
 cpudebug_store_byte(u_int32_t va, u_int8_t byte)
 {
 	u_int32_t pa;
+	struct mipscpu *cpu;
 
 	/*
 	 * For now, only allow KSEG0/1
 	 */
-	
-	if (debug_translatemem(&mycpu, va, 1, &pa)) {
+
+	cpu = &mycpus[debug_cpu];
+
+	if (debug_translatemem(cpu, va, 1, &pa)) {
 		return -1;
 	}
 
@@ -2885,12 +3245,14 @@ int
 cpudebug_store_word(u_int32_t va, u_int32_t word)
 {
 	u_int32_t pa;
+	struct mipscpu *cpu;
 
 	/*
-	 * For now, only allow KSEG0/1
+	 * For now, only allow KSEG0/1.
 	 */
 	
-	if (debug_translatemem(&mycpu, va, 1, &pa)) {
+	cpu = &mycpus[debug_cpu];
+	if (debug_translatemem(cpu, va, 1, &pa)) {
 		return -1;
 	}
 
@@ -2917,30 +3279,36 @@ void
 cpudebug_getregs(u_int32_t *regs, int maxregs, int *nregs)
 {
 	int i, j=0;
+	struct mipscpu *cpu;
+
+	/* choose a CPU */
+	cpu = &mycpus[debug_cpu];
+
 	for (i=0; i<NREGS; i++) {
-		GETREG(mycpu.r[i]);
+		GETREG(cpu->r[i]);
 	}
-	GETREG(getstatus(&mycpu));
-	GETREG(mycpu.lo);
-	GETREG(mycpu.hi);
-	GETREG(mycpu.ex_vaddr);
-	GETREG(getcause(&mycpu));
-	GETREG(mycpu.pc);
+	GETREG(getstatus(cpu));
+	GETREG(cpu->lo);
+	GETREG(cpu->hi);
+	GETREG(cpu->ex_vaddr);
+	GETREG(getcause(cpu));
+	GETREG(cpu->pc);
 	GETREG(0); /* fp status? */
 	GETREG(0); /* fp something-else? */
 	GETREG(0); /* fp ? */
-	GETREG(getindex(&mycpu));
-	GETREG(getrandom(&mycpu));
-	GETREG(tlbgetlo(&mycpu.tlbentry));
-	GETREG(mycpu.ex_context);
-	GETREG(tlbgethi(&mycpu.tlbentry));
-	GETREG(mycpu.ex_epc);
-	GETREG(mycpu.ex_prid);
+	GETREG(getindex(cpu));
+	GETREG(getrandom(cpu));
+	GETREG(tlbgetlo(&cpu->tlbentry));
+	GETREG(cpu->ex_context);
+	GETREG(tlbgethi(&cpu->tlbentry));
+	GETREG(cpu->ex_epc);
+	GETREG(cpu->ex_prid);
 	*nregs = j;
 }
 
 u_int32_t
 cpuprof_sample(void)
 {
-	return mycpu.pc;
+	/* for now always use CPU 0 (XXX) */
+	return mycpus[0].pc;
 }

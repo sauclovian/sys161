@@ -1,5 +1,6 @@
-include defs.mk
-include $S/version.mk
+#
+# Makefile fragment for building hub161
+#
 
 all: $(PROG)
 
@@ -7,7 +8,7 @@ include rules.mk
 include depend.mk
 
 CFLAGS+=-I.
-SRCFILES+=stat  stat161.c
+SRCFILES+=nethub  array.c nethub.c
 
 distclean clean:
 	rm -f *.o $(PROG)
@@ -24,8 +25,8 @@ realdepend:
 	$(CC) $(CFLAGS) $(DEPINCLUDES) -MM $(SRCS) > depend.mk
 
 install:
-	[ -d "$(INSTALLDIR)" ] || mkdir -p "$(INSTALLDIR)"
-	$S/installit.sh "$(INSTALLDIR)" "$(PROG)" "$(VERSION)"
+	(umask 022; [ -d "$(BINDIR)" ] || mkdir -p $(BINDIR))
+	$S/installit.sh "$(BINDIR)" "$(PROG)" "$(VERSION)"
 
 $(PROG): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -lm -o $(PROG)

@@ -24,23 +24,40 @@ void set_traceflags(const char *letters);
 void print_traceflags(void);
 
 
-/* These three functions are actually in console.c */
+/*
+ * These five functions are actually in console.c.
+ *
+ * set_tracefile: set output destination
+ * hwtrace: issue a trace message from a hardware device (not per-cpu)
+ * cputrace: issue a trace message from a CPU
+ * hwtracel/cputracel: same but without an implicit newline added
+ */
 
-void set_tracefile(const char *filename);    /* set output destination */
-void trace(const char *fmt, ...) PF(1,2);    /* trace output */
-void tracel(const char *fmt, ...) PF(1,2);   /* trace w/o newline */
+void set_tracefile(const char *filename);
+void hwtrace(const char *fmt, ...) PF(1,2);
+void hwtracel(const char *fmt, ...) PF(1,2);
+void cputrace(unsigned cpunum, const char *fmt, ...) PF(2,3);
+void cputracel(unsigned cpunum, const char *fmt, ...) PF(2,3);
 
 
-#define TRACEL(k, args)   (g_traceflags[(k)] ? tracel args : (void)0)
-#define TRACE(k, args)    (g_traceflags[(k)] ? trace args : (void)0)
+#define CPUTRACEL(k, cn, ...) \
+	(g_traceflags[(k)] ? cputracel(cn, __VA_ARGS__) : (void)0)
+#define CPUTRACE(k, cn, ...)  \
+	(g_traceflags[(k)] ? cputrace(cn, __VA_ARGS__) : (void)0)
+
+#define HWTRACEL(k, ...)   (g_traceflags[(k)] ? hwtracel(__VA_ARGS__): (void)0)
+#define HWTRACE(k, ...)    (g_traceflags[(k)] ? hwtrace(__VA_ARGS__) : (void)0)
 
 
 
 #else /* not USE_TRACE */
 
 
-#define TRACEL(k, args)
-#define TRACE(k, args)
+#define CPUTRACEL(k, ...)
+#define CPUTRACE(k, ...)
+
+#define HWTRACEL(k, ...)
+#define HWTRACE(k, ...)
 
 
 #endif /* USE_TRACE */

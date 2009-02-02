@@ -54,19 +54,36 @@ meter_report(struct meter *m)
 {
 	char buf[4096];
 	char buf2[512];
+	u_int64_t kcycles, ucycles, icycles;
 
-	if (sizeof(u_int64_t)==sizeof(unsigned long)) {
-		snprintf(buf2, sizeof(buf2), "%lu %lu %lu",
-			 (unsigned long) g_stats.s_kcycles,
-			 (unsigned long) g_stats.s_ucycles,
-			 (unsigned long) g_stats.s_icycles);
+#if 0
+	kcycles = g_stats.s_kcycles;
+	ucycles = g_stats.s_ucycles;
+	icycles = g_stats.s_icycles;
+#else
+	unsigned i;
+
+	/*
+	 * XXX: we ought to send per-cpu stats. The protocol might
+	 * need some revising to do it well though. For now we'll
+	 * send stats comparable to the uniprocessor sys161.
+	 */
+	kcycles = ucycles = icycles = 0;
+	icycles += g_stats.s_tot_icycles;
+	for (i=0; i<g_stats.s_numcpus; i++) {
+		kcycles += g_stats.s_percpu[i].sp_kcycles;
+		ucycles += g_stats.s_percpu[i].sp_ucycles;
+		icycles += g_stats.s_percpu[i].sp_icycles;
 	}
-	else {
-		snprintf(buf2, sizeof(buf2), "%llu %llu %llu",
-			 (unsigned long long) g_stats.s_kcycles,
-			 (unsigned long long) g_stats.s_ucycles,
-			 (unsigned long long) g_stats.s_icycles);
-	}
+	kcycles /= g_stats.s_numcpus;
+	ucycles /= g_stats.s_numcpus;
+	icycles /= g_stats.s_numcpus;
+#endif
+
+	snprintf(buf2, sizeof(buf2), "%llu %llu %llu",
+		 (unsigned long long) kcycles,
+		 (unsigned long long) ucycles,
+		 (unsigned long long) icycles);
 
 	snprintf(buf, sizeof(buf), "DATA %s %lu %lu %lu %lu %lu %lu\r\n", buf2,
 		 (unsigned long) g_stats.s_irqs,

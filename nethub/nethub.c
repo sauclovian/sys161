@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -249,8 +250,8 @@ loop(void)
 #endif
 
 		if (packetlen < sizeof(struct linkheader)) {
-			fprintf(stderr, "hub161: miniscule packet (size %u)\n",
-				packetlen);
+			fprintf(stderr, "hub161: runt packet (size %lu)\n",
+				(unsigned long) packetlen);
 			continue;
 		}
 
@@ -263,8 +264,9 @@ loop(void)
 		}
 
 		if ((size_t)ntohs(lh->lh_packetlen) != packetlen) {
-			fprintf(stderr, "hub161: bad size [%04x %04x]\n",
-				ntohs(lh->lh_packetlen), packetlen);
+			fprintf(stderr, "hub161: bad size [%04x %04lx]\n",
+				ntohs(lh->lh_packetlen),
+				(unsigned long) packetlen);
 			continue;
 		}
 

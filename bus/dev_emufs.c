@@ -97,6 +97,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -209,10 +210,10 @@ emufs_setresult(struct emufs_data *ed, u_int32_t result)
 {
 	ed->ed_result = result;
 	if (ed->ed_result>0) {
-		RAISE_IRQ(ed->ed_slot);
+		raise_irq(ed->ed_slot);
 	}
 	else {
-		LOWER_IRQ(ed->ed_slot);
+		lower_irq(ed->ed_slot);
 	}
 }
 
@@ -281,12 +282,12 @@ emufs_open(struct emufs_data *ed, int flags)
 	/* ensure null termination */
 	ed->ed_buf[ed->ed_iolen] = 0;
 
-	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: open %s: ", ed->ed_slot,
-			       ed->ed_buf));
+	HWTRACEL(DOTRACE_EMUFS, "emufs: slot %d: open %s: ", ed->ed_slot,
+			       ed->ed_buf);
 
 	handle = pickhandle(ed);
 	if (handle < 0) {
-		TRACE(DOTRACE_EMUFS, ("out of handles"));
+		HWTRACE(DOTRACE_EMUFS, "out of handles");
 		return EMU_RES_NOHANDLES;
 	}
 
@@ -295,7 +296,7 @@ emufs_open(struct emufs_data *ed, int flags)
 	if (stat(ed->ed_buf, &sbuf)) {
 		if (flags==0) {
 			int err = errno;
-			TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+			HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 			popdir(curdir);
 			return errno_to_code(err);
 		}
@@ -313,7 +314,7 @@ emufs_open(struct emufs_data *ed, int flags)
 	ed->ed_fds[handle] = open(ed->ed_buf, flags, 0664);
 	if (ed->ed_fds[handle]<0) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		popdir(curdir);
 		return errno_to_code(err);
 	}
@@ -323,7 +324,7 @@ emufs_open(struct emufs_data *ed, int flags)
 	ed->ed_handle = handle;
 	ed->ed_iolen = S_ISDIR(sbuf.st_mode)!=0;
 
-	TRACE(DOTRACE_EMUFS, ("succeeded, handle %d", handle));
+	HWTRACE(DOTRACE_EMUFS, "succeeded, handle %d", handle);
 	g_stats.s_memu++;
 
 	return EMU_RES_SUCCESS;
@@ -335,8 +336,8 @@ emufs_close(struct emufs_data *ed)
 {
 	close(ed->ed_fds[ed->ed_handle]);
 	ed->ed_fds[ed->ed_handle] = -1;
-	TRACE(DOTRACE_EMUFS, ("emufs: slot %d: close handle %d",
-			      ed->ed_slot, ed->ed_handle));
+	HWTRACE(DOTRACE_EMUFS, "emufs: slot %d: close handle %d",
+		ed->ed_slot, ed->ed_handle);
 	g_stats.s_memu++;
 	return EMU_RES_SUCCESS;
 }
@@ -352,8 +353,8 @@ emufs_read(struct emufs_data *ed)
 		return EMU_RES_BADSIZE;
 	}
 
-	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: read %u bytes, handle %d: ",
-			       ed->ed_slot, ed->ed_iolen, ed->ed_handle));
+	HWTRACEL(DOTRACE_EMUFS, "emufs: slot %d: read %u bytes, handle %d: ",
+		 ed->ed_slot, ed->ed_iolen, ed->ed_handle);
 
 	fd = ed->ed_fds[ed->ed_handle];
 
@@ -362,14 +363,14 @@ emufs_read(struct emufs_data *ed)
 
 	if (len < 0) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		return errno_to_code(err);
 	}
 
 	ed->ed_offset += len;
 	ed->ed_iolen = len;
 
-	TRACE(DOTRACE_EMUFS, ("success"));
+	HWTRACE(DOTRACE_EMUFS, "success");
 	g_stats.s_remu++;
 
 	return EMU_RES_SUCCESS;
@@ -389,13 +390,14 @@ emufs_readdir(struct emufs_data *ed)
 		return EMU_RES_BADSIZE;
 	}
 
-	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: readdir %u bytes, handle %d: ",
-			       ed->ed_slot, ed->ed_iolen, ed->ed_handle));
+	HWTRACEL(DOTRACE_EMUFS,
+		 "emufs: slot %d: readdir %u bytes, handle %d: ",
+		 ed->ed_slot, ed->ed_iolen, ed->ed_handle);
 
 	herefd = open(".", O_RDONLY);
 	if (herefd<0) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		return errno_to_code(err);
 	}
 
@@ -403,7 +405,7 @@ emufs_readdir(struct emufs_data *ed)
 
 	if (fchdir(fd)<0) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		close(herefd);
 		return errno_to_code(err);
 	}
@@ -411,7 +413,7 @@ emufs_readdir(struct emufs_data *ed)
 	d = opendir(".");
 	if (d==NULL) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		fchdir(herefd);
 		close(herefd);
 		return errno_to_code(err);
@@ -425,7 +427,7 @@ emufs_readdir(struct emufs_data *ed)
 		}
 	}
 	if (dp != NULL) {
-		TRACE(DOTRACE_EMUFS, ("got %s", dp->d_name));
+		HWTRACE(DOTRACE_EMUFS, "got %s", dp->d_name);
 		len = strlen(dp->d_name);
 		if (len > ed->ed_iolen) {
 			len = ed->ed_iolen;
@@ -436,7 +438,7 @@ emufs_readdir(struct emufs_data *ed)
 		g_stats.s_remu++;
 	}
 	else {
-		TRACE(DOTRACE_EMUFS, ("EOF"));
+		HWTRACE(DOTRACE_EMUFS, "EOF");
 		ed->ed_iolen = 0;
 	}
 
@@ -450,8 +452,8 @@ emufs_readdir(struct emufs_data *ed)
 	 * without fchdir, can't do it - there's no fdopendir() or equivalent.
 	 */
 	(void) ed;
-	TRACE(DOTRACE_EMUFS, ("emufs: slot %d: readdir unsupported",
-			      ed->ed_slot));
+	HWTRACE(DOTRACE_EMUFS, "emufs: slot %d: readdir unsupported",
+		ed->ed_slot);
 
 	return EMU_RES_UNSUPP;
 #endif
@@ -468,8 +470,8 @@ emufs_write(struct emufs_data *ed)
 		return EMU_RES_BADSIZE;
 	}
 
-	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: write %u bytes, handle %d: ",
-			       ed->ed_slot, ed->ed_iolen, ed->ed_handle));
+	HWTRACEL(DOTRACE_EMUFS, "emufs: slot %d: write %u bytes, handle %d: ",
+		 ed->ed_slot, ed->ed_iolen, ed->ed_handle);
 
 	fd = ed->ed_fds[ed->ed_handle];
 
@@ -478,14 +480,14 @@ emufs_write(struct emufs_data *ed)
 
 	if (len < 0) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		return errno_to_code(err);
 	}
 
 	ed->ed_offset += len;
 	ed->ed_iolen = len;
 
-	TRACE(DOTRACE_EMUFS, ("success"));
+	HWTRACE(DOTRACE_EMUFS, "success");
 	g_stats.s_wemu++;
 
 	return EMU_RES_SUCCESS;
@@ -498,19 +500,19 @@ emufs_getsize(struct emufs_data *ed)
 	struct stat sb;
 	int fd;
 
-	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: handle %d length: ",
-			       ed->ed_slot, ed->ed_handle));
+	HWTRACEL(DOTRACE_EMUFS, "emufs: slot %d: handle %d length: ",
+		 ed->ed_slot, ed->ed_handle);
 
 	fd = ed->ed_fds[ed->ed_handle];
 	if (fstat(fd, &sb)) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		return errno_to_code(err);
 	}
 
 	ed->ed_iolen = sb.st_size;
 
-	TRACE(DOTRACE_EMUFS, ("%u", ed->ed_iolen));
+	HWTRACE(DOTRACE_EMUFS, "%u", ed->ed_iolen);
 	g_stats.s_memu++;
 
 	return EMU_RES_SUCCESS;
@@ -522,17 +524,17 @@ emufs_trunc(struct emufs_data *ed)
 {
 	int fd;
 
-	TRACEL(DOTRACE_EMUFS, ("emufs: slot %d: truncate handle %d to %u: ",
-			       ed->ed_slot, ed->ed_handle, ed->ed_iolen));
+	HWTRACEL(DOTRACE_EMUFS, "emufs: slot %d: truncate handle %d to %u: ",
+		 ed->ed_slot, ed->ed_handle, ed->ed_iolen);
 
 	fd = ed->ed_fds[ed->ed_handle];
 	if (ftruncate(fd, ed->ed_iolen)) {
 		int err = errno;
-		TRACE(DOTRACE_EMUFS, ("%s", strerror(err)));
+		HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 		return errno_to_code(err);
 	}
 
-	TRACE(DOTRACE_EMUFS, ("success"));
+	HWTRACE(DOTRACE_EMUFS, "success");
 	g_stats.s_wemu++;
 
 	return EMU_RES_SUCCESS;
@@ -583,8 +585,8 @@ emufs_done(void *d, u_int32_t gen)
 	emufs_setresult(ed, ed->ed_busyresult);
 	ed->ed_busy = 0;
 	ed->ed_busyresult = 0;
-	TRACE(DOTRACE_EMUFS, ("emufs: slot %d: Operation complete", 
-			      ed->ed_slot));
+	HWTRACE(DOTRACE_EMUFS, "emufs: slot %d: Operation complete", 
+		ed->ed_slot);
 }
 
 static
@@ -646,10 +648,12 @@ emufs_init(int slot, int argc, char *argv[])
 
 static
 int
-emufs_fetch(void *data, u_int32_t offset, u_int32_t *ret)
+emufs_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 {
 	struct emufs_data *ed = data;
 	u_int32_t *ptr;
+
+	(void)cpunum;
 
 	if (offset >= EMU_BUF_START && offset < EMU_BUF_END) {
 		offset -= EMU_BUF_START;
@@ -670,10 +674,12 @@ emufs_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-emufs_store(void *data, u_int32_t offset, u_int32_t val)
+emufs_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
 {
 	struct emufs_data *ed = data;
 	u_int32_t *ptr;
+
+	(void)cpunum;
 
 	if (offset >= EMU_BUF_START && offset < EMU_BUF_END) {
 		offset -= EMU_BUF_START;
@@ -697,7 +703,7 @@ void
 emufs_dumpstate(void *data)
 {
 	struct emufs_data *ed = data;
-	msg("CS161 emufs rev %d", EMUFS_REVISION);
+	msg("System/161 emufs rev %d", EMUFS_REVISION);
 	msg("    Registers: handle %lu  result %lu"
 	    "    offset %lu (0x%lx)  iolen %lu (0x%lx)",
 	    (unsigned long) ed->ed_handle,
@@ -727,8 +733,8 @@ emufs_cleanup(void *data)
 }
 
 const struct lamebus_device_info emufs_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_EMUFS,
+	LBVEND_SYS161,
+	LBVEND_SYS161_EMUFS,
 	EMUFS_REVISION,
 	emufs_init,
 	emufs_fetch,

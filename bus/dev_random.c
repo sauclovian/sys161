@@ -50,9 +50,10 @@ rand_init(int slot, int argc, char *argv[])
 
 static
 int
-rand_fetch(void *data, u_int32_t offset, u_int32_t *ret)
+rand_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 {
-	(void)data;  // not used
+	(void)cpunum; // not used
+	(void)data;   // not used
 
 	if (offset==0) {
 		*ret = random() ^ (random() << 16);
@@ -63,8 +64,9 @@ rand_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-rand_store(void *data, u_int32_t offset, u_int32_t val)
+rand_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
 {
+	(void)cpunum;
 	(void)data;
 	(void)offset;
 	(void)val;
@@ -76,7 +78,7 @@ void
 rand_dumpstate(void *data)
 {
 	(void)data;
-	msg("CS161 random generator rev %d", RANDOM_REVISION);
+	msg("System/161 random generator rev %d", RANDOM_REVISION);
 	msg("    (randomizer state not readily available)");
 }
 
@@ -88,8 +90,8 @@ rand_cleanup(void *data)
 }
 
 const struct lamebus_device_info random_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_RANDOM,
+	LBVEND_SYS161,
+	LBVEND_SYS161_RANDOM,
 	RANDOM_REVISION,
 	rand_init,
 	rand_fetch,

@@ -1,6 +1,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -84,10 +85,10 @@ void
 chkint(struct net_data *nd)
 {
 	if (nd->nd_rirq || nd->nd_wirq) {
-		RAISE_IRQ(nd->nd_slot);
+		raise_irq(nd->nd_slot);
 	}
 	else {
-		LOWER_IRQ(nd->nd_slot);
+		lower_irq(nd->nd_slot);
 	}
 }
 
@@ -95,7 +96,7 @@ static
 void
 readdone(struct net_data *nd)
 {
-	TRACE(DOTRACE_NET, ("nic: slot %d: packet received", nd->nd_slot));
+	HWTRACE(DOTRACE_NET, "nic: slot %d: packet received", nd->nd_slot);
 	nd->nd_rirq = NDI_DONE;
 	chkint(nd);
 }
@@ -104,7 +105,7 @@ static
 void
 writedone(struct net_data *nd)
 {
-	TRACE(DOTRACE_NET, ("nic: slot %d: packet sent", nd->nd_slot));
+	HWTRACE(DOTRACE_NET, "nic: slot %d: packet sent", nd->nd_slot);
 	nd->nd_wirq = NDI_DONE;
 	chkint(nd);
 }
@@ -143,22 +144,22 @@ keepalive(void *data, u_int32_t junk)
 			msg("nic: slot %d: lost carrier", nd->nd_slot);
 			nd->nd_lostcarrier = 1;
 		}
-		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive rejected: %s", 
-				    nd->nd_slot, strerror(errno)));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: keepalive rejected: %s", 
+			nd->nd_slot, strerror(errno));
 	}
 	else if (r<0) {
 		msg("nic: slot %d: keepalive to %s failed: %s", nd->nd_slot,
 		    nd->nd_hubaddr.sun_path, strerror(errno));
-		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive failed", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: keepalive failed", 
+			nd->nd_slot);
 	}
 	else {
 		if (nd->nd_lostcarrier) {
 			msg("nic: slot %d: carrier detected", nd->nd_slot);
 			nd->nd_lostcarrier = 0;
 		}
-		TRACE(DOTRACE_NET, ("nic: slot %d: keepalive succeeded", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: keepalive succeeded", 
+			nd->nd_slot);
 	}
 
 	schedule_event(1000000000, nd, 0, keepalive, "net keepalive");
@@ -179,8 +180,8 @@ dosend(struct net_data *nd)
 		return;
 	}
 
-	TRACE(DOTRACE_NET, ("nic: slot %d: starting send (%u bytes)", 
-			    nd->nd_slot, len));
+	HWTRACE(DOTRACE_NET, "nic: slot %d: starting send (%u bytes)", 
+		nd->nd_slot, len);
 
 	/*
 	 * Force the link-level header to the right values
@@ -230,13 +231,12 @@ dorecv(void *data)
 	r = read(nd->nd_socket, nd->nd_rbuf, NET_BUFSIZE);
 	if (r<0) {
 		msg("nic: slot %d: read: %s", nd->nd_slot, strerror(errno));
-		TRACE(DOTRACE_NET, ("nic: slot %d: read error", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: read error", 
+			nd->nd_slot);
 		return 0;
 	}
 	if (r < 8) {
-		TRACE(DOTRACE_NET, ("nic: slot %d: miniscule packet", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: runt packet", nd->nd_slot);
 		g_stats.s_epkts++;
 		return 0;
 	}
@@ -244,8 +244,8 @@ dorecv(void *data)
 	lh = (struct linkheader *)readbuf;
 
 	if (ntohs(lh->lh_frame) != FRAME_MAGIC) {
-		TRACE(DOTRACE_NET, ("nic: slot %d: framing error", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: framing error", 
+			nd->nd_slot);
 		g_stats.s_epkts++;
 		return 0;
 	}
@@ -253,28 +253,28 @@ dorecv(void *data)
 	if (ntohs(lh->lh_to) != (u_int16_t)(nd->nd_status & NDS_HWADDR) &&
 	    ntohs(lh->lh_to) != BROADCAST_ADDR && 
 	    (nd->nd_control & NDC_PROMISC)==0) {
-		TRACE(DOTRACE_NET, ("nic: slot %d: packet not for us", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: packet not for us", 
+			nd->nd_slot);
 		return 0;
 	}
 
 	if (ntohs(lh->lh_packetlen) > r) {
-		TRACE(DOTRACE_NET, ("nic: slot %d: truncated packet", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: truncated packet", 
+			nd->nd_slot);
 		g_stats.s_epkts++;
 		return 0;
 	}
 
 	if (ntohs(lh->lh_packetlen) < r) {
-		TRACE(DOTRACE_NET, ("nic: slot %d: garbage on end of packet", 
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: garbage on end of packet", 
+			nd->nd_slot);
 		g_stats.s_epkts++;
 		return 0;
 	}
 
 	if (overrun) {
-		TRACE(DOTRACE_NET, ("nic: slot %d: overrun",
-				    nd->nd_slot));
+		HWTRACE(DOTRACE_NET, "nic: slot %d: overrun",
+			nd->nd_slot);
 		g_stats.s_dpkts++;
 		return 0;
 	}
@@ -350,9 +350,11 @@ setctl(struct net_data *nd, u_int32_t val)
 
 static
 int
-net_fetch(void *d, u_int32_t offset, u_int32_t *val)
+net_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
 {
 	struct net_data *nd = d;
+
+	(void)cpunum;
 
 	if (offset >= NET_READBUF && offset < NET_READBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_rbuf[offset - NET_READBUF];
@@ -375,9 +377,11 @@ net_fetch(void *d, u_int32_t offset, u_int32_t *val)
 
 static
 int
-net_store(void *d, u_int32_t offset, u_int32_t val)
+net_store(unsigned cpunum, void *d, u_int32_t offset, u_int32_t val)
 {
 	struct net_data *nd = d;
+
+	(void)cpunum;
 
 	if (offset >= NET_READBUF && offset < NET_READBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_rbuf[offset - NET_READBUF];
@@ -505,7 +509,7 @@ void
 net_dumpstate(void *data)
 {
 	struct net_data *nd = data;
-	msg("CS161 network interface rev %d", NET_REVISION);
+	msg("System/161 network interface rev %d", NET_REVISION);
 	msg("    Hub: %s", nd->nd_hubaddr.sun_path);
 	msg("    Carrier: %s", nd->nd_lostcarrier ? "none" : "detected");
 	msg("    rirq: %lu  wirq: %lu  control: %lu  status: 0x%04lx",
@@ -520,8 +524,8 @@ net_dumpstate(void *data)
 }
 
 const struct lamebus_device_info net_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_NET,
+	LBVEND_SYS161,
+	LBVEND_SYS161_NET,
 	NET_REVISION,
 	net_init,
 	net_fetch,

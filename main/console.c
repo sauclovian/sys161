@@ -13,6 +13,7 @@
 #include "onsel.h"
 #include "console.h"
 #include "main.h"
+#include "trace.h"
 
 const char rcsid_console_c[] = 
   "$Id: console.c,v 1.10 2002/09/10 20:35:32 dholland Exp $";
@@ -46,7 +47,8 @@ const char rcsid_console_c[] =
 typedef enum {
 	MT_CONSOLE,
 	MT_MSG,
-	MT_TRACE,
+	MT_CPUTRACE,
+	MT_HWTRACE,
 } msgtypes;
 
 struct output {
@@ -61,6 +63,7 @@ struct output {
 
 	int at_bol;
 	msgtypes last_msgtype;
+	unsigned last_cpunum;
 };
 
 static struct output *o_stdout;
@@ -90,18 +93,6 @@ static int console_sel(void *unused);
 //
 // Methods for struct output
 //
-
-static
-const char *
-getprefix(msgtypes mt)
-{
-	switch (mt) {
-	    case MT_CONSOLE: return "console";
-	    case MT_MSG: return "sys161";
-	    case MT_TRACE: return "trace";
-	}
-	return NULL;
-}
 
 #ifndef USE_TRACE
 static
@@ -185,37 +176,60 @@ output_eol(struct output *o)
 	o->at_bol = 1;
 }
 
+/*
+ * Output a message, without an implicit newline, va_list-style.
+ *
+ * Use message type MT. If MT is not MT_TRACE, cpunum should always be 0.
+ */
 static
 void
-output_vmsgl(msgtypes mt, struct output *o, const char *fmt, va_list ap)
+output_vmsgl(msgtypes mt, unsigned cpunum,
+	     struct output *o, const char *fmt, va_list ap)
 {
-	if (!o->at_bol && o->last_msgtype != mt) {
+	if (!o->at_bol &&
+	    (o->last_msgtype != mt || cpunum != o->last_cpunum)) {
 		output_eol(o);
 	}
 	if (o->at_bol) {
-		output_say(o, "%s: ", getprefix(mt));
+		switch (mt) {
+		    case MT_CONSOLE:
+			output_say(o, "console: ");
+			break;
+		    case MT_MSG:
+			output_say(o, "sys161: ");
+			break;
+		    case MT_CPUTRACE:
+			output_say(o, "trace: %02x ", cpunum);
+			break;
+		    case MT_HWTRACE:
+			output_say(o, "trace: -- ");
+			break;
+		}
 	}
 	output_vsay(o, fmt, ap);
 	o->at_bol = 0;
 	o->last_msgtype = mt;
+	o->last_cpunum = cpunum;
 }
 
 static
 void
-output_vmsg(msgtypes mt, struct output *o, const char *fmt, va_list ap)
+output_vmsg(msgtypes mt, unsigned cpunum,
+	    struct output *o, const char *fmt, va_list ap)
 {
-	output_vmsgl(mt, o, fmt, ap);
+	output_vmsgl(mt, cpunum, o, fmt, ap);
 	output_eol(o);
 }
 
 #ifdef USE_TRACE
 static
 void
-output_msg(msgtypes mt, struct output *o, const char *fmt, ...)
+output_msg(msgtypes mt, unsigned cpunum,
+	   struct output *o, const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	output_vmsg(mt, o, fmt, ap);
+	output_vmsg(mt, cpunum, o, fmt, ap);
 	va_end(ap);
 }
 #endif
@@ -245,6 +259,8 @@ make_fd_output(FILE *f)
 	o->needs_close = 0;
 	o->needs_crs = o->is_tty;
 	o->at_bol = 1;
+	o->last_msgtype = MT_MSG;
+	o->last_cpunum = 0;
 	return o;
 }
 
@@ -490,7 +506,7 @@ console_putc(int c)
 			}
 		}
 		tmp[ix++] = 0;
-		output_msg(MT_CONSOLE, o_tracefile, 
+		output_msg(MT_CONSOLE, 0, o_tracefile, 
 			   "`%s' (%d / 0x%x)", tmp, c, c);
 	}
 	fflush(o_stdout->f);
@@ -504,7 +520,7 @@ console_beep(void)
 		console_putc('\a');
 #ifdef USE_TRACE
 		if (o_tracefile) {
-			output_msg(MT_MSG, o_tracefile, "[BEEP]");
+			output_msg(MT_MSG, 0, o_tracefile, "[BEEP]");
 		}
 #endif
 	}
@@ -527,7 +543,7 @@ msg(const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	output_vmsg(MT_MSG, o_stderr ? o_stderr : o_stdout, fmt, ap);
+	output_vmsg(MT_MSG, 0, o_stderr ? o_stderr : o_stdout, fmt, ap);
 	va_end(ap);
 }
 
@@ -536,7 +552,7 @@ msgl(const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	output_vmsgl(MT_MSG, o_stderr ? o_stderr : o_stdout, fmt, ap);
+	output_vmsgl(MT_MSG, 0, o_stderr ? o_stderr : o_stdout, fmt, ap);
 	va_end(ap);
 }
 
@@ -569,7 +585,8 @@ set_tracefile(const char *filename)
 		o_tracefile->needs_close = 1;
 		o_tracefile->needs_crs = 0;
 		o_tracefile->at_bol = 1;
-		o_tracefile->last_msgtype = MT_TRACE;
+		o_tracefile->last_msgtype = MT_HWTRACE;
+		o_tracefile->last_cpunum = 0;
 		trace_to = o_tracefile;
 	}
 	else {
@@ -578,20 +595,38 @@ set_tracefile(const char *filename)
 }
 
 void
-trace(const char *fmt, ...)
+cputrace(unsigned cpunum, const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	output_vmsg(MT_TRACE, trace_to, fmt, ap);
+	output_vmsg(MT_CPUTRACE, cpunum, trace_to, fmt, ap);
 	va_end(ap);
 }
 
 void
-tracel(const char *fmt, ...)
+cputracel(unsigned cpunum, const char *fmt, ...)
 {
 	va_list ap;
 	va_start(ap, fmt);
-	output_vmsgl(MT_TRACE, trace_to, fmt, ap);
+	output_vmsgl(MT_CPUTRACE, cpunum, trace_to, fmt, ap);
+	va_end(ap);
+}
+
+void
+hwtrace(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	output_vmsg(MT_HWTRACE, 0, trace_to, fmt, ap);
+	va_end(ap);
+}
+
+void
+hwtracel(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	output_vmsgl(MT_HWTRACE, 0, trace_to, fmt, ap);
 	va_end(ap);
 }
 
@@ -603,7 +638,7 @@ smoke(const char *fmt, ...)
 	va_list ap;
 	
 	va_start(ap, fmt);
-	output_vmsg(MT_MSG, o_stderr ? o_stderr : o_stdout, fmt, ap);
+	output_vmsg(MT_MSG, 0, o_stderr ? o_stderr : o_stdout, fmt, ap);
 	va_end(ap);
 	
 	msg("The hardware has failed.");
@@ -619,7 +654,7 @@ hang(const char *fmt, ...)  // was crash()
 	va_list ap;
 	
 	va_start(ap, fmt);
-	output_vmsg(MT_MSG, o_stderr ? o_stderr : o_stdout, fmt, ap);
+	output_vmsg(MT_MSG, 0, o_stderr ? o_stderr : o_stdout, fmt, ap);
 	va_end(ap);
 	
 	msg("You did something the hardware didn't like.");

@@ -8,7 +8,7 @@
 # Assumes the exception handlers are called "utlbexn" and "genexn".
 #
 
-cs161-nm -o "$@" | egrep ' utlbexn$| genexn$' |\
+mips-harvard-os161-nm -o "$@" | egrep ' utlbexn$| genexn$' |\
   sed '/^[^:]*:80000000 [Tt] utlbexn$/d
        /^[^:]*:80000080 [Tt] genexn$/d' |\
   sed 's/:.*//' | awk '

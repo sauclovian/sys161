@@ -1,6 +1,6 @@
-include defs.mk
-include cpu.mk
-include $S/version.mk
+#
+# Makefile fragment for compiling sys161.
+#
 
 all: $(PROG)
 
@@ -33,8 +33,8 @@ realdepend:
 	$(CC) $(CFLAGS) $(DEPINCLUDES) -MM $(SRCS) > depend.mk
 
 install:
-	[ -d "$(INSTALLDIR)" ] || mkdir -p $(INSTALLDIR)
-	$S/installit.sh "$(INSTALLDIR)" "$(PROG)" "$(VERSION)"
+	[ -d "$(BINDIR)" ] || mkdir -p $(BINDIR)
+	$S/installit.sh "$(BINDIR)" "$(PROG)" "$(VERSION)"
 
 $(PROG): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -lm -o $(PROG)

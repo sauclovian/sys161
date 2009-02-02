@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/time.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -344,6 +345,6 @@ debug_restart(struct gdbcontext *ctx, const char *addr)
 	}
 	msg("whee!  gdb changed the restart address");
 	realaddr = strtoul(addr, NULL, 16);
-	cpu_set_entrypoint(realaddr);
+	cpu_set_entrypoint(0 /*cpunum, XXX*/, realaddr);
 }
 

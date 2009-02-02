@@ -1,11 +1,13 @@
-TARGETCC=cs161-gcc
+#
+# Makefile fragment for mips tests
+#
+
+TARGETCC=mips-harvard-os161-gcc
 TARGETFLAGS=-O2 -Wall -W -Werror -nostdinc -nostdlib \
 	-T $T/ldscript -Ttext 0x80000000 -G 0 -fno-pic -mno-abicalls \
         -I$T
 SYS161=../build-trace161/trace161
 SYS161FLAGS=-tkujtxi -c$T/sys161.conf
-
-include defs.mk
 
 T=$S/mipseb/tests
 

@@ -2,15 +2,6 @@
 #define BUS_H
 
 /*
- * One bit for each bus interrupt line.
- * Code outside the bus directory should really only interpret this as
- * zero (no interrupts) or nonzero (interrupts requested).
- *
- * NOTICE: also declared in bus/lamebus.h.
- */
-extern u_int32_t bus_interrupts;
-
-/*
  * Addresses are relative to the start of RAM pretending it's contiguous,
  * or relative to the start of I/O space. We split things up this way
  * because the actual memory layout is machine-dependent.
@@ -20,13 +11,13 @@ extern u_int32_t bus_interrupts;
 
 //int bus_mem_fetch(u_int32_t addr, u_int32_t *);
 //int bus_mem_store(u_int32_t addr, u_int32_t);
-int bus_io_fetch(u_int32_t addr, u_int32_t *);
-int bus_io_store(u_int32_t addr, u_int32_t);
+int bus_io_fetch(unsigned cpunum, u_int32_t addr, u_int32_t *);
+int bus_io_store(unsigned cpunum, u_int32_t addr, u_int32_t);
 
 /*
- * Set up bus and cards in bus.
+ * Set up bus and cards in bus. Returns number of CPUs to pass to cpu_init.
  */
-void bus_config(const char *configfile);
+unsigned bus_config(const char *configfile);
 
 /*
  * Clean up bus in preparation for exit.

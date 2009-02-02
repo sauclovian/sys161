@@ -6,6 +6,7 @@
 #include <string.h>
 #include "config.h"
 
+#include "util.h"
 #include "console.h"
 #include "trace.h"
 #include "prof.h"
@@ -110,25 +111,42 @@ runloop(void)
 }
 
 static
+void
+initstats(unsigned ncpus)
+{
+	unsigned i;
+
+	g_stats.s_percpu = domalloc(ncpus * sizeof(*g_stats.s_percpu));
+	g_stats.s_numcpus = ncpus;
+
+	for (i=0; i<ncpus; i++) {
+		g_stats.s_percpu[i].sp_kcycles = 0;
+		g_stats.s_percpu[i].sp_ucycles = 0;
+		g_stats.s_percpu[i].sp_icycles = 0;
+	}
+}
+
+static
 u_int64_t
 showstats(void)
 {
-	u_int64_t totcycles;
+	u_int64_t totcycles, cpu_totcycles;
+	unsigned i;
 
-	totcycles = g_stats.s_kcycles + g_stats.s_ucycles + g_stats.s_icycles;
-	if (sizeof(totcycles)==sizeof(long)) {
-		msg("%lu cycles (%luk, %luu, %lui)",
-		    (unsigned long)totcycles,
-		    (unsigned long)g_stats.s_kcycles,
-		    (unsigned long)g_stats.s_ucycles,
-		    (unsigned long)g_stats.s_icycles);
-	}
-	else {
-		msg("%llu cycles (%lluk, %lluu, %llui)",
-		    totcycles,
-		    g_stats.s_kcycles, 
-		    g_stats.s_ucycles,
-		    g_stats.s_icycles);
+	totcycles = g_stats.s_tot_rcycles + g_stats.s_tot_icycles;
+	msg("%llu cycles (%llu run, %llu global-idle)",
+	    (unsigned long long)totcycles,
+	    (unsigned long long)g_stats.s_tot_rcycles,
+	    (unsigned long long)g_stats.s_tot_icycles);
+
+	for (i=0; i<g_stats.s_numcpus; i++) {
+		cpu_totcycles = g_stats.s_percpu[i].sp_kcycles
+			+ g_stats.s_percpu[i].sp_ucycles
+			+ g_stats.s_percpu[i].sp_icycles;
+		msg("  cpu%u: %llu kern, %llu user, %llu idle)", i,
+		    (unsigned long long) g_stats.s_percpu[i].sp_kcycles,
+		    (unsigned long long) g_stats.s_percpu[i].sp_ucycles,
+		    (unsigned long long) g_stats.s_percpu[i].sp_icycles);
 	}
 
 	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console %ur/%uw/%um emufs"
@@ -304,6 +322,7 @@ main(int argc, char *argv[])
 #ifdef USE_TRACE
 	int profiling=0;
 #endif
+	unsigned ncpus;
 
 	/* This must come absolutely first so msg() can be used. */
 	console_earlyinit();
@@ -364,9 +383,10 @@ main(int argc, char *argv[])
 	
 	console_init(pass_signals);
 	clock_init();
-	bus_config(config);
+	ncpus = bus_config(config);
 
-	cpu_init();
+	initstats(ncpus);
+	cpu_init(ncpus);
 
 	if (usetcp) {
 		gdb_inet_init(port);

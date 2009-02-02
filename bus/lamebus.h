@@ -11,8 +11,8 @@ struct lamebus_device_info {
    u_int32_t ldi_deviceid;
    u_int32_t ldi_revision;
    void   *(*ldi_init)(int slot, int argc, char *argv[]);
-   int     (*ldi_fetch)(void *, u_int32_t offset, u_int32_t *rt);
-   int     (*ldi_store)(void *, u_int32_t offset, u_int32_t val);
+   int     (*ldi_fetch)(unsigned, void *, u_int32_t offset, u_int32_t *rt);
+   int     (*ldi_store)(unsigned, void *, u_int32_t offset, u_int32_t val);
    void    (*ldi_dumpstate)(void *);
    void    (*ldi_cleanup)(void *);
 };
@@ -33,29 +33,8 @@ extern const struct lamebus_device_info
 /*
  * Interrupt management.
  */
-extern u_int32_t bus_interrupts;  // NOTICE: also declared in bus.h
-
-#define RAISE_IRQ2(slot) (bus_interrupts |= (1<<(u_int32_t)(slot)))
-#define LOWER_IRQ2(slot) (bus_interrupts &= ~(1<<(u_int32_t)(slot)))
-#define CHECK_IRQ(slot) ((bus_interrupts & (1<<(u_int32_t)(slot))) != 0)
-
-#ifdef USE_TRACE
-
-#define RAISE_IRQ(slot) { \
-	RAISE_IRQ2(slot); \
-	TRACE(DOTRACE_IRQ, ("Slot %2d: irq ON", (slot))); \
-}
-
-#define LOWER_IRQ(slot) { \
-	LOWER_IRQ2(slot); \
-	TRACE(DOTRACE_IRQ, ("Slot %2d: irq OFF", (slot))); \
-}
-
-#else /* not USE_TRACE */
-
-#define RAISE_IRQ(slot) RAISE_IRQ2(slot)
-#define LOWER_IRQ(slot) LOWER_IRQ2(slot)
-
-#endif /* USE_TRACE */
+void raise_irq(int slot);
+void lower_irq(int slot);
+int check_irq(int slot);
 
 #endif /* LAMEBUS_H */

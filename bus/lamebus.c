@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -27,32 +28,83 @@
 const char rcsid_lamebus_c[] =
     "$Id: lamebus.c,v 1.27 2003/02/01 23:06:43 dholland Exp $";
 
+
+
 #define MAXMEM (16*1024*1024)
 
 /*
- * Bus controller's own registers.
+ * Memory.
  */
-u_int32_t bus_ramsize;
-u_int32_t bus_interrupts;
+
+u_int32_t bus_ramsize;					/* RAMSZ */
+char *ram;
 
 /*
- * A slot.
+ * Interrupts.
  */
+
+static u_int32_t bus_raised_interrupts;			/* IRQS */
+static u_int32_t bus_enabled_interrupts = 0xffffffff;	/* IRQE */
+
+/*
+ * CPUs.
+ */
+
+struct lamebus_cpu {
+	int cpu_enabled;				/* one bit of CPUE */
+	u_int32_t cpu_enabled_interrupts;		/* CIRQE */
+	int cpu_interrupting;
+	int cpu_ipi;					/* CIPI, 0 or 1 */
+	char cpu_cram[LAMEBUS_CRAM_SIZE];		/* CRAM */
+};
+
+static struct lamebus_cpu cpus[LAMEBUS_NCPUS];
+static unsigned ncpus;
+
+/*
+ * Slots.
+ */
+
 struct lamebus_slot {
    void                             *ls_devdata;
    const struct lamebus_device_info *ls_info;
 };
 
 static struct lamebus_slot devices[LAMEBUS_NSLOTS];
-char *ram;
 
 /***************************************************************/
+/* Register offsets */
+
+/* LAMEbus config registers (offsets into a config region) */
+#define LBC_CONFIG_VENDORID	0x0
+#define LBC_CONFIG_DEVICEID	0x4
+#define LBC_CONFIG_REVISION	0x8
+
+/* LAMEbus controller registers (offsets into bus controller config region) */
+#define LBC_CTL_RAMSIZE		0x200
+#define LBC_CTL_IRQS		0x204
+#define LBC_CTL_POWER		0x208
+#define LBC_CTL_IRQE		0x20c
+#define LBC_CTL_CPUS		0x210
+#define LBC_CTL_CPUE		0x214
+#define LBC_CTL_SELF		0x218
+
+/* LAMEbus per-cpu control registers (offsets into a cpu region) */
+#define LBC_CPU_CIRQE		0x0
+#define LBC_CPU_CIPI		0x4
+
+/* LAMEbus per-cpu scratch area (offsets into a cpu region) */
+#define LBC_CRAM_START		0x300
+#define LBC_CRAM_END		0x400
+
+/***************************************************************/
+/* Bus dispatcher */
 
 /*
  * Fetch device register.
  */
 int
-bus_io_fetch(u_int32_t offset, u_int32_t *ret)
+bus_io_fetch(unsigned cpunum, u_int32_t offset, u_int32_t *ret)
 {
 	u_int32_t slot = offset / LAMEBUS_SLOT_MEM;
 	u_int32_t slotoffset = offset % LAMEBUS_SLOT_MEM;
@@ -68,7 +120,8 @@ bus_io_fetch(u_int32_t offset, u_int32_t *ret)
 		return -1;
 	}
 
-	return devices[slot].ls_info->ldi_fetch(devices[slot].ls_devdata,
+	return devices[slot].ls_info->ldi_fetch(cpunum,
+						devices[slot].ls_devdata,
 						slotoffset, ret);
 }
 
@@ -76,7 +129,7 @@ bus_io_fetch(u_int32_t offset, u_int32_t *ret)
  * Store to device registers.
  */
 int
-bus_io_store(u_int32_t offset, u_int32_t val)
+bus_io_store(unsigned cpunum, u_int32_t offset, u_int32_t val)
 {
 	u_int32_t slot = offset / LAMEBUS_SLOT_MEM;
 	u_int32_t slotoffset = offset % LAMEBUS_SLOT_MEM;
@@ -92,121 +145,68 @@ bus_io_store(u_int32_t offset, u_int32_t val)
 		return -1;
 	}
 
-	return devices[slot].ls_info->ldi_store(devices[slot].ls_devdata, 
+	return devices[slot].ls_info->ldi_store(cpunum,
+						devices[slot].ls_devdata, 
 						slotoffset, val);
 }
 
 /***************************************************************/
-
-/* LAMEbus controller registers (offsets into a config region) */
-#define LBC_OFFSET_VENDORID         0x0
-#define LBC_OFFSET_DEVICEID         0x4
-#define LBC_OFFSET_REVISION         0x8
-#define LBC_OFFSET_RAMSIZE          0x200  /* bus controller slot only */
-#define LBC_OFFSET_IRQS             0x204  /* bus controller slot only */
-#define LBC_OFFSET_POWER            0x208  /* bus controller slot only */
+/* IRQ dispatcher */
 
 static
-void *
-lamebus_controller_init(int slot, int argc, char *argv[])
+inline
+void
+irqupdate(void)
 {
-	int i;
+	struct lamebus_cpu *cpu;
+	u_int32_t mask;
+	unsigned i;
+	int irq;
 
-	Assert(slot==LAMEBUS_CONTROLLER_SLOT);
+	mask = bus_raised_interrupts & bus_enabled_interrupts;
 
+	for (i=0; i<ncpus; i++) {
+		cpu = &cpus[i];
 
-	/*
-	 * Defaults
-	 */
-	bus_ramsize = 0; /* for now require configuration */
-
-	for (i=1; i<argc; i++) {
-		if (!strncmp(argv[i], "ramsize=", 8)) {
-			bus_ramsize = strtoul(argv[i]+8, NULL, 0);
+		/* always 1/0, not a random bit, so the equality test works */
+		if (mask & cpu->cpu_enabled_interrupts) {
+			irq = 1;
 		}
 		else {
-			msg("busctl: invalid option `%s'", argv[i]);
-			die();
+			irq = 0;
+		}
+
+		if (irq != cpu->cpu_interrupting) {
+			cpu->cpu_interrupting = irq;
+			cpu_set_irqs(i, cpu->cpu_interrupting, cpu->cpu_ipi);
 		}
 	}
-
-	return NULL;
 }
 
-static
-int
-lamebus_controller_doaddress(u_int32_t offset, 
-			     u_int32_t *cfg, u_int32_t *cfgoffset)
+void
+raise_irq(int slot)
 {
-	Assert((offset & 3)==0);
-
-	/* Top half of controller space is reserved for ROM. */
-	if (offset >= 32768) {
-		return -1;
-	}
-
-	*cfg = offset / LAMEBUS_CONFIG_SIZE;
-	*cfgoffset = offset % LAMEBUS_CONFIG_SIZE;
-	
-	Assert(*cfg < LAMEBUS_NSLOTS);
-
-	switch (*cfgoffset) {
-	    case LBC_OFFSET_VENDORID:
-	    case LBC_OFFSET_DEVICEID:
-	    case LBC_OFFSET_REVISION:
-		return 0;
-	}
-
-	if (*cfg != LAMEBUS_CONTROLLER_SLOT) {
-		return -1;
-	}
-
-	switch (*cfgoffset) {
-	    case LBC_OFFSET_RAMSIZE:
-	    case LBC_OFFSET_IRQS:
-	    case LBC_OFFSET_POWER:
-		return 0;
-	}
-
-	return -1;
+	bus_raised_interrupts |= ((u_int32_t)1 << slot);
+	irqupdate();
+	HWTRACE(DOTRACE_IRQ, "Slot %2d: irq ON", (slot));
 }
 
-static
-int
-lamebus_controller_fetch(void *data, u_int32_t offset, u_int32_t *ret)
+void
+lower_irq(int slot)
 {
-	const struct lamebus_device_info *inf;
-	u_int32_t cfg, cfgoffset;
-	(void)data;
-	if (lamebus_controller_doaddress(offset, &cfg, &cfgoffset)) {
-		return -1;
-	}
-
-	inf = devices[cfg].ls_info;
-
-	switch (cfgoffset) {
-	    case LBC_OFFSET_VENDORID:
-		*ret = inf ? inf->ldi_vendorid : 0;
-		return 0;
-	    case LBC_OFFSET_DEVICEID:
-		*ret = inf ? inf->ldi_deviceid : 0;
-		return 0;
-	    case LBC_OFFSET_REVISION:
-		*ret = inf ? inf->ldi_revision : 0;
-		return 0;
-	    case LBC_OFFSET_RAMSIZE:
-		*ret = bus_ramsize;
-		return 0;
-	    case LBC_OFFSET_IRQS:
-		*ret = bus_interrupts;
-		return 0;
-	    case LBC_OFFSET_POWER:
-		hang("Read from LAMEbus controller power register");
-		return 0;
-	}
-
-	return -1;
+	bus_raised_interrupts &= ~((u_int32_t)1 << slot);
+	irqupdate();
+	HWTRACE(DOTRACE_IRQ, "Slot %2d: irq OFF", (slot));
 }
+
+int
+check_irq(int slot)
+{
+	return (bus_raised_interrupts & ((u_int32_t)1 << slot)) != 0;
+}
+
+/***************************************************************/
+/* Operational functions */
 
 static
 void
@@ -218,29 +218,288 @@ dopoweroff(void *junk1, u_int32_t junk2)
 	/*
 	 * This is never seen by the processor, but it breaks the clock
 	 * module out of the idle loop.
+	 *
+	 * XXX this means if you mask slot 31 in IRQE or CIRQE, the
+	 * system won't actually power off. This is ok as a hardware
+	 * bug for the moment but it would be nice to not have such
+	 * behavior.
 	 */
-	RAISE_IRQ(LAMEBUS_CONTROLLER_SLOT);
+	raise_irq(LAMEBUS_CONTROLLER_SLOT);
 
 	main_poweroff();
 }
 
 static
-int
-lamebus_controller_store(void *data, u_int32_t offset, u_int32_t val)
+u_int32_t
+get_cpue(void)
 {
-	u_int32_t cfg, cfgoffset;
-	(void)data;
-	if (lamebus_controller_doaddress(offset, &cfg, &cfgoffset)) {
+	unsigned i;
+	u_int32_t ret = 0;
+
+	for (i=0; i<ncpus; i++) {
+		if (cpus[i].cpu_enabled) {
+			ret |= (u_int32_t)1 << i;
+		}
+	}
+	return ret;
+}
+
+static
+void
+set_cpue(u_int32_t val)
+{
+	unsigned i, thisbit;
+	struct lamebus_cpu *cpu;
+
+	for (i=0; i<ncpus; i++) {
+		thisbit = val & ((u_int32_t)1 << i);
+		cpu = &cpus[i];
+
+		if (cpu->cpu_enabled && thisbit == 0) {
+			/*
+			 * Shutting off cpu.
+			 *
+			 * Just drop it in its tracks...
+			 */
+			cpu->cpu_enabled = 0;
+			cpu_disable(i);
+		}
+		else if (!cpu->cpu_enabled && thisbit != 0) {
+			/*
+			 * Turning on cpu.
+			 *
+			 * According to spec, set stack to the top end
+			 * of CRAM, and load the PC from the bottom
+			 * end of CRAM.
+			 */
+			u_int32_t cramoffset;
+			u_int32_t stackva, pcva, arg;
+
+			cramoffset = LAMEBUS_SLOT_MEM * LAMEBUS_CONTROLLER_SLOT
+				+ 32768
+				+ i * LAMEBUS_PERCPU_SIZE
+				+ LBC_CRAM_END;
+
+			stackva = cpu_get_secondary_start_stack(cramoffset);
+			pcva = ntohl(((u_int32_t *)(cpu->cpu_cram))[0]);
+			arg = ntohl(((u_int32_t *)(cpu->cpu_cram))[1]);
+
+			cpu_set_entrypoint(i, pcva);
+			cpu_set_stack(i, stackva, arg);
+
+			cpu_enable(i);
+		}
+	}
+}
+
+/***************************************************************/
+/* Register addressing */
+
+/*
+ * Translate an offset into a 32K region into an offset and number into
+ * 32 1K regions. Works for both CPU regions and config regions.
+ */
+#if LAMEBUS_CONFIG_SIZE != LAMEBUS_PERCPU_SIZE
+#error bah (1)
+#endif
+#if LAMEBUS_NSLOTS != LAMEBUS_NCPUS
+#error bah (2)
+#endif
+
+static
+inline
+void
+lamebus_controller_region(u_int32_t offset,
+			  u_int32_t *region_ret, u_int32_t *regionoffset_ret)
+{
+	u_int32_t region, regionoffset;
+
+	region = offset / LAMEBUS_CONFIG_SIZE;
+	regionoffset = offset % LAMEBUS_CONFIG_SIZE;
+
+	Assert(region < LAMEBUS_NSLOTS);
+
+	*region_ret = region;
+	*regionoffset_ret = regionoffset;
+}
+
+static
+int
+lamebus_controller_fetch_cpu(u_int32_t offset, u_int32_t *ret)
+{
+	u_int32_t region;
+	u_int32_t *ptr;
+	struct lamebus_cpu *cpu;
+
+	lamebus_controller_region(offset, &region, &offset);
+	if (region >= ncpus) {
+		return -1;
+	}
+	cpu = &cpus[region];
+
+	if (offset >= LBC_CRAM_START && offset < LBC_CRAM_END) {
+		offset -= LBC_CRAM_START;
+		ptr = (u_int32_t *)(cpu->cpu_cram + offset);
+		*ret = ntohl(*ptr);
+		return 0;
+	}
+
+	switch (offset) {
+	    case LBC_CPU_CIRQE:
+		*ret = cpu->cpu_enabled_interrupts;
+		return 0;
+	    case LBC_CPU_CIPI:
+		*ret = cpu->cpu_ipi ? 0xffffffff : 0;
+		return 0;
+	}
+
+	return -1;
+}
+
+static
+int
+lamebus_controller_store_cpu(u_int32_t offset, u_int32_t val)
+{
+	u_int32_t region;
+	u_int32_t *ptr;
+	struct lamebus_cpu *cpu;
+
+	lamebus_controller_region(offset, &region, &offset);
+	if (region >= ncpus) {
+		return -1;
+	}
+	cpu = &cpus[region];
+
+	if (offset >= LBC_CRAM_START && offset < LBC_CRAM_END) {
+		offset -= LBC_CRAM_START;
+		ptr = (u_int32_t *)(cpu->cpu_cram + offset);
+		*ptr = htonl(val);
+		return 0;
+	}
+
+	switch (offset) {
+	    case LBC_CPU_CIRQE:
+		cpu->cpu_enabled_interrupts = val;
+		irqupdate();
+		return 0;
+	    case LBC_CPU_CIPI:
+		cpu->cpu_ipi = val ? 1 : 0;
+		cpu_set_irqs(region, cpu->cpu_interrupting, cpu->cpu_ipi);
+		return 0;
+	}
+
+	return -1;
+}
+
+static
+int
+lamebus_controller_fetch_config(unsigned cpunum,
+				int isold, u_int32_t offset, u_int32_t *ret)
+{
+	const struct lamebus_device_info *inf;
+	u_int32_t region;
+
+	lamebus_controller_region(offset, &region, &offset);
+	inf = devices[region].ls_info;
+
+	switch (offset) {
+	    case LBC_CONFIG_VENDORID:
+		*ret = inf ? inf->ldi_vendorid : 0;
+		return 0;
+	    case LBC_CONFIG_DEVICEID:
+		*ret = inf ? inf->ldi_deviceid : 0;
+		return 0;
+	    case LBC_CONFIG_REVISION:
+		*ret = inf ? inf->ldi_revision : 0;
+		return 0;
+	}
+
+	if (region != LAMEBUS_CONTROLLER_SLOT) {
 		return -1;
 	}
 
+	switch (offset) {
+	    case LBC_CTL_RAMSIZE:
+		*ret = bus_ramsize;
+		return 0;
+	    case LBC_CTL_IRQS:
+		*ret = bus_raised_interrupts;
+		return 0;
+	    case LBC_CTL_POWER:
+		if (isold) {
+			hang("Read from LAMEbus controller power register");
+			*ret = 0;
+		}
+		else {
+			*ret = 0xffffffff;
+		}
+		return 0;
+	    case LBC_CTL_IRQE:
+		*ret = bus_enabled_interrupts;
+		return 0;
+	    case LBC_CTL_CPUS:
+		if (isold) {
+			return -1;
+		}
+		if (ncpus == 32) {
+			/* avoid nasal demons */
+			*ret = 0xffffffff;
+		}
+		else {
+			*ret = ((u_int32_t)1 << ncpus) - 1;
+		}
+		return 0;
+	    case LBC_CTL_CPUE:
+		if (isold) {
+			return -1;
+		}
+		*ret = get_cpue();
+		return 0;
+	    case LBC_CTL_SELF:
+		if (isold) {
+			return -1;
+		}
+		*ret = (u_int32_t)1 << cpunum;
+		return 0;
+	}
 
-	switch (cfgoffset) {
-	    case LBC_OFFSET_POWER:
-		if (val==0) {
+	return -1;
+}
+
+
+static
+int
+lamebus_controller_store_config(int isold, u_int32_t offset, u_int32_t val)
+{
+	u_int32_t region;
+
+	lamebus_controller_region(offset, &region, &offset);
+	if (region != LAMEBUS_CONTROLLER_SLOT) {
+		return -1;
+	}
+
+	switch (offset) {
+	    case LBC_CTL_POWER:
+		if (val == 0) {
 			schedule_event(POWEROFF_NSECS, NULL, 0, dopoweroff,
 				       "poweroff");
 		}
+		else if (!isold) {
+			if ((val & 0x80000000) == 0) {
+				/* switched off mainboard, left others on */
+				hang("Invalid power state");
+			}
+		}
+		return 0;
+	    case LBC_CTL_IRQE:
+		bus_enabled_interrupts = val;
+		irqupdate();
+		return 0;
+	    case LBC_CTL_CPUE:
+		if (isold) {
+			return -1;
+		}
+		set_cpue(val);
 		return 0;
 	    default:
 		break;
@@ -250,25 +509,183 @@ lamebus_controller_store(void *data, u_int32_t offset, u_int32_t val)
 }
 
 static
+int
+lamebus_controller_fetch(unsigned cpunum,
+			 void *data, u_int32_t offset, u_int32_t *ret)
+{
+	int isold = (data != NULL);
+
+	if (offset >= 32768) {
+		if (isold) {
+			return -1;
+		}
+		return lamebus_controller_fetch_cpu(offset-32768, ret);
+	}
+	else {
+		return lamebus_controller_fetch_config(cpunum,
+						       isold, offset, ret);
+	}
+}
+
+static
+int
+lamebus_controller_store(unsigned cpunum,
+			 void *data, u_int32_t offset, u_int32_t val)
+{
+	int isold = (data != NULL);
+
+	(void)cpunum;
+
+	if (offset >= 32768) {
+		if (isold) {
+			return -1;
+		}
+		return lamebus_controller_store_cpu(offset-32768, val);
+	}
+	else {
+		return lamebus_controller_store_config(isold, offset, val);
+	}
+}
+
+/***************************************************************/
+
+static
 void
-lamebus_controller_dumpstate(void *data)
+lamebus_commonmainboard_init(int isold, int slot, int argc, char *argv[])
+{
+	int i;
+	unsigned long j, tmp_ncpus, ncores;
+	const char *myname = isold ? "oldmainboard" : "mainboard";
+
+	Assert(slot==LAMEBUS_CONTROLLER_SLOT);
+
+	/*
+	 * Defaults
+	 */
+	bus_ramsize = 0; /* for now require configuration */
+	tmp_ncpus = 1;
+	ncores = 1;
+
+	for (i=1; i<argc; i++) {
+		if (!strncmp(argv[i], "ramsize=", 8)) {
+			bus_ramsize = strtoul(argv[i]+8, NULL, 0);
+		}
+		else if (!isold && !strncmp(argv[i], "cpus=", 5)) {
+			tmp_ncpus = strtoul(argv[i]+5, NULL, 0);
+		}
+		else if (!isold && !strncmp(argv[i], "cores=", 6)) {
+			ncores = strtoul(argv[i]+6, NULL, 0);
+		}
+		else {
+			msg("%s: invalid option `%s'", myname, argv[i]);
+			die();
+		}
+	}
+
+	if (tmp_ncpus == 0 || ncores == 0) {
+		msg("%s: give me no CPUs and I'll give you no lies", myname);
+		die();
+	}
+	if (ncores > 1) {
+		msg("%s: no support for multicore CPUs yet", myname);
+		die();
+	}
+	if (tmp_ncpus > 32) {
+		msg("%s: too many CPUs", myname);
+		die();
+	}
+	/* avoid overflow from unsigned long to unsigned */
+	ncpus = tmp_ncpus;
+
+	for (j=0; j<ncpus; j++) {
+		cpus[j].cpu_enabled = 0;
+		cpus[j].cpu_enabled_interrupts = 0xffffffff;
+		cpus[j].cpu_ipi = 0;
+		cpus[j].cpu_interrupting = 0;
+	}
+	cpus[0].cpu_enabled = 1;
+}
+
+static
+void *
+lamebus_oldmainboard_init(int slot, int argc, char *argv[])
+{
+	lamebus_commonmainboard_init(1 /*old*/, slot, argc, argv);
+
+	/* not NULL to mark this as the old controller type, kinda gross */
+	return &cpus[0];
+}
+
+static
+void *
+lamebus_mainboard_init(int slot, int argc, char *argv[])
+{
+	lamebus_commonmainboard_init(0 /*not old*/, slot, argc, argv);
+	return NULL;
+}
+
+static
+void
+lamebus_oldmainboard_dumpstate(void *data)
 {
 	(void)data;
-	msg("LAMEbus controller rev %d", BUSCTL_REVISION);
+	msg("LAMEbus uniprocessor controller rev %d", OLDMAINBOARD_REVISION);
 	msg("    ramsize: %lu (%luk)", 
 	    (unsigned long)bus_ramsize, 
 	    (unsigned long)bus_ramsize/1024);
-	msg("    irqs: 0x%08x", bus_interrupts);
+	msg("    irqs: 0x%08x", bus_raised_interrupts);
+	msg("    irqe: 0x%08x", bus_enabled_interrupts);
+	msg("    irqc: 0x%08x", cpus[0].cpu_interrupting);
 }
 
-static struct lamebus_device_info lamebus_controller_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_CTL,
-	BUSCTL_REVISION,
-	lamebus_controller_init,
+static
+void
+lamebus_mainboard_dumpstate(void *data)
+{
+	unsigned i;
+
+	(void)data;
+
+	msg("LAMEbus multiprocessor controller rev %d", MAINBOARD_REVISION);
+	msg("    ramsize: %lu (%luk)", 
+	    (unsigned long)bus_ramsize, 
+	    (unsigned long)bus_ramsize/1024);
+	msg("    irqs: 0x%08x", bus_raised_interrupts);
+	msg("    irqe: 0x%08x", bus_enabled_interrupts);
+	msg("    cpus: %u", ncpus);
+	msg("    cpue: 0x%08x", get_cpue());
+	for (i=0; i<ncpus; i++) {
+		msg("    cpu %d: %s", i,
+		    cpus[i].cpu_enabled ? "ENABLED" : "DISABLED");
+		msg("    cpu %d cirqe: 0x%08x", i,
+		    cpus[i].cpu_enabled_interrupts);
+		msg("    cpu %d cipi: %d", i, cpus[i].cpu_ipi);
+		msg("    cpu %d interrupting: %d", i,
+		    cpus[i].cpu_interrupting);
+		msg("    cpu %d cram:", i);
+		dohexdump(cpus[i].cpu_cram, sizeof(cpus[i].cpu_cram));
+	}
+}
+
+static struct lamebus_device_info lamebus_oldmainboard_info = {
+	LBVEND_SYS161,
+	LBVEND_SYS161_OLDMAINBOARD,
+	OLDMAINBOARD_REVISION,
+	lamebus_oldmainboard_init,
 	lamebus_controller_fetch,
 	lamebus_controller_store,
-	lamebus_controller_dumpstate,
+	lamebus_oldmainboard_dumpstate,
+	NULL,
+};
+
+static struct lamebus_device_info lamebus_mainboard_info = {
+	LBVEND_SYS161,
+	LBVEND_SYS161_MAINBOARD,
+	MAINBOARD_REVISION,
+	lamebus_mainboard_init,
+	lamebus_controller_fetch,
+	lamebus_controller_store,
+	lamebus_mainboard_dumpstate,
 	NULL,
 };
 
@@ -278,19 +695,22 @@ static struct lamebus_device_info lamebus_controller_info = {
 struct bus_device {
 	const char *dev_name;
 	const struct lamebus_device_info *dev_info;
+	int dev_iscontroller;
 };
 
 static const struct bus_device devtable[] = {
-	{ "busctl",     &lamebus_controller_info },
-	{ "timer",      &timer_device_info }, 
-	{ "disk",       &disk_device_info },
-	{ "serial",     &serial_device_info },
-	{ "screen",     &screen_device_info },
-	{ "nic",        &net_device_info },
-	{ "emufs",      &emufs_device_info },
-	{ "trace",      &trace_device_info },
-	{ "random",     &random_device_info },
-	{ NULL, NULL }
+	{ "busctl",             &lamebus_oldmainboard_info, 1 }, /* compat */
+	{ "oldmainboard",       &lamebus_oldmainboard_info, 1 },
+	{ "mainboard",          &lamebus_mainboard_info,    1 },
+	{ "timer",              &timer_device_info,         0 }, 
+	{ "disk",               &disk_device_info,          0 },
+	{ "serial",             &serial_device_info,        0 },
+	{ "screen",             &screen_device_info,        0 },
+	{ "nic",                &net_device_info,           0 },
+	{ "emufs",              &emufs_device_info,         0 },
+	{ "trace",              &trace_device_info,         0 },
+	{ "random",             &random_device_info,        0 },
+	{ NULL, NULL, 0 }
 };
 
 static 
@@ -312,7 +732,7 @@ find_dev(const char *name)
  *     slot device-name args
  */
 #define MAXARGS 128
-void
+unsigned
 bus_config(const char *configfile)
 {
 	char *s;
@@ -370,7 +790,7 @@ bus_config(const char *configfile)
 		}
 		
 		{
-			int isbus = !strcmp(dev->dev_name, "busctl");
+			int isbus = dev->dev_iscontroller;
 			int isbusslot = slot==LAMEBUS_CONTROLLER_SLOT;
 
 			if ((isbus && !isbusslot) || (!isbus && isbusslot)) {
@@ -409,6 +829,8 @@ bus_config(const char *configfile)
 		msg("config %s: Cannot allocate system memory", configfile);
 		die();
 	}
+
+	return ncpus;
 }
 
 void

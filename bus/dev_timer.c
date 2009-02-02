@@ -75,7 +75,7 @@ timer_interrupt(void *d, u_int32_t gen)
 		return;
 	}
 
-	RAISE_IRQ(td->td_slot);
+	raise_irq(td->td_slot);
 
 	if (td->td_restartflag) {
 		timer_start(td);
@@ -94,9 +94,12 @@ timer_start(struct timer_data *td)
 
 static
 int
-timer_fetch(void *d, u_int32_t offset, u_int32_t *val)
+timer_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
 {
 	struct timer_data *td = d;
+
+	(void)cpunum;
+
 	switch (offset) {
 	    case TREG_TSEC:
 		clock_time(val, NULL);
@@ -108,8 +111,8 @@ timer_fetch(void *d, u_int32_t offset, u_int32_t *val)
 		*val = td->td_restartflag;
 		return 0;
 	    case TREG_IRQ: 
-		*val = CHECK_IRQ(td->td_slot);
-		LOWER_IRQ(td->td_slot);
+		*val = check_irq(td->td_slot);
+		lower_irq(td->td_slot);
 		return 0;
 	    case TREG_TIME:
 		*val = td->td_count_usecs;
@@ -132,9 +135,12 @@ timer_fetch(void *d, u_int32_t offset, u_int32_t *val)
 
 static
 int
-timer_store(void *d, u_int32_t offset, u_int32_t val)
+timer_store(unsigned cpunum, void *d, u_int32_t offset, u_int32_t val)
 {
 	struct timer_data *td = d;
+
+	(void)cpunum;
+
 	switch (offset) {
 	    case TREG_TSEC:
 		clock_setsecs(val);
@@ -169,7 +175,7 @@ void
 timer_dumpstate(void *data)
 {
 	struct timer_data *td = data;
-	msg("CS161 timer device rev %d", TIMER_REVISION);
+	msg("System/161 timer device rev %d", TIMER_REVISION);
 	msg("    %lu microseconds, %s",
 	    (unsigned long) td->td_count_usecs,
 	    td->td_restartflag ? "restarting" : "one-shot");
@@ -178,8 +184,8 @@ timer_dumpstate(void *data)
 }
 
 const struct lamebus_device_info timer_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_TIMER,
+	LBVEND_SYS161,
+	LBVEND_SYS161_TIMER,
 	TIMER_REVISION,
 	timer_init,
 	timer_fetch,

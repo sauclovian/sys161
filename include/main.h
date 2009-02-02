@@ -31,10 +31,17 @@ void main_dumpstate(void);
  * Hardware counters reported at simulator exit.
  */
 
+struct stats_percpu {
+	u_int64_t sp_ucycles;  // user mode cycles
+	u_int64_t sp_kcycles;  // kernel mode cycles
+	u_int64_t sp_icycles;  // idle cycles
+};
+
 struct stats {
-	u_int64_t s_ucycles;  // user mode cycles
-	u_int64_t s_kcycles;  // kernel mode cycles
-	u_int64_t s_icycles;  // idle cycles
+	u_int64_t s_tot_rcycles; // cycles with at least one cpu running
+	u_int64_t s_tot_icycles; // cycles when fully idle
+	struct stats_percpu *s_percpu;
+	unsigned s_numcpus;
 	u_int32_t s_irqs;     // total interrupts
 	u_int32_t s_exns;     // total exceptions
 	u_int32_t s_rsects;   // disk sectors read

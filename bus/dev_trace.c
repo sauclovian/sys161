@@ -29,8 +29,9 @@ trace_init(int slot, int argc, char *argv[])
 
 static
 int
-trace_fetch(void *data, u_int32_t offset, u_int32_t *ret)
+trace_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 {
+	(void)cpunum;
 	(void)data;
 	(void)offset;
 	(void)ret;
@@ -40,8 +41,9 @@ trace_fetch(void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-trace_store(void *data, u_int32_t offset, u_int32_t val)
+trace_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
 {
+	(void)cpunum;
 	(void)data;
 
 	switch (offset) {
@@ -97,8 +99,8 @@ trace_cleanup(void *data)
 }
 
 const struct lamebus_device_info trace_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_TRACE,
+	LBVEND_SYS161,
+	LBVEND_SYS161_TRACE,
 	TRACE_REVISION,
 	trace_init,
 	trace_fetch,

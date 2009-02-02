@@ -23,8 +23,8 @@ void *screen_init(int slot, int argc, char *argv[])
 }
 
 const struct lamebus_device_info screen_device_info = {
-	LBVEND_CS161,
-	LBVEND_CS161_SCREEN,
+	LBVEND_SYS161,
+	LBVEND_SYS161_SCREEN,
 	SCREEN_REVISION,
 	screen_init,
 	NULL,  /* fetch */

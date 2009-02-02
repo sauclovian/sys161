@@ -8,7 +8,7 @@ all depend install tidy clean:
 distclean:
 	rm -rf build-sys161 build-trace161 build-stat161 build-hub161 build-doc
 	rm -rf test-cpu
-	rm -f Makefile
+	rm -f Makefile defs.mk
 
 test:
 	(cd test-cpu && $(MAKE))

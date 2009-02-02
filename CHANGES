@@ -1,3 +1,23 @@
+
+20090202 dholland	System/161 1.99.01 released.
+20090201 dholland	More build fixes for Linux, on amd64.
+20090201 dholland	Avoid doing (u_int32_t)1 << 32.
+20090201 dholland	Fix cpu cycle counters for multiple-cpu configs.
+20090201 dholland	Make debugger "see" whichever CPU hits a breakpoint.
+20090131 dholland	Build fixes for Linux.
+20090130 dholland	Make trace system handline multiple-cpu configs right.
+20090130 dholland	Fix trace macros to be C99 varargs macros.
+20090130 dholland	Make SELF register behave as documented.
+20090130 dholland	Make secondary CPU startup work.
+20090129 dholland	Add on-chip timer from MIPS32.
+20090129 dholland	Add ll/sc instructions. Haven't bumped CPU version id.
+20090126 dholland	Implement multiprocessor bus controller.
+20090126 dholland	Add interrupt masking register to (old) bus controller.
+			Bump (old) bus controller revision level to 2.
+20090123 dholland	Rework docs completely.
+20090123 dholland	Fix old nonstandard install layout.
+20090123 dholland	Begin reorg of makefiles and build system.
+
 20080627 dholland	System/161 1.14 released.
 20080627 dholland	Make it work with gdb 6.6.
 20080627 dholland	Fix broken build under NetBSD-current.
@@ -148,4 +168,4 @@
 20010207 dholland	Print version string at startup.
 20010206 dholland	Fix mips "sltiu" instruction.
 
-20020202 dholland	System/161 0.90 released.
+20010202 dholland	System/161 0.90 released.

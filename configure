@@ -14,7 +14,7 @@
 if [ -f doc/lamebus.html ]; then
     SRCDIR=""
 else
-    SRCDIR=`echo "$0" | sed 's,[^/]*$,,`
+    SRCDIR=`echo "$0" | sed 's,[^/]*$,,'`
 fi
 
 while [ "x$1" != x ]; do
@@ -24,9 +24,11 @@ Usage: ./configure [options] cpu_architecture
 Options are:
     --help              Print this message
     --with-compiler=CC  Use CC as compiler [probed]
-    --installdir=DIR    Install into DIR [$HOME/cs161/root]
-    --etcdir=DIR        Install sample config into DIR [INSTALLDIR]
-    --docdir=DIR        Install docs into DIR [INSTALLDIR/man/sys161]
+    --prefix=DIR        Install under DIR [/usr/local]
+    --bindir=DIR        Install programs into DIR [PREFIX/bin]
+    --exampledir=DIR    Install examples in DIR [PREFIX/share/examples/sys161]
+    --docdir=DIR        Install docs into DIR [PREFIX/share/doc/sys161]
+    --mandir=DIR        Install man pages into DIR [PREFIX/man]
     --devel             Turn on lots of warnings [default off]
     --debug             Turn on debug symbols for sys161 itself [default off]
 Architectures are:
@@ -35,9 +37,11 @@ EOF
     exit 0
     ;;
 	--with-compiler=*) CC=`echo $1 | sed 's/^[^=]*=//'`;;
-	--installdir=*) INSTALLDIR=`echo $1 | sed 's/^[^=]*=//'`;;
-	--etcdir=*) ETCDIR=`echo $1 | sed 's/^[^=]*=//'`;;
+	--prefix=*) PREFIX=`echo $1 | sed 's/^[^=]*=//'`;;
+	--bindir=*) BINDIR=`echo $1 | sed 's/^[^=]*=//'`;;
+	--exampledir=*) EXAMPLEDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--docdir=*) DOCDIR=`echo $1 | sed 's/^[^=]*=//'`;;
+	--mandir=*) MANDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--devel) USEWARNS=1;;
 	--debug) USEDEBUG=1;;
 	--*) echo "Unknown option $1 (try --help)"; exit 1;;
@@ -531,29 +535,33 @@ fi
 
 ############################################################
 
-echo -n "Checking install directory... "
+echo -n "Install directories: "
 
-if [ "x$INSTALLDIR" = x ]; then
-    INSTALLDIR='$(HOME)/cs161/root'
+if [ "x$PREFIX" = x ]; then
+    PREFIX='/usr/local'
 fi
 
-echo "$INSTALLDIR"
-
-echo -n "Checking config directory... "
-
-if [ "x$ETCDIR" = x ]; then
-    ETCDIR="$INSTALLDIR"
+if [ "x$BINDIR" = x ]; then
+    BINDIR="$PREFIX/bin"
 fi
 
-echo "$ETCDIR"
-
-echo -n "Checking doc directory... "
+if [ "x$EXAMPLEDIR" = x ]; then
+    EXAMPLEDIR="$PREFIX/share/examples/sys161"
+fi
 
 if [ "x$DOCDIR" = x ]; then
-    DOCDIR="$INSTALLDIR/man/sys161"
+    DOCDIR="$PREFIX/share/doc/sys161"
 fi
 
-echo "$DOCDIR"
+if [ "x$MANDIR" = x ]; then
+    if [ -d "$PREFIX/share/man/man1" ]; then
+	MANDIR="$PREFIX/share/man"
+    else
+	MANDIR="$PREFIX/man"
+    fi
+fi
+
+echo "$BINDIR" "$EXAMPLEDIR" "$DOCDIR" "$MANDIR"
 
 ############################################################
 
@@ -569,6 +577,19 @@ fi
 
 ########################################
 
+echo 'Generating defs.mk'
+
+(
+    echo '# Automatically generated file; do not edit'
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo
+) > defs.mk
+
+########################################
+
 echo 'Generating build-sys161/defs.mk'
 
 (
@@ -580,12 +601,13 @@ echo 'Generating build-sys161/defs.mk'
     echo
     echo "PROG=sys161"
     echo
-    echo "INSTALLDIR=$INSTALLDIR"
+    echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
 	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
 	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
     esac
+    echo "CPU=$CPU"
     echo
 ) > build-sys161/defs.mk
 
@@ -602,12 +624,13 @@ echo 'Generating build-trace161/defs.mk'
     echo
     echo "PROG=trace161"
     echo
-    echo "INSTALLDIR=$INSTALLDIR"
+    echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
 	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
 	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
     esac
+    echo "CPU=$CPU"
     echo
 ) > build-trace161/defs.mk
 
@@ -624,7 +647,7 @@ echo 'Generating build-stat161/defs.mk'
     echo
     echo "PROG=stat161"
     echo
-    echo "INSTALLDIR=$INSTALLDIR"
+    echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
 	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
@@ -646,7 +669,7 @@ echo 'Generating build-hub161/defs.mk'
     echo
     echo "PROG=hub161"
     echo
-    echo "INSTALLDIR=$INSTALLDIR"
+    echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
 	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
@@ -660,9 +683,10 @@ echo 'Generating build-hub161/defs.mk'
 echo 'Generating build-doc/defs.mk'
 
 (
+    echo "BINDIR=$BINDIR"
+    echo "EXAMPLEDIR=$EXAMPLEDIR"
     echo "DOCDIR=$DOCDIR"
-    echo "ETCDIR=$ETCDIR"
-    echo "INSTALLDIR=$INSTALLDIR"
+    echo "MANDIR=$MANDIR"
     echo
     case "$SRCDIR" in
 	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
@@ -681,29 +705,10 @@ if [ -d ${SRCDIR}$CPU/tests ]; then
 	    /*) echo "S=$SRCDIR" | sed 's,/$,,';;
 	    *) echo "S=../$SRCDIR" | sed 's,/$,,';;
 	esac
+	echo "CPU=$CPU"
 	echo
     ) > test-cpu/defs.mk
 fi
-
-########################################
-
-echo 'Generating lb-cpu.html'
-
-(
-    echo '<!-- Automatically generated file - do not edit here -->'
-    cat ${SRCDIR}$CPU/lb-cpu.html
-) > build-doc/lb-cpu.html
-
-########################################
-
-echo 'Generating cpu.mk'
-
-(
-    echo '# Automatically generated file - do not edit here'
-    cat ${SRCDIR}$CPU/cpu.mk
-) > build-sys161/cpu.mk
-
-cp -f build-sys161/cpu.mk build-trace161/cpu.mk
 
 ########################################
 
@@ -711,36 +716,48 @@ echo 'Generating Makefiles'
 
 (
     echo '# Automatically generated file - do not edit here'
-    cat ${SRCDIR}Makefile.build
+    echo 'include defs.mk'
+    echo 'include $S/$(CPU)/cpu.mk'
+    echo 'include $S/version.mk'
+    echo 'include $S/mk/sys161.mk'
 ) > build-sys161/Makefile
 
 cp -f build-sys161/Makefile build-trace161/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    cat ${SRCDIR}Makefile.stat
+    echo 'include defs.mk'
+    echo 'include $S/version.mk'
+    echo 'include $S/mk/stat161.mk'
 ) > build-stat161/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    cat ${SRCDIR}Makefile.hub
+    echo 'include defs.mk'
+    echo 'include $S/version.mk'
+    echo 'include $S/mk/hub161.mk'
 ) > build-hub161/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    cat ${SRCDIR}Makefile.doc
+    echo 'include defs.mk'
+    echo 'include $S/version.mk'
+    echo 'include $S/mk/doc.mk'
 ) > build-doc/Makefile
 
 if [ -d ${SRCDIR}$CPU/tests ]; then
     (
 	echo '# Automatically generated file - do not edit here'
-	cat ${SRCDIR}$CPU/tests/Makefile.test
+	echo 'include defs.mk'
+	echo 'include $S/version.mk'
+	echo 'include $S/$(CPU)/tests/test.mk'
     ) > test-cpu/Makefile
 fi
 
 (
     echo '# Automatically generated file - do not edit here'
-    cat ${SRCDIR}Makefile.top
+    echo 'include defs.mk'
+    echo 'include $S/mk/top.mk'
 ) > Makefile
 
 ########################################

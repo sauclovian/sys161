@@ -1,19 +1,24 @@
 <html>
 <head>
-<title>LAMEbus devices</title>
+<title>System/161 LAMEbus Devices</title>
 </head>
-<body bgcolor=#ffffff>
+<body bgcolor="#ffffff" text="#000000" link="#000066" vlink="#0000aa">
+<!-- "#36648b" --> 
+<!-- "#8b008b" -->
 
-<h3>LAMEbus devices</h3>
+<h2 align=center>
+<font face=tahoma,arial,helvetica,sans color=#000066>
+System/161 LAMEbus Devices
+</font></h2>
 
-These devices have LAMEbus vendor id 1 (CS161 Course Staff).
+These devices have LAMEbus vendor id 1 (System/161 Development Team).
 <p>
 
 <table width=100% border=0>
 <tr><th align=left width=5%>DID</th><th align=left width=5%>DRL</th>
 						<th></th></tr>
 <tr><td>1</td><td>1</td><td>
-CS161 bus controller - see <A HREF=lamebus.html>LAMEbus spec</A>
+Old uniprocessor bus controller -- see <A HREF=lamebus.html>LAMEbus spec</A>
 </td></tr>
 
 <tr><td>2</td><td>1</td><td><A HREF=#timer>Timer/clock card</A></td></tr>
@@ -24,12 +29,17 @@ CS161 bus controller - see <A HREF=lamebus.html>LAMEbus spec</A>
 <tr><td>7</td><td>1</td><td><A HREF=#emufs>Emulator filesystem</A></td></tr>
 <tr><td>8</td><td>1</td><td><A HREF=#trace>Hardware trace control</td></tr>
 <tr><td>9</td><td>1</td><td><A HREF=#rand>Random number generator</A></td></tr>
+
+<tr><td>10</td><td>1</td><td>
+Multiprocessor bus controller -- see <A HREF=lamebus.html>LAMEbus spec</A>
+</td></tr>
+
 </table>
 
 <hr>
 
 <A NAME=timer>
-<h4>Timer/clock card</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Timer/clock card</font></h4>
 Device id: 2<br>
 Oldest revision: 1<br>
 Current revision: 1<br>
@@ -57,12 +67,13 @@ Reading from the speaker produces undefined behavior.
 <p>
 
 The current time registers represent UTC, where the epoch is midnight
-on January 1, 1970, as per the unix time() call.
+on January 1, 1970, as per the Unix <tt>time</tt> call. (In 2038 this will
+break. Oh no.)
 
 <hr>
 
 <A NAME=disk>
-<h4>Fixed disk</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Fixed disk</font></h4>
 Device id: 3<br>
 Oldest revision: 2<br>
 Current revision: 2<br>
@@ -138,7 +149,7 @@ stable storage.
 <hr>
 
 <A NAME=serial>
-<h4>Serial console</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Serial console</font></h4>
 Device id: 4<br>
 Oldest revision: 1<br>
 Current revision: 1<br>
@@ -177,7 +188,7 @@ document their values or even map them into a single consistent set.
 <hr>
 
 <A NAME=screen>
-<h4>Screen console</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Screen console</font></h4>
 Device id: 5<br>
 Oldest revision: 1<br>
 Current revision: 1<br>
@@ -214,7 +225,7 @@ in practice will not.
 <hr>
 
 <A NAME=nic>
-<h4>Network interface</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Network interface</font></h4>
 Device id: 6<br>
 Oldest revision: 2<br>
 Current revision: 2<br>
@@ -274,7 +285,8 @@ fields (always in network byte order):
 
 <blockquote>
 <table width=95% border=0>
-<tr><th>Offset</th><th>Size</th><th>Description</th></tr>
+<tr><th align=left>Offset</th><th align=left>Size</th>
+<th align=left>Description</th></tr>
 <tr><td>0</td>	<td>2</td>	<td>Framing word (0xa4b3)</td></tr>
 <tr><td>2</td>	<td>2</td>	<td>Hardware from-address</td></tr>
 <tr><td>4</td>	<td>2</td>	<td>Total packet length</td></tr>
@@ -293,7 +305,8 @@ Software should not send packets to hardware address 0x0000.
 <hr>
 
 <A NAME=emufs>
-<h4>Emulator passthrough filesystem</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Emulator passthrough
+filesystem</font></h4>
 Device id: 7<br>
 Oldest revision: 1<br>
 Current revision: 1<br>
@@ -359,7 +372,8 @@ frequent change.
 <hr>
 
 <A NAME=trace>
-<h4>Hardware trace controller</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Hardware trace
+controller</font></h4>
 Device id: 8<br>
 Oldest revision: 1<br>
 Current revision: 1<br>
@@ -399,7 +413,7 @@ All these registers are write-only.
 <hr>
 
 <A NAME=rand>
-<h4>Random number generator</h4>
+<h4><font face=tahoma,arial,helvetica,sans>Random number generator</font></h4>
 Device id: 9<br>
 Oldest revision: 1<br>
 Current revision: 1<br>

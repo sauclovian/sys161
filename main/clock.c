@@ -240,12 +240,7 @@ clock_dumpstate(void)
 	    (unsigned long) now_nsecs,
 	    (unsigned long) start_secs,
 	    (unsigned long) start_nsecs);
-	if (sizeof(now_clocks)==sizeof(unsigned long)) {
-		msg("clock:    %9lu ticks", (unsigned long) now_clocks);
-	}
-	else {
-		msg("clock:    %9llu ticks", now_clocks);
-	}
+	msg("clock:    %9llu ticks", (unsigned long long) now_clocks);
 
 	if (queuehead==NULL) {
 		msg("clock: No events pending");
@@ -253,14 +248,8 @@ clock_dumpstate(void)
 	}
 
 	for (ta = queuehead; ta; ta = ta->ta_next) {
-		msgl("clock: at ");
-		if (sizeof(now_clocks)==sizeof(unsigned long)) {
-			msgl("%9lu", (unsigned long) ta->ta_clocksat);
-		}
-		else {
-			msgl("%9llu", ta->ta_clocksat);
-		}
-		msg(": %s", ta->ta_desc);
+		msg("clock: at %9llu: %s",
+		    (unsigned long long) ta->ta_clocksat, ta->ta_desc);
 	}
 }
 
@@ -269,6 +258,7 @@ clock_tick(void)
 {
 	clock_advance(NSECS_PER_CLOCK);
 	now_clocks++;
+	g_stats.s_tot_rcycles++;
 }
 
 static
@@ -280,7 +270,7 @@ report_idletime(u_int32_t secs, u_int32_t nsecs)
 
 	idlensecs = secs * (u_int64_t)1000000000 + nsecs + slop;
 
-	g_stats.s_icycles += idlensecs / NSECS_PER_CLOCK;
+	g_stats.s_tot_icycles += idlensecs / NSECS_PER_CLOCK;
 	slop = idlensecs % NSECS_PER_CLOCK;
 }
 
@@ -331,7 +321,7 @@ clock_dowait(u_int32_t secs, u_int32_t nsecs, u_int64_t clocks)
 void
 clock_waitirq(void)
 {
-	while (bus_interrupts==0) {
+	while (cpu_running_mask == 0) {
 		if (queuehead != NULL) {
 			u_int64_t clocks;
 			u_int64_t nsecs;
