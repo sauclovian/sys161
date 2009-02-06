@@ -1,3 +1,5 @@
+20090206 dholland	System/161 1.99.02 released.
+20090206 dholland	Fix build glitch when building inside source tree.
 
 20090202 dholland	System/161 1.99.01 released.
 20090201 dholland	More build fixes for Linux, on amd64.

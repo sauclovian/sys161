@@ -582,6 +582,7 @@ echo 'Generating defs.mk'
 (
     echo '# Automatically generated file; do not edit'
     case "$SRCDIR" in
+	"") echo "S=.";;
 	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
 	*) echo "S=$SRCDIR" | sed 's,/$,,';;
     esac
