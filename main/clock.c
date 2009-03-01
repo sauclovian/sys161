@@ -38,6 +38,7 @@ struct timed_action {
 	u_int32_t ta_code;
 	void (*ta_func)(void *, u_int32_t);
 	const char *ta_desc;
+	int ta_dotimefixup; // XXX (see uses below)
 };
 
 static u_int32_t now_secs;
@@ -46,6 +47,8 @@ static u_int32_t now_nsecs;
 static u_int32_t start_secs, start_nsecs;
 
 static u_int64_t now_clocks;
+
+static int now_is_behind; // XXX (see uses below)
 
 /**************************************************************/
 
@@ -96,12 +99,17 @@ check_queue(void)
 	struct timed_action *ta;
 	while (queuehead != NULL) {
 		ta = queuehead;
-		if (ta->ta_clocksat != now_clocks) {
+		if (ta->ta_dotimefixup) {
+			smoke("Checked a dotimefixup event");
+		}
+		if (ta->ta_clocksat > now_clocks) {
 			return;
 		}
+
+		queuehead = ta->ta_next;
 		
 		ta->ta_func(ta->ta_data, ta->ta_code);
-		queuehead = ta->ta_next;
+
 		acfree(ta);
 	}
 }
@@ -124,6 +132,7 @@ schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 	n->ta_code = code;
 	n->ta_func = func;
 	n->ta_desc = desc;
+	n->ta_dotimefixup = now_is_behind;
 
 	/*
 	 * Sorted linked-list insert.
@@ -137,6 +146,55 @@ schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 
 	n->ta_next = (*p);
 	(*p) = n;
+}
+
+static
+void
+dotimefixups(u_int64_t cycles)
+{
+	/*
+	 * XXX.
+	 *
+	 * The problem is that onsel.c, which is all tidily abstracted
+	 * away, affects timing. In particular, the select with a
+	 * timeout in clock_dowait returns after an interval that can
+	 * only be determined by checking gettimeofday(). Therefore,
+	 * the "current time" (now_*) when it's running can be either
+	 * the time before the sleep or the conjectured time after the
+	 * sleep. Until 20090228 it used to be the latter. But with a
+	 * long timeout that makes a mess if the select returns much
+	 * earlier due to e.g. a keypress.
+	 *
+	 * (With OS/161 2.x, where the 100 Hz hardclock is done by the
+	 * on-chip timer (which just counts cycles and doesn't use
+	 * timed events) there's just a 1 Hz lbolt timer, and assuming
+	 * the sleep had gone that long was leading to 10-second and more
+	 * waits on disk I/Os after typing for a bit.)
+	 *
+	 * However, if the current time is set to the time before the
+	 * sleep, then any events queued by a select handler
+	 * (currently only the console input throttling logic) can be
+	 * queued to happen in what'll be the past when the select
+	 * returns, and that's not so good either; for one thing it'll
+	 * defeat the console input throttling.
+	 *
+	 * So what we do is queue them in the past, mark them for time
+	 * fixup, and after wakeup add time to any marked events in
+	 * the queue.
+	 *
+	 * Bleck.
+	 *
+	 * The timing logic needs a *big* rework.
+	 */
+
+	struct timed_action *n;
+
+	for (n = queuehead; n != NULL; n = n->ta_next) {
+		if (n->ta_dotimefixup) {
+			n->ta_clocksat += cycles;
+			n->ta_dotimefixup = 0;
+		}
+	}
 }
 
 void
@@ -278,22 +336,27 @@ static
 void
 clock_dowait(u_int32_t secs, u_int32_t nsecs, u_int64_t clocks)
 {
+	/* XXX fix up the sign handling in here */
 	struct timeval tv;
+	u_int32_t then_secs, then_nsecs;
+	u_int64_t then_clocks;
 	int32_t wsecs, wnsecs;
+	int32_t sleptsecs, sleptnsecs;
+	u_int64_t sleptclocks;
 
-	now_clocks += clocks;
-	clock_advance_secs(secs);
-	clock_advance(nsecs);
-	report_idletime(secs, nsecs);
-
-	if (queuehead != NULL) {
-		if (queuehead->ta_clocksat < now_clocks) {
-			smoke("Hardware event queue screwed up");
-		}
+	/*
+	 * Figure the time we're waiting until.
+	 */
+	then_clocks = now_clocks + clocks;
+	then_secs = now_secs + secs;
+	then_nsecs = now_nsecs + nsecs;
+	if (then_nsecs > 1000000000) {
+		then_nsecs -= 1000000000;
+		then_secs++;
 	}
 
 	/*
-	 * Figure out how far ahead of real wall time we are.  If we
+	 * Figure out how far ahead of real wall time we will be. If we
 	 * aren't, don't sleep. If we are, sleep to synchronize, as
 	 * long as it's more than 10 ms. (If it's less than that,
 	 * we're not likely to return from select in anything
@@ -303,19 +366,57 @@ clock_dowait(u_int32_t secs, u_int32_t nsecs, u_int64_t clocks)
 	 * sleeping at all is to be nice to other users on the system.)
 	 */
 	gettimeofday(&tv, NULL);
-	wsecs = now_secs - tv.tv_sec;
-	wnsecs = now_nsecs - 1000*tv.tv_usec;
+	wsecs = then_secs - tv.tv_sec;
+	wnsecs = then_nsecs - 1000*tv.tv_usec;
 	if (wnsecs < 0) {
 		wnsecs += 1000000000;
 		wsecs--;
 	}
 
 	if (wsecs >= 0 && wnsecs > 10000000) {
+		/* Sleep. */
+		now_is_behind = 1;
 		tryselect(1, wsecs, wnsecs);
+		now_is_behind = 0;
+
+		/* Figure out how long we slept (might be less *or* more) */
+		gettimeofday(&tv, NULL);
+		sleptsecs = tv.tv_sec - now_secs;
+		sleptnsecs = 1000*tv.tv_usec - now_nsecs;
+		if (sleptnsecs < 0) {
+			sleptnsecs += 1000000000;
+			sleptsecs--;
+		}
+
+		/* Clamp to wsecs/wnsecs to avoid confusion. */
+		if (sleptsecs > wsecs) {
+			sleptsecs = wsecs;
+			sleptnsecs = wnsecs;
+		}
+		else if (sleptnsecs > wnsecs) {
+			sleptnsecs = wnsecs;
+		}
+
+		sleptclocks = (sleptsecs * 1000000000ULL + sleptnsecs)
+			/ NSECS_PER_CLOCK;
 	}
 	else {
+		now_is_behind = 1;
 		tryselect(1, 0, 0);
+		now_is_behind = 0;
+
+		sleptclocks = clocks;
+		sleptsecs = secs;
+		sleptnsecs = nsecs;
 	}
+
+	// XXX (see definition above)
+	dotimefixups(sleptclocks);
+
+	now_clocks += sleptclocks;
+	clock_advance_secs(sleptsecs);
+	clock_advance(sleptnsecs);
+	report_idletime(sleptsecs, sleptnsecs);
 }
 
 void

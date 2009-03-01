@@ -206,9 +206,9 @@ run(void)
 
 	totcycles = showstats();
 
-	msg("Elapsed real time: %lu.%06lu seconds (%g mhz)",
-	    endtime.tv_sec,
-	    endtime.tv_usec,
+	msg("Elapsed real time: %llu.%06lu seconds (%g mhz)",
+	    (unsigned long long) endtime.tv_sec,
+	    (unsigned long) endtime.tv_usec,
 	    totcycles/(time*1000000.0));
 }
 

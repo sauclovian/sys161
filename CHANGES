@@ -1,3 +1,9 @@
+20090228 dholland	System/161 1.99.03 released.
+20090228 dholland	Fix time-handing bug that manifested under OS/161 2.x.
+20090210 dholland	In stat161, fix reconnection-related printout glitches.
+20090210 dholland	Improve interrupt/exception tracing.
+20090210 dholland	Fix build issue on NetBSD-current.
+
 20090206 dholland	System/161 1.99.02 released.
 20090206 dholland	Fix build glitch when building inside source tree.
 

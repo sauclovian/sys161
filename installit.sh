@@ -36,6 +36,7 @@ esac
 case "$VERSION" in
     devel) ;;				# devel version out of cvs
     200[2-9][01][0-9][0-3][0-9]) ;;	# snap
+    [0-9].99.[0-9][0-9]) ;;		# devel release
     [0-9].[0-9]|[0-9].[0-9][0-9]) ;;	# release
     *)
 	echo "$0: Invalid version $VERSION" 1>&2

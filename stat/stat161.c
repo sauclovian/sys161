@@ -26,6 +26,21 @@ static int nfields=0;
 static int lines_since_header=100000;
 
 static
+void
+reset(void)
+{
+	int i;
+
+	for (i=0; i<MAXFIELDS; i++) {
+		fields[i].lastval = 0;
+		fields[i].width = 0;
+		strcpy(fields[i].header, "??");
+	}
+	nfields = 0;
+	lines_since_header = 10000;
+}
+
+static
 u_int64_t
 getval(const char *s)
 {
@@ -263,6 +278,7 @@ loop(void)
 		s = opensock();
 		if (s>=0) {
 			printf("stat161: Connected.\n");
+			reset();
 			dometer(s);
 			close(s);
 			printf("stat161: Disconnected.\n");

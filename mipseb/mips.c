@@ -613,9 +613,10 @@ do_rfe(struct mipscpu *cpu)
 	cpu->prev_usermode = cpu->old_usermode;
 	cpu->prev_irqon = cpu->old_irqon;
 	CPUTRACE(DOTRACE_EXN, cpu->cpunum,
-		 "Return from exception: %s mode, interrupts %s",
+		 "Return from exception: %s mode, interrupts %s, sp %x",
 		 (cpu->current_usermode) ? "user" : "kernel",
-		 (cpu->current_irqon) ? "on" : "off");
+		 (cpu->current_irqon) ? "on" : "off",
+		 cpu->r[29]);
 
 	/*
 	 * Re-lookup the translations for the pc, because we might have
@@ -671,8 +672,8 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 	int boot = (cpu->status_bits & 0x00400000)!=0;
 
 	CPUTRACE(DOTRACE_EXN, cpu->cpunum,
-		 "exception: code %d (%s), expc %x, vaddr %x", 
-		 code, exception_name(code), cpu->expc, vaddr);
+		 "exception: code %d (%s), expc %x, vaddr %x, sp %x", 
+		 code, exception_name(code), cpu->expc, vaddr, cpu->r[29]);
 
 	if (code==EX_IRQ) {
 		g_stats.s_irqs++;
@@ -1505,6 +1506,9 @@ domt(struct mipscpu *cpu, int cn, int reg, int32_t greg)
 		if (cpu->ex_count > cpu->ex_compare) {
 			/* XXX is this right? */
 			cpu->ex_count = 0;
+		}
+		if (cpu->irq_timer) {
+			CPUTRACE(DOTRACE_IRQ, cpu->cpunum, "Timer irq OFF");
 		}
 		cpu->irq_timer = 0;
 		break;
@@ -2711,7 +2715,12 @@ cpu_cycle(void)
 		int timer = cpu->irq_timer && cpu->status_hardmask_timer;
 
 		if (lb || ipi || timer || soft) {
-			CPUTRACE(DOTRACE_IRQ, cpu->cpunum, "Taking interrupt");
+			CPUTRACE(DOTRACE_IRQ, cpu->cpunum,
+				 "Taking interrupt:%s%s%s%s",
+				 lb ? " LAMEbus" : "",
+				 ipi ? " IPI" : "",
+				 timer ? " timer" : "",
+				 soft ? " soft" : "");
 			exception(cpu, EX_IRQ, 0, 0);
 			/*
 			 * Start processing the interrupt this cycle.
@@ -2898,6 +2907,7 @@ cpu_cycle(void)
 	if (cpu->ex_compare_used && cpu->ex_count == cpu->ex_compare) {
 		cpu->ex_count = 0; /* XXX is this right? */
 		cpu->irq_timer = 1;
+		CPUTRACE(DOTRACE_IRQ, cpu->cpunum, "Timer irq ON");
 	}
 
 	if (cpu->lowait > 0) {
@@ -3159,6 +3169,10 @@ cpu_set_irqs(unsigned cpunum, int lamebus, int ipi)
 
 	/* cpu->irq_timer is on-chip, and cannot get set when CPU_IDLE */
 
+	CPUTRACE(DOTRACE_IRQ, cpunum,
+		 "cpu_set_irqs: LB %s IPI %s",
+		 lamebus ? "ON" : "off",
+		 ipi ? "ON" : "off");
 	if (cpu->state == CPU_IDLE && (lamebus || ipi)) {
 		cpu->state = CPU_RUNNING;
 		RUNNING_MASK_ON(cpunum);
