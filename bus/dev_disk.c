@@ -35,7 +35,7 @@ const char rcsid_dev_disk_c[] =
 
 #define PI						3.14159
 
-#define NUMTRACKS				32
+#define NUMTRACKS				320
 
 /* Disk timing parameters */
 #define CACHE_READ_TIME      500       /* ns */
@@ -442,14 +442,16 @@ static
 u_int32_t
 disk_seektime(struct disk_data *dd, int ntracks)
 {
-	double nt;
 	(void)dd;
 
-	nt = ntracks;
-	if (nt > 5) {
-		nt = sqrt(nt);
+	if (ntracks > 3) {
+		/* 10 ms stabilization + roughly 5G acceleration */
+		return 1000000 * (10 + 3*sqrt(ntracks));
 	}
-	return nt * 200000;
+	else {
+		/* 5 ms track-to-track */
+		return 1000000 * (5*ntracks);
+	}
 }
 
 static
@@ -785,7 +787,7 @@ disk_work(struct disk_data *dd)
 		//HWTRACE(DOTRACE_DISK, "disk: slot %d: read copy latency", 
 		//		     dd->dd_slot);
 		dd->dd_timedop = 1;
-		schedule_event(CACHE_WRITE_TIME, dd, 3, disk_waitdone,
+		schedule_event(CACHE_READ_TIME, dd, 3, disk_waitdone,
 			       "disk cache read");
 		return;
 	}
