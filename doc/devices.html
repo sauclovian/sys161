@@ -169,21 +169,48 @@ register causes a character to be printed. Reading from it returns the
 last character typed. 
 <p>
 
-The two IRQ registers have two bits each: if bit 0 is set, an IRQ will
-be generated when the device has completed an operation, and if bit 1
-is set, the device has in fact completed a (read or write) operation.
-<p>
-
 You must wait until one write has completed before starting another
 one, or the output may be garbled.
 <p>
 
-The characters read are 8-bit ASCII and control characters in the
-range 0-255. Non-ASCII keys, such as cursor keys or function keys, may
-appear as strings beginning with an escape sequence, or as values
-greater than 255. Unfortunately, in practice such characters may come
-from any of a number of sources and it isn't practical to attempt to
-document their values or even map them into a single consistent set.
+The two IRQ registers have three bits each. Bit 0 (IRQEN) controls
+whether interrupts are generated; if bit 0 is clear, interrupts for
+writes or reads (respectively) will not be generated at all.
+<p>
+
+Bit 1 (CMPL) is latched on when the device completes a (write or read,
+respectively) operation. It can be cleared by software. Bit 2 (FORCE)
+is controlled only by software. The device's IRQ line is asserted if
+either the write or read IRQ register is in an asserting state; an IRQ
+register is in an asserting state if bit 0 is set and either bit 1 or
+bit 2 is set.
+<p>
+
+The FORCE bit can be used to perform polled I/O without causing the
+IRQ line to flap, which can cause problems in multiprocessor
+configurations. The basic approach is to set FORCE during the polled
+I/O if an IRQ was already pending, to keep it pending until the polled
+I/O is complete, and to clear IRQEN during the polled I/O if an IRQ
+was not already pending, to avoid triggering a spurious interrupt.
+See the OS/161 2.x driver (1.99.06 or higher) for example code.
+<p>
+
+NOTE: Bit 2 is only supported in System/161 versions 1.99.05 and up.
+The device revision is 1 regardless; if necessary the feature can be
+probed by writing FORCE (without IRQEN) to one of the IRQ registers
+and then reading the register back. If FORCE is read back, the feature
+is present; if 0 is read back, the feature is not available. Note that
+drivers written for prior versions of System/161 without the FORCE bit
+will continue to work as before.
+<p>
+
+The characters read from the device are 8-bit ASCII and control
+characters in the range 0-255. Non-ASCII keys, such as cursor keys or
+function keys, may appear as strings beginning with an escape
+sequence, or as values greater than 255. Unfortunately, in practice
+such characters may come from any of a number of sources and it is not
+practical to attempt to document their values or even map them into a
+single consistent set.
 
 <hr>
 

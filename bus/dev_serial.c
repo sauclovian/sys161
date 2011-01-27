@@ -27,6 +27,7 @@ const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.11 2005/08/26 09:50:28 
 
 #define IRQF_ON    0x1
 #define IRQF_READY 0x2
+#define IRQF_FORCE 0x4
 
 #define INBUF_SIZE 512
 
@@ -35,6 +36,7 @@ const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.11 2005/08/26 09:50:28 
 struct serirq {
 	int si_on;
 	int si_ready;
+	int si_force;
 };
 
 struct ser_data {
@@ -57,6 +59,7 @@ fetchirq(struct serirq *si)
 	u_int32_t val = 0;
 	if (si->si_on) val |= IRQF_ON;
 	if (si->si_ready) val |= IRQF_READY;
+	if (si->si_force) val |= IRQF_FORCE;
 	return val;
 }
 
@@ -66,14 +69,17 @@ storeirq(struct serirq *si, u_int32_t val)
 {
 	si->si_on = (val & IRQF_ON)!=0;
 	si->si_ready = (val & IRQF_READY)!=0;
+	si->si_force = (val & IRQF_FORCE)!=0;
 }
 
 static
 void
 setirq(struct ser_data *sd)
 {
-	int rirq = sd->sd_rirq.si_on && sd->sd_rirq.si_ready;
-	int wirq = sd->sd_wirq.si_on && sd->sd_wirq.si_ready;
+	int rirq = sd->sd_rirq.si_on &&
+		(sd->sd_rirq.si_ready || sd->sd_rirq.si_force);
+	int wirq = sd->sd_wirq.si_on &&
+		(sd->sd_wirq.si_ready || sd->sd_rirq.si_force);
 	if (rirq || wirq) {
 		raise_irq(sd->sd_slot);
 	}
@@ -209,8 +215,10 @@ serial_init(int slot, int argc, char *argv[])
 	sd->sd_rbusy = 0;
 	sd->sd_rirq.si_on = 0;
 	sd->sd_rirq.si_ready = 0;
+	sd->sd_rirq.si_force = 0;
 	sd->sd_wirq.si_on = 0;
 	sd->sd_wirq.si_ready = 0;
+	sd->sd_wirq.si_force = 0;
 
 	sd->sd_readch = 0;
 	sd->sd_inbufhead = 0;	/* empty if head==tail */
@@ -237,18 +245,20 @@ serial_dumpstate(void *data)
 	msg("    Last character typed: %s (%ld)", 
 	    isprint((int)c[0]) ? c : "(?)",
 	    (unsigned long) sd->sd_readch);
-	msg("    Read interrupts %s%s", 
+	msg("    Read interrupts %s%s%s", 
 	    sd->sd_rirq.si_on ? "active" : "inactive",
-	    sd->sd_rirq.si_ready ? " (asserted)" : "");
+	    sd->sd_rirq.si_ready ? " (asserted)" : "",
+	    sd->sd_rirq.si_force ? " (forced)" : "");
 	if (sd->sd_wbusy) {
 		msg("    Write in progress");
 	}
 	else {
 		msg("    Ready for writing");
 	}
-	msg("    Write interrupts %s%s", 
+	msg("    Write interrupts %s%s%s", 
 	    sd->sd_wirq.si_on ? "active" : "inactive",
-	    sd->sd_wirq.si_ready ? " (asserted)" : "");
+	    sd->sd_wirq.si_ready ? " (asserted)" : "",
+	    sd->sd_wirq.si_force ? " (forced)" : "");
 }
 
 const struct lamebus_device_info serial_device_info = {
