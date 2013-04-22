@@ -52,8 +52,9 @@ struct net_data {
 	u_int32_t nd_control;
 	u_int32_t nd_status;
 
-	char nd_rbuf[NET_BUFSIZE];
-	char nd_wbuf[NET_BUFSIZE];
+	/* These used to be nd_{r,w}buf[NET_BUFSIZE]; see dev_disk.c */
+	char *nd_rbuf;
+	char *nd_wbuf;
 };
 
 /* Fields in interrupt registers */
@@ -228,7 +229,7 @@ dorecv(void *data)
 		readbuflen = NET_BUFSIZE;
 	}
 
-	r = read(nd->nd_socket, nd->nd_rbuf, NET_BUFSIZE);
+	r = read(nd->nd_socket, readbuf, readbuflen);
 	if (r<0) {
 		msg("nic: slot %d: read: %s", nd->nd_slot, strerror(errno));
 		HWTRACE(DOTRACE_NET, "nic: slot %d: read error", 
@@ -414,6 +415,8 @@ net_cleanup(void *d)
 		nd->nd_socket = -1;
 	}
 
+	free(nd->nd_rbuf);
+	free(nd->nd_wbuf);
 	free(nd);
 }
 
@@ -467,6 +470,9 @@ net_init(int slot, int argc, char *argv[])
 
 	nd->nd_lostcarrier = 1;
 
+	nd->nd_rbuf = domalloc(NET_BUFSIZE);
+	nd->nd_wbuf = domalloc(NET_BUFSIZE);
+
 	memset(&mysun, 0, sizeof(mysun));
 	mysun.sun_family = AF_UNIX;
 	len = snprintf(mysun.sun_path, sizeof(mysun.sun_path),
@@ -518,9 +524,9 @@ net_dumpstate(void *data)
 	    (unsigned long) nd->nd_control,
 	    (unsigned long) nd->nd_status);
 	msg("    rx buffer:");
-	dohexdump(nd->nd_rbuf, sizeof(nd->nd_rbuf));
+	dohexdump(nd->nd_rbuf, NET_BUFSIZE);
 	msg("    tx buffer:");
-	dohexdump(nd->nd_wbuf, sizeof(nd->nd_wbuf));
+	dohexdump(nd->nd_wbuf, NET_BUFSIZE);
 }
 
 const struct lamebus_device_info net_device_info = {

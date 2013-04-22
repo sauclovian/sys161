@@ -380,7 +380,7 @@ register.
 </p>
 
 <p>
-The exceptions:
+The exception codes:
 <ul>
 <li> IRQ (0) -- Interrupt
 <li> MOD (1) -- "Modify", TLB read-only fault
@@ -403,10 +403,10 @@ BADVADDR.
 
 <h3><font face=tahoma,arial,helvetica,sans>MMU</font></h3>
 <p>
-The MMU is the MIPS-I MMU, with a 64-entry TLB where each entry maps
-one 4K virtual page to one 4K physical page. The paired pages setup of
-later MIPS processors is not present, and there is no support for
-superpages.
+The MMU is the MIPS-I MMU, with a 64-entry fully associative TLB where
+each entry maps one 4K virtual page to one 4K physical page. The
+paired pages setup of later MIPS processors is not present, and there
+is no support for superpages.
 </p>
 
 <p>
@@ -498,8 +498,8 @@ true:
 </p>
 
 <p>
-One must never load the TLB in such a fashion that two (or more
-entries) can match the same virtual address. If this happens, the
+One must never load the TLB in such a fashion that two (or more)
+entries can match the same virtual address. If this happens, the
 processor shuts down and is unrecoverable except by hard reset.
 Since there is no way to prevent entries from matching, one should
 clear the TLB by loading each entry with a distinct VPAGE, and use
@@ -567,6 +567,42 @@ Since normal MIPS processors have split instruction and data caches,
 and future System/161 releases may include more cache handling, it is
 recommended that all necessary flushes of the instruction cache be
 included and stubbed out.
+</p>
+
+<h3><font face=tahoma,arial,helvetica,sans>Out-of-Order Execution</font></h3>
+
+<p>
+Even with cache coherence, or when using uncached memory regions,
+processors that support out-of-execution may require so-called memory
+barrier instructions to ensure that memory accesses occur on the
+external bus (and become visible to other processors or devices) in
+the same order they are issued in machine code.
+</p>
+
+<p>
+The MIPS-II <tt>SYNC</tt> instruction can be used to wait until all
+pending load and store operations are complete. This guarantees that
+all memory updates before the <tt>SYNC</tt> become visible before any
+memory updates after the <tt>SYNC</tt>. All <tt>SYNC</tt> instructions
+executed on all cores and processors within a system occur in a single
+well defined global order.
+</p>
+
+<p>
+The MIPS-161 currently has no support for out-of-order execution and
+the <tt>SYNC</tt> instruction is not supported. This may change in
+the future.
+</p>
+
+<h3><font face=tahoma,arial,helvetica,sans>Cores</font></h3>
+
+<p>
+Each MIPS-161 processor has only one core on the die. However, as
+noted <A HREF=system.html>elsewhere</A> System/161 supports up to 32
+processors on the mainboard. There is little software-visible
+difference between 32 single-core processors on one mainboard and 32
+cores in one processor; most of what effects exist are cache-related
+and not modeled by System/161 in any event.
 </p>
 
 <h3><font face=tahoma,arial,helvetica,sans>Startup</font></h3>

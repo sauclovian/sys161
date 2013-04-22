@@ -446,6 +446,7 @@ clock_waitirq(void)
 			tv2.tv_sec -= tv1.tv_sec;
 			if (tv2.tv_usec < tv1.tv_usec) {
 				tv2.tv_usec += 1000000;
+				tv2.tv_sec--;
 			}
 			tv2.tv_usec -= tv1.tv_usec;
 

@@ -55,7 +55,8 @@ struct lamebus_cpu {
 	u_int32_t cpu_enabled_interrupts;		/* CIRQE */
 	int cpu_interrupting;
 	int cpu_ipi;					/* CIPI, 0 or 1 */
-	char cpu_cram[LAMEBUS_CRAM_SIZE];		/* CRAM */
+	/* This used to be cpu_cram[LAMEBUS_CRAM_SIZE] see dev_disk.c */
+	char *cpu_cram;					/* CRAM */
 };
 
 static struct lamebus_cpu cpus[LAMEBUS_NCPUS];
@@ -274,6 +275,7 @@ set_cpue(u_int32_t val)
 			 */
 			u_int32_t cramoffset;
 			u_int32_t stackva, pcva, arg;
+			u_int32_t *cram;
 
 			cramoffset = LAMEBUS_SLOT_MEM * LAMEBUS_CONTROLLER_SLOT
 				+ 32768
@@ -281,8 +283,9 @@ set_cpue(u_int32_t val)
 				+ LBC_CRAM_END;
 
 			stackva = cpu_get_secondary_start_stack(cramoffset);
-			pcva = ntohl(((u_int32_t *)(cpu->cpu_cram))[0]);
-			arg = ntohl(((u_int32_t *)(cpu->cpu_cram))[1]);
+			cram = (u_int32_t *)cpu->cpu_cram;
+			pcva = ntohl(cram[0]);
+			arg = ntohl(cram[1]);
 
 			cpu_set_entrypoint(i, pcva);
 			cpu_set_stack(i, stackva, arg);
@@ -602,6 +605,7 @@ lamebus_commonmainboard_init(int isold, int slot, int argc, char *argv[])
 		cpus[j].cpu_enabled_interrupts = 0xffffffff;
 		cpus[j].cpu_ipi = 0;
 		cpus[j].cpu_interrupting = 0;
+		cpus[j].cpu_cram = domalloc(LAMEBUS_CRAM_SIZE);
 	}
 	cpus[0].cpu_enabled = 1;
 }
@@ -622,6 +626,33 @@ lamebus_mainboard_init(int slot, int argc, char *argv[])
 {
 	lamebus_commonmainboard_init(0 /*not old*/, slot, argc, argv);
 	return NULL;
+}
+
+static
+void
+lamebus_commonmainboard_cleanup(void)
+{
+	unsigned j;
+
+	for (j=0; j<ncpus; j++) {
+		free(cpus[j].cpu_cram);
+	}
+}
+
+static
+void
+lamebus_oldmainboard_cleanup(void *data)
+{
+	(void)data;
+	lamebus_commonmainboard_cleanup();
+}
+
+static
+void
+lamebus_mainboard_cleanup(void *data)
+{
+	(void)data;
+	lamebus_commonmainboard_cleanup();
 }
 
 static
@@ -663,7 +694,7 @@ lamebus_mainboard_dumpstate(void *data)
 		msg("    cpu %d interrupting: %d", i,
 		    cpus[i].cpu_interrupting);
 		msg("    cpu %d cram:", i);
-		dohexdump(cpus[i].cpu_cram, sizeof(cpus[i].cpu_cram));
+		dohexdump(cpus[i].cpu_cram, LAMEBUS_CRAM_SIZE);
 	}
 }
 
@@ -675,7 +706,7 @@ static struct lamebus_device_info lamebus_oldmainboard_info = {
 	lamebus_controller_fetch,
 	lamebus_controller_store,
 	lamebus_oldmainboard_dumpstate,
-	NULL,
+	lamebus_oldmainboard_cleanup,
 };
 
 static struct lamebus_device_info lamebus_mainboard_info = {
@@ -686,7 +717,7 @@ static struct lamebus_device_info lamebus_mainboard_info = {
 	lamebus_controller_fetch,
 	lamebus_controller_store,
 	lamebus_mainboard_dumpstate,
-	NULL,
+	lamebus_mainboard_cleanup,
 };
 
 

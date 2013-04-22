@@ -160,7 +160,8 @@ const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.14 2003/01/18 03:13:50 dh
 struct emufs_data {
 	int ed_slot;
 
-	char ed_buf[EMU_BUF_SIZE];
+	/* This used to be ed_buf[EMU_BUF_SIZE]; see dev_disk.c */
+	char *ed_buf;
 	u_int32_t ed_handle;		/* file handle register */
 	u_int32_t ed_offset;		/* offset register */
 	u_int32_t ed_iolen;		/* iolen register */
@@ -274,6 +275,7 @@ emufs_open(struct emufs_data *ed, int flags)
 	int handle;
 	int curdir;
 	struct stat sbuf;
+	int isdir;
 
 	if (ed->ed_iolen >= EMU_BUF_SIZE) {
 		return EMU_RES_BADSIZE;
@@ -295,15 +297,19 @@ emufs_open(struct emufs_data *ed, int flags)
 
 	if (stat(ed->ed_buf, &sbuf)) {
 		if (flags==0) {
+			/* not creating; doesn't exist -> fail */
 			int err = errno;
 			HWTRACE(DOTRACE_EMUFS, "%s", strerror(err));
 			popdir(curdir);
 			return errno_to_code(err);
 		}
+		/* creating; ok if it doesn't exist, and it's not a dir */
 		flags |= O_RDWR;
+		isdir = 0;
 	}
 	else {
-		if (S_ISDIR(sbuf.st_mode) && flags==0) {
+		isdir = S_ISDIR(sbuf.st_mode)!=0;
+		if (isdir && flags==0) {
 			flags |= O_RDONLY;
 		}
 		else {
@@ -322,9 +328,10 @@ emufs_open(struct emufs_data *ed, int flags)
 	popdir(curdir);
 
 	ed->ed_handle = handle;
-	ed->ed_iolen = S_ISDIR(sbuf.st_mode)!=0;
+	ed->ed_iolen = isdir;
 
-	HWTRACE(DOTRACE_EMUFS, "succeeded, handle %d", handle);
+	HWTRACE(DOTRACE_EMUFS, "succeeded, handle %d%s", handle,
+		isdir ? " (directory)" : "");
 	g_stats.s_memu++;
 
 	return EMU_RES_SUCCESS;
@@ -628,7 +635,8 @@ emufs_init(int slot, int argc, char *argv[])
 	}
 
 	ed->ed_slot = slot;
-	ed->ed_buf[0] = 0;
+	ed->ed_buf = domalloc(EMU_BUF_SIZE);
+	memset(ed->ed_buf, 0, EMU_BUF_SIZE);
 	ed->ed_handle = 0;
 	ed->ed_offset = 0;
 	ed->ed_iolen = 0;
@@ -720,7 +728,7 @@ emufs_dumpstate(void *data)
 		msg("    Presently idle");
 	}
 	msg("    Buffer:");
-	dohexdump(ed->ed_buf, sizeof(ed->ed_buf));
+	dohexdump(ed->ed_buf, EMU_BUF_SIZE);
 }
 
 static
@@ -729,6 +737,7 @@ emufs_cleanup(void *data)
 {
 	struct emufs_data *ed = data;
 	emufs_close(ed);
+	free(ed->ed_buf);
 	free(ed);
 }
 

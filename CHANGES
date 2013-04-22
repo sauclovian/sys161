@@ -1,3 +1,12 @@
+20130422 dholland	System/161 1.99.06 released.
+20130422 dholland	Update download URL link provided in the docs.
+20130422 dholland	Fix one source of bogusly large idle cycle counts.
+20130306 dholland	Hack around C99 strict-aliasing issues.
+20130306 dholland	Fix build with gcc 4.5.
+20130306 dholland	Initialize emufs create op's isdir return properly.
+20130228 dholland	Doc fixes: typos, clarifications. Mention mips SYNC.
+
+20110126 dholland	System/161 1.99.05 released.
 20100819 dholland	Add a FORCE bit to the serial port device. See docs.
 
 20090414 dholland	System/161 1.99.04 released.

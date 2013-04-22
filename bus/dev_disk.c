@@ -126,8 +126,16 @@ struct disk_data {
 
 	/*
 	 * I/O buffer
+	 *
+	 * This used to be dd_buf[SECTSIZE] but that is illegal under
+	 * C99 6.5 #7; an array of char has effective type char
+	 * according to 6.5 #6, and therefore may only be accessed as
+	 * char.
+	 *
+	 * We might end up needing to make this an array of uint32 and
+	 * scaling all the offsets, which would be a major nuisance.
 	 */
-	char dd_buf[SECTSIZE];
+	char *dd_buf;
 };
 
 ////////////////////////////////////////////////////////////
@@ -629,6 +637,8 @@ disk_init(int slot, int argc, char *argv[])
 		die();
 	}
 
+	dd->dd_buf = domalloc(SECTSIZE);
+
 	disk_open(dd, filename);
 
 	return dd;
@@ -640,6 +650,7 @@ disk_cleanup(void *data)
 {
 	struct disk_data *dd = data;
 	disk_close(dd);
+	free(dd->dd_buf);
 	free(dd);
 }
 
@@ -941,7 +952,7 @@ disk_dumpstate(void *data)
 	    (unsigned long) dd->dd_sect);
 
 	msg("    Transfer buffer:");
-	dohexdump(dd->dd_buf, sizeof(dd->dd_buf));
+	dohexdump(dd->dd_buf, SECTSIZE);
 }
 
 const struct lamebus_device_info disk_device_info = {

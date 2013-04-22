@@ -18,7 +18,7 @@ void console_beep(void);
 void console_putc(int ch);
 void console_onkey(void *, void (*func)(void *, int));
 
-void die(void);
+void die(void) DEAD;
 void msg(const char *fmt, ...) PF(1,2);    /* general messages */
 void msgl(const char *fmt, ...) PF(1,2);   /* msg w/o newline */
 void smoke(const char *fmt, ...) PF(1,2) DEAD; /* for internal errors */
