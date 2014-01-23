@@ -4,8 +4,6 @@
 #include "config.h"
 #include "bootrom.h"
 
-const char rcsid_bootrom_c[] =
-	"$Id: bootrom.c,v 1.7 2002/02/15 22:47:14 dholland Exp $";
 
 /*
  * The purpose of setting this up the way it is is that no matter what

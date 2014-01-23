@@ -10,15 +10,13 @@
 
 #include "console.h"
 #include "clock.h"
+#include "doom.h"
 #include "main.h"
 #include "util.h"
 
 #include "lamebus.h"
 #include "busids.h"
 
-
-const char rcsid_dev_disk_c[] =
-    "$Id: dev_disk.c,v 1.22 2002/08/08 22:59:43 dholland Exp $";
 
 /* Disk underlying I/O definitions */
 #define HEADER_MESSAGE  "System/161 Disk Image"
@@ -104,6 +102,11 @@ struct disk_data {
 	u_int32_t dd_rpm;
 	u_int32_t dd_nsecs_per_rev;
 
+	/*
+	 * Doom counter
+	 */
+	int dd_usedoom;
+
 	/* 
 	 * Timing status
 	 */
@@ -137,6 +140,33 @@ struct disk_data {
 	 */
 	char *dd_buf;
 };
+
+/*
+ * Doom counter
+ */
+static unsigned doom_counter;
+
+////////////////////////////////////////////////////////////
+// doom counter manipulations
+
+static
+void
+doom_tick(void)
+{
+	if (doom_counter > 0) {
+		doom_counter--;
+		if (doom_counter == 0) {
+			msg("DOOOOOOOOOOOM");
+			die();
+		}
+	}
+}
+
+void
+doom_establish(unsigned count)
+{
+	doom_counter = count;
+}
 
 ////////////////////////////////////////////////////////////
 //
@@ -400,19 +430,19 @@ compute_sectors(struct disk_data *dd)
 		dd->dd_sectors[i] = ((int)sectors) - 1;
 	}
 
-    /* Now compute the total number of sectors available. */
-    tot = 0;
-    for (i=0; i<dd->dd_tracks; i++) {
-        tot += dd->dd_sectors[i];
-    }
+	/* Now compute the total number of sectors available. */
+	tot = 0;
+	for (i=0; i<dd->dd_tracks; i++) {
+		tot += dd->dd_sectors[i];
+	}
 
-    /* Make sure we've got enough space. */
-    if (tot < dd->dd_totsectors) {
-        /* 
-         * Shouldn't happen. If it does, increase SECTOR_FUDGE.
-         */
-        return -1;
-    }
+	/* Make sure we've got enough space. */
+	if (tot < dd->dd_totsectors) {
+		/* 
+		 * Shouldn't happen. If it does, increase SECTOR_FUDGE.
+		 */
+		return -1;
+	}
 
 	return 0;
 }
@@ -566,11 +596,11 @@ static
 void *
 disk_init(int slot, int argc, char *argv[])
 {
-	struct disk_data *dd = domalloc(sizeof(struct disk_data));
+	struct disk_data *dd;
 	const char *filename = NULL;
 	u_int32_t totsectors=0;
 	u_int32_t rpm = 3600;
-	int i, paranoid=0;
+	int i, paranoid=0, usedoom = 1;
 
 	for (i=1; i<argc; i++) {
 		if (!strncmp(argv[i], "rpm=", 4)) {
@@ -585,6 +615,12 @@ disk_init(int slot, int argc, char *argv[])
 		else if (!strcmp(argv[i], "paranoid")) {
 			paranoid = 1;
 		}
+		else if (!strcmp(argv[i], "doom")) {
+			usedoom = 1;
+		}
+		else if (!strcmp(argv[i], "nodoom")) {
+			usedoom = 0;
+		}
 		else {
 			msg("disk: slot %d: invalid option %s", slot, argv[i]);
 			die();
@@ -596,17 +632,6 @@ disk_init(int slot, int argc, char *argv[])
 		die();
 	}
 
-	dd->dd_slot = slot;
-	dd->dd_totsectors = totsectors;
-
-	/* set dd_cylinders, dd_sectors, dd_heads */
-	if (compute_sectors(dd)) {
-		msg("disk: slot %d: Geometry initialization failed "
-		    "(try another size)", slot);
-		die();
-	}
-
-
 	if (rpm < 60) {
 		msg("disk: slot %d: RPM too low (%d)", slot, rpm);
 		die();
@@ -616,28 +641,49 @@ disk_init(int slot, int argc, char *argv[])
 		die();
 	}
 
-	dd->dd_rpm = rpm;
-	dd->dd_nsecs_per_rev = 1000000000 / (dd->dd_rpm / 60);
-
-	dd->dd_current_track = 0;
-	
-	clock_time(&dd->dd_trackarrival_secs, &dd->dd_trackarrival_nsecs);
-
-	dd->dd_stat = DISKSTAT_IDLE;
-	dd->dd_sect = 0;
-
-	dd->dd_paranoid = paranoid;
-
-	dd->dd_iostatus = -1;
-
-	dd->dd_worktries = 0;
-
 	if (filename==NULL) {
 		msg("disk: slot %d: No filename specified", slot);
 		die();
 	}
 
+	/*
+	 * Set up the disk
+	 */
+
+	dd = domalloc(sizeof(struct disk_data));
+
+	dd->dd_slot = slot;
+
+	dd->dd_fd = -1;
+	dd->dd_paranoid = paranoid;
+
+	dd->dd_sectors = NULL;
+	dd->dd_tracks = 0;
+	dd->dd_totsectors = totsectors;
+	dd->dd_rpm = rpm;
+	dd->dd_nsecs_per_rev = 1000000000 / (dd->dd_rpm / 60);
+
+	dd->dd_usedoom = usedoom;
+
+	dd->dd_current_track = 0;
+	clock_time(&dd->dd_trackarrival_secs, &dd->dd_trackarrival_nsecs);
+	dd->dd_iostatus = -1;
+	dd->dd_timedop = 0;
+
+	dd->dd_worktries = 0;
+
+	dd->dd_stat = DISKSTAT_IDLE;
+	dd->dd_sect = 0;
+
 	dd->dd_buf = domalloc(SECTSIZE);
+
+
+	/* set dd_cylinders, dd_sectors, dd_heads */
+	if (compute_sectors(dd)) {
+		msg("disk: slot %d: Geometry initialization failed "
+		    "(try another size)", slot);
+		die();
+	}
 
 	disk_open(dd, filename);
 
@@ -866,6 +912,9 @@ disk_setstatus(struct disk_data *dd, u_int32_t val)
 	    case DISKSTAT_WRITING:
 		HWTRACE(DOTRACE_DISK, "disk: slot %d: write starts", 
 			dd->dd_slot);
+		if (dd->dd_usedoom) {
+			doom_tick();
+		}
 		dd->dd_iostatus = 0;
 		break;
 	    default:

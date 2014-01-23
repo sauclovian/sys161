@@ -6,9 +6,6 @@
 #include "util.h"
 
 
-const char rcsid_util_c[] = 
-    "$Id: util.c,v 1.5 2004/04/15 20:11:04 dholland Exp $";
-
 void *
 domalloc(size_t len)
 {

@@ -16,8 +16,6 @@
 #include "cpu.h"
 #include "prof.h"
 
-const char rcsid_prof_c[] = 
-    "$Id: prof.c,v 1.2 2004/04/15 20:11:04 dholland Exp $";
 
 #ifdef USE_TRACE
 

@@ -1,3 +1,21 @@
+20140123 dholland	System/161 1.99.07 released.
+20140123 dholland	Add a -D option to enable a disk write doom counter.
+20140122 dholland	Skip ELF note sections; from Vincent Danjean.
+20131105 dholland	Change the processor ID value; discussion in docs.
+20131105 dholland	Add mips coprocessor register banks ("selects").
+20130530 dholland	Add a -X option to not hang waiting for the debugger.
+20130530 dholland	Print more sensible cycle counts with stat161.
+			(They are now totals across cpus, not averages.)
+20130530 dholland	Add a -Z timeout option for monitoring user progress.
+20130530 dholland	Count and report ll/sc and sync instructions.
+20130530 dholland	Make configure script no longer leave "a.out" behind.
+20130530 dholland	Purge ancient rcsid strings.
+20130530 dholland	Accept the SYNC (memory barrier) instruction.
+20130530 dholland	Have configure script check for _FILE_OFFSET_BITS=64.
+20130422 dholland	Tidy up the disk initialization code further.
+20130422 dholland	Fix missing initialization of dd_timedop in dev_disk.
+			(Reported by Keno Fischer.)
+
 20130422 dholland	System/161 1.99.06 released.
 20130422 dholland	Update download URL link provided in the docs.
 20130422 dholland	Fix one source of bogusly large idle cycle counts.

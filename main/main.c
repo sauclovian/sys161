@@ -9,6 +9,7 @@
 #include "util.h"
 #include "console.h"
 #include "trace.h"
+#include "doom.h"
 #include "prof.h"
 #include "meter.h"
 #include "gdb.h"
@@ -20,8 +21,6 @@
 #include "main.h"
 #include "version.h"
 
-const char rcsid_main_c[] =
-    "$Id: main.c,v 1.31 2004/04/30 20:12:39 dholland Exp $";
 
 /* Global stats */
 struct stats g_stats;
@@ -121,8 +120,14 @@ initstats(unsigned ncpus)
 
 	for (i=0; i<ncpus; i++) {
 		g_stats.s_percpu[i].sp_kcycles = 0;
+		g_stats.s_percpu[i].sp_kretired = 0;
 		g_stats.s_percpu[i].sp_ucycles = 0;
+		g_stats.s_percpu[i].sp_uretired = 0;
 		g_stats.s_percpu[i].sp_icycles = 0;
+		g_stats.s_percpu[i].sp_lls = 0;
+		g_stats.s_percpu[i].sp_okscs = 0;
+		g_stats.s_percpu[i].sp_badscs = 0;
+		g_stats.s_percpu[i].sp_syncs = 0;
 	}
 }
 
@@ -143,10 +148,15 @@ showstats(void)
 		cpu_totcycles = g_stats.s_percpu[i].sp_kcycles
 			+ g_stats.s_percpu[i].sp_ucycles
 			+ g_stats.s_percpu[i].sp_icycles;
-		msg("  cpu%u: %llu kern, %llu user, %llu idle)", i,
+		msg("  cpu%u: %llu kern, %llu user, %llu idle; "
+		    "%llu ll, %llu/%llu sc, %llu sync", i,
 		    (unsigned long long) g_stats.s_percpu[i].sp_kcycles,
 		    (unsigned long long) g_stats.s_percpu[i].sp_ucycles,
-		    (unsigned long long) g_stats.s_percpu[i].sp_icycles);
+		    (unsigned long long) g_stats.s_percpu[i].sp_icycles,
+		    (unsigned long long) g_stats.s_percpu[i].sp_lls,
+		    (unsigned long long) g_stats.s_percpu[i].sp_okscs,
+		    (unsigned long long) g_stats.s_percpu[i].sp_badscs,
+		    (unsigned long long) g_stats.s_percpu[i].sp_syncs);
 	}
 
 	msg("%u irqs %u exns %ur/%uw disk %ur/%uw console %ur/%uw/%um emufs"
@@ -304,6 +314,8 @@ usage(void)
 	msg("     -t[flags]      (trace161 only)");
 #endif
 	msg("     -w             Wait for debugger before starting");
+	msg("     -X             Don't wait for debugger; exit instead");
+	msg("     -Z seconds     Set watchdog timer to specified time");
 	die();
 }
 
@@ -319,9 +331,12 @@ main(int argc, char *argv[])
 	size_t argsize=0;
 	int debugwait=0;
 	int pass_signals=0;
+	int timeout;
+	int dontwait=0;
 #ifdef USE_TRACE
 	int profiling=0;
 #endif
+	int doom = 0;
 	unsigned ncpus;
 
 	/* This must come absolutely first so msg() can be used. */
@@ -335,9 +350,10 @@ main(int argc, char *argv[])
 		die();
 	}
 
-	while ((opt = mygetopt(argc, argv, "c:f:p:Pst:w"))!=-1) {
+	while ((opt = mygetopt(argc, argv, "c:D:f:p:Pst:wXZ:"))!=-1) {
 		switch (opt) {
 		    case 'c': config = myoptarg; break;
+		    case 'D': doom = atoi(myoptarg); break;
 		    case 'f':
 #ifdef USE_TRACE
 			set_tracefile(myoptarg);
@@ -356,6 +372,14 @@ main(int argc, char *argv[])
 #endif
 			break;
 		    case 'w': debugwait = 1; break;
+		    case 'X': dontwait = 1; break;
+		    case 'Z':
+			timeout = atoi(myoptarg);
+			if (timeout <= 1) {
+				msg("Invalid timeout (must be at least 2)");
+			}
+			clock_setprogresstimeout(timeout);
+			break;
 		    default: usage();
 		}
 	}
@@ -384,6 +408,9 @@ main(int argc, char *argv[])
 	console_init(pass_signals);
 	clock_init();
 	ncpus = bus_config(config);
+	if (doom) {
+		doom_establish(doom);
+	}
 
 	initstats(ncpus);
 	cpu_init(ncpus);
@@ -412,7 +439,11 @@ main(int argc, char *argv[])
 	if (debugwait) {
 		stoploop();
 	}
-	
+
+	if (dontwait) {
+		gdb_dontwait();
+	}
+
 	run();
 
 #ifdef USE_TRACE

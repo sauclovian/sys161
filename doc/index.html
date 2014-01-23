@@ -92,6 +92,13 @@ The <em>System/161 options</em> are:
 <dt>-c <em>configfile</em></dt>
 <dd>Specify alternate config file. Default is <tt>sys161.conf</tt>.</dd>
 
+<dt>-D <em>count</em></dt>
+<dd>Enable the doom counter. After the specified number of disk
+writes, the machine halts abruptly. (This is useful for testing file
+systems.) Individual disks can be marked "nodoom" in the config file,
+in which case writes to those disks do not count. (This is useful for
+your swap disk.)</dd>
+
 <dt>-p <em>port</em></dt>
 <dd>Listen for debugger connections on specified TCP port. The default
 is to use the Unix-domain socket <tt>./.sockets/gdb</tt> for debugger
@@ -106,6 +113,15 @@ running kernel instead of treating them as requests to sys161.</dd>
 
 <dt>-w</dt>
 <dd>Wait for a debugger connection immediately on startup.</dd>
+
+<dt>-X</dt>
+<dd>Do not hang waiting for the debugger; exit instead.</dd>
+
+<dt>-Z secs</dt>
+<dd>Check for progress and first warn, then drop to the debugger if no
+progress occurs in the specified amount of simulator time. Progress is
+defined as successfully retiring an instruction in user mode. Don't
+use this option with in-kernel test workloads.</dd>
 
 </dl>
 </blockquote>

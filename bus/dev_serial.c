@@ -13,9 +13,6 @@
 #include "lamebus.h"
 
 
-
-const char rcsid_dev_serial_c[] = "$Id: dev_serial.c,v 1.11 2005/08/26 09:50:28 dholland Exp $";
-
 #define SERREG_CHAR   0x0
 #define SERREG_WIRQ   0x4
 #define SERREG_RIRQ   0x8

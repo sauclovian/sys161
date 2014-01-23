@@ -9,6 +9,9 @@
 void gdb_inet_init(int listenport);
 void gdb_unix_init(const char *socketpath);
 
+/* Call to disable waiting for connections */
+void gdb_dontwait(void);
+
 /* Call when stopping for a breakpoint */
 void gdb_startbreak(void);
 

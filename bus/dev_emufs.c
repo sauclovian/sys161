@@ -116,9 +116,6 @@
 #include "busids.h"
 
 
-const char rcsid_dev_emufs_c[] = "$Id: dev_emufs.c,v 1.14 2003/01/18 03:13:50 dholland Exp $";
-
-
 #define MAXHANDLES     64
 #define EMU_ROOTHANDLE  0
 

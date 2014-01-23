@@ -15,8 +15,6 @@
 #include "main.h"
 #include "trace.h"
 
-const char rcsid_console_c[] = 
-  "$Id: console.c,v 1.10 2002/09/10 20:35:32 dholland Exp $";
 
 /*
  * Console I/O driver module.

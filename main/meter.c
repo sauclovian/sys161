@@ -41,10 +41,10 @@ meter_header(struct meter *m)
 {
 	char buf[4096];
 	snprintf(buf, sizeof(buf), 
-		 "HEAD kern user idle irqs exns disk con emu net\r\n");
+		 "HEAD kern user idle kinsns uinsns irqs exns disk con emu net\r\n");
 	write(m->fd, buf, strlen(buf));
 	snprintf(buf, sizeof(buf),
-		 "WIDTH 10 10 10 4 4 4 5 4 4\r\n");
+		 "WIDTH 9 9 9 7 7 4 4 4 5 4 4\r\n");
 	write(m->fd, buf, strlen(buf));
 }
 
@@ -55,6 +55,7 @@ meter_report(struct meter *m)
 	char buf[4096];
 	char buf2[512];
 	u_int64_t kcycles, ucycles, icycles;
+	u_int64_t kretired, uretired;
 
 #if 0
 	kcycles = g_stats.s_kcycles;
@@ -67,25 +68,35 @@ meter_report(struct meter *m)
 	 * XXX: we ought to send per-cpu stats. The protocol might
 	 * need some revising to do it well though. For now we'll
 	 * send stats comparable to the uniprocessor sys161.
+	 *
+	 * Update 20130530: that didn't really produce sensible stats
+	 * in some ways, especially for unbalanced workloads, so just
+	 * send totals across all cpus.
 	 */
 	kcycles = ucycles = icycles = 0;
-	icycles += g_stats.s_tot_icycles;
+	kretired = uretired = 0;
 	for (i=0; i<g_stats.s_numcpus; i++) {
 		kcycles += g_stats.s_percpu[i].sp_kcycles;
 		ucycles += g_stats.s_percpu[i].sp_ucycles;
 		icycles += g_stats.s_percpu[i].sp_icycles;
+		kretired += g_stats.s_percpu[i].sp_kretired;
+		uretired += g_stats.s_percpu[i].sp_uretired;
+		icycles += g_stats.s_tot_icycles;
 	}
-	kcycles /= g_stats.s_numcpus;
-	ucycles /= g_stats.s_numcpus;
-	icycles /= g_stats.s_numcpus;
+	/* this will have to change if we ever implement dual-issue :-) */
+	Assert(kretired <= kcycles);
+	Assert(uretired <= ucycles);
 #endif
 
-	snprintf(buf2, sizeof(buf2), "%llu %llu %llu",
+	snprintf(buf2, sizeof(buf2), "%llu %llu %llu %llu %llu",
 		 (unsigned long long) kcycles,
 		 (unsigned long long) ucycles,
-		 (unsigned long long) icycles);
+		 (unsigned long long) icycles,
+		 (unsigned long long) kretired,
+		 (unsigned long long) uretired);
 
-	snprintf(buf, sizeof(buf), "DATA %s %lu %lu %lu %lu %lu %lu\r\n", buf2,
+	snprintf(buf, sizeof(buf), "DATA %s %lu %lu %lu %lu %lu %lu\r\n",
+		 buf2,
 		 (unsigned long) g_stats.s_irqs,
 		 (unsigned long) g_stats.s_exns,
 		 (unsigned long) (g_stats.s_rsects + g_stats.s_wsects),

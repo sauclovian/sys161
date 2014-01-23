@@ -18,8 +18,6 @@
  */
 
 
-const char rcsid_dev_random_c[] = "$Id: dev_random.c,v 1.9 2002/01/17 22:07:32 dholland Exp $";
-
 static
 void *
 rand_init(int slot, int argc, char *argv[])

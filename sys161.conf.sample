@@ -71,6 +71,7 @@
 #                 sectors=NUMBER     Set disk size. Each sector is 512 bytes.
 #                 file=PATH          Specify file to use as storage for disk.
 #                 paranoid           Set paranoid mode.
+#                 nodoom             Do not invoke the doom counter.
 #
 #             The "file=PATH" argument must be supplied. The size must be
 #             at least 128 sectors (64k), and the RPM setting must be a
@@ -80,6 +81,11 @@
 #             called on every disk write to make sure the data written
 #             reaches actual stable storage. This will make things very 
 #             slow.
+#
+#             The "nodoom" argument, if given, inhibits the doom counter
+#             for this disk. Otherwise, if the doom counter is enabled
+#             using the sys161 -D option, each write decrements the doom
+#             counter and the machine switches off when it reaches 0.
 #
 #             You can have as many disks as you want (until you run out
 #             of slots) but each should have a distinct file to use for
@@ -115,6 +121,7 @@
 
 #
 # Here is a suggested default configuration: 512k RAM, two 5M disks.
+# The first is marked nodoom on the assumption that it will be a swap disk.
 #
 
 0	serial
@@ -122,7 +129,7 @@
 
 1	emufs
 
-2	disk	rpm=7200	sectors=10240	file=DISK1.img
+2	disk	rpm=7200	sectors=10240	file=DISK1.img   nodoom
 3	disk	rpm=7200	sectors=10240	file=DISK2.img
 
 #27	nic hwaddr=1

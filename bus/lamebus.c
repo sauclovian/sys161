@@ -20,15 +20,11 @@
 #include "busids.h"
 #include "busdefs.h"
 
+
 /*
  * Maximum amount of physical memory we allow.
  * For now, 16M.
  */
-
-const char rcsid_lamebus_c[] =
-    "$Id: lamebus.c,v 1.27 2003/02/01 23:06:43 dholland Exp $";
-
-
 
 #define MAXMEM (16*1024*1024)
 

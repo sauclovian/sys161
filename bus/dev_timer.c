@@ -15,8 +15,6 @@
 #include "lamebus.h"
 
 
-const char rcsid_dev_timer_c[] = "$Id: dev_timer.c,v 1.10 2001/07/18 23:49:47 dholland Exp $";
-
 /***************************************************************/
 
 /*

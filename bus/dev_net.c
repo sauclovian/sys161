@@ -19,8 +19,6 @@
 #include "busids.h"
 #include "lamebus.h"
 
-const char rcsid_dev_net_c[] = 
-    "$Id: dev_net.c,v 1.19 2008/06/27 21:56:21 dholland Exp $";
 
 #define NETREG_READINTR    0
 #define NETREG_WRITEINTR   4

@@ -21,7 +21,14 @@ This makes it a natural choice for System/161.
 <p>
 The specific dialect of MIPS processor found in System/161, which for
 a lack of a better term we'll refer to as MIPS-161, is essentially a
-cache-coherent r3000, or MIPS-I.
+cache-coherent r3000, or MIPS-I. It has a few features borrowed from
+later models, and a couple of its own.
+</p>
+
+<p>
+There are two basic versions of the MIPS-161: the System/161 1.x
+version and the System/161 2.x version. Distinguishing these on the
+fly is discussed below.
 </p>
 
 <h3><font face=tahoma,arial,helvetica,sans>User Mode</font></h3>
@@ -29,17 +36,17 @@ cache-coherent r3000, or MIPS-I.
 In user mode, the MIPS-161 behaves the same as any other 32-bit MIPS.
 All user instructions are fully interlocked and there are no pipeline
 hazards. All MIPS-I instructions are supported. MIPS-II and higher
-instructions are not supported, except for the <tt>ll</tt> and
-<tt>sc</tt> instructions used for multiprocessor synchronization.
+instructions are not supported, except (in System/161 2.0 and up) for
+the <tt>LL</tt> and <tt>SC</tt> instructions used for multiprocessor
+synchronization, and the <tt>SYNC</tt> memory barrier instruction.
 Please consult your favorite MIPS reference for further details.
 </p>
 
 <h3><font face=tahoma,arial,helvetica,sans>Kernel Mode</font></h3>
 <p>
 In kernel mode, the MIPS-161 is mostly a MIPS-I, with a few
-differences and a few extensions borrowed from later MIPS versions.
-For completeness, the following sections define the complete kernel
-mode interface.
+differences and a few extensions. For completeness, the following
+sections define the complete kernel mode interface.
 </p>
 
 <h3><font face=tahoma,arial,helvetica,sans>Kernel Instructions</font></h3>
@@ -57,36 +64,48 @@ anywhere I could find, the MIPS-161 behavior is as follows:
 <li> The interrupt is not serviced until it is unmasked or
      re-enabled.
 </ul>
+WAIT is supported in all MIPS-161 versions.
 </p>
 
 <p>
-Regarding the <tt>TLBR</tt>, <tt>TLBWR</tt>, <tt>TLBWI</tt>, and
-<tt>TLBP</tt> instructions, see the MMU section below. Regarding the
-<tt>RFE</tt> instruction, see the trap handling section, also below.
-Regarding the <tt>MFC0</tt> and <tt>MTC0</tt> instructions, see the
-next section.
+The <tt>TLBR</tt>, <tt>TLBWR</tt>, <tt>TLBWI</tt>, and <tt>TLBP</tt>
+instructions are described in the MMU section below. The <tt>RFE</tt>
+instruction is described in the trap handling section, also below.
+The <tt>MFC0</tt> and <tt>MTC0</tt> instructions for accessing
+supervisor mode registers are described in the next two sections.
 </p>
 
+<h3><font face=tahoma,arial,helvetica,sans>Coprocessor Registers</font></h3>
+
+<p>
+The System/161 2.x MIPS-161 implements the MIPS-32 "select" feature
+for coprocessor registers: each coprocessor has up to 8 banks of 32
+registers each. The "select" number identifies the register bank. Most
+registers of most coprocessors are in select 0. The System/161 1.x
+processor ignores the "select" field, so all banks will appear to
+mirror select 0.
+</p>
+
+<p>
+Coprocessor registers are accessed with the <tt>MFC0..3</tt> and
+<tt>MTC0..3</tt> family of instructions, to access coprocessors 0
+through 3, as follows:
+<pre>
+	mfc0 $4, $12, 0
+</pre>
+loads the contents of coprocessor 0 (supervisor) register 12 select 0
+(STATUS) into general-purpose register 4 (a0), and
+<pre>
+	mtc0 $4, $12, 0
+</pre>
+does the reverse. If the select number is 0 (the common case) it may
+be omitted.
+</p>
 
 <h3><font face=tahoma,arial,helvetica,sans>Kernel Registers</font></h3>
 
 <p>
-The MIPS-161 has 10 supervisor registers in coprocessor 0. These may
-be accessed with the <tt>MFC0</tt> (move from coprocessor 0) and
-<tt>MTC0</tt> instruction, as follows:
-<pre>
-	mfc0 $4, $12
-</pre>
-loads the contents of supervisor register 12 (STATUS) into
-general-purpose register 4 (a0), and
-<pre>
-	mtc0 $4, $12
-</pre>
-does the reverse.
-</p>
-
-<p>
-The supervisor registers are:
+The MIPS-161 has 11 supervisor registers in coprocessor 0. These are:
 <ul>
 <li> INDEX ($0)
 <li> RANDOM ($1)
@@ -98,6 +117,8 @@ The supervisor registers are:
 <li> CAUSE ($13)
 <li> EPC ($14)
 <li> PRID ($15)
+<li> CFEAT ($15 select 1) (System/161 2.x only)
+<li> IFEAT ($15 select 2) (System/161 2.x only)
 </ul>
 
 with the following bit patterns:
@@ -120,7 +141,7 @@ with the following bit patterns:
 <th width="2%">5</th><th width="2%">4</th>
 <th width="2%">3</th><th width="2%">2</th>
 <th width="2%">1</th><th width="2%">0</th>
-<td width="2%" rowspan=11 valign=top>Bits</td><td align=left>&nbsp;</td>
+<td width="2%" rowspan=13 valign=top>Bits</td><td align=left>&nbsp;</td>
 </tr>
 
 <tr>
@@ -223,9 +244,22 @@ with the following bit patterns:
 </tr>
 
 <tr>
+<!--
 <td colspan=16 bgcolor=#dddddd align=center>0</td>
 <td colspan=16 bgcolor=#ffdddd align=center>PRID</td>
+-->
+<td colspan=32 bgcolor=#ffdddd align=center>PRID</td>
 <td>PRID</td>
+</tr>
+
+<tr>
+<td colspan=32 bgcolor=#ffdddd align=center>CFEAT</td>
+<td>CFEAT</td>
+</tr>
+
+<tr>
+<td colspan=32 bgcolor=#ffdddd align=center>IFEAT</td>
+<td>IFEAT</td>
 </tr>
 
 </table>
@@ -296,7 +330,25 @@ EPC
 </ul>
 PRID
 <ul>
-<li> PRID -- processor ID code. The MIPS-161 sets this to 0xbeef.
+<li> PRID -- processor ID code. See discussion below.
+</ul>
+CFEAT
+<ul>
+<li> CFEAT -- compatible processor feature bits. None are defined yet,
+so this register will read as 0. (In later versions of System/161 it
+may not.) Features appearing in this register are backward-compatible;
+system software that is not aware of them should be expected to still
+operate correctly. The CFEAT register is a MIPS-161 extension; it is
+not found in any standard or semistandard MIPS version.
+</ul>
+IFEAT
+<ul>
+<li> IFEAT -- incompatible processor feature bits. None are defined
+yet, so this register will read as 0. (In later versions of System/161
+it may not.) Features appearing in this register are <em>not</em>
+backward-compatible. System software that is not aware of them will
+probably not work. The IFEAT register is a MIPS-161 extension; it is
+not found in any standard or semistandard MIPS version.
 </ul>
 </p>
 
@@ -580,18 +632,13 @@ the same order they are issued in machine code.
 </p>
 
 <p>
-The MIPS-II <tt>SYNC</tt> instruction can be used to wait until all
-pending load and store operations are complete. This guarantees that
-all memory updates before the <tt>SYNC</tt> become visible before any
-memory updates after the <tt>SYNC</tt>. All <tt>SYNC</tt> instructions
-executed on all cores and processors within a system occur in a single
-well defined global order.
-</p>
-
-<p>
-The MIPS-161 currently has no support for out-of-order execution and
-the <tt>SYNC</tt> instruction is not supported. This may change in
-the future.
+In the System/161 2.x processor, the MIPS-II <tt>SYNC</tt> instruction
+can be used to wait until all pending load and store operations are
+complete. This guarantees that all memory updates before the
+<tt>SYNC</tt> become visible before any memory updates after the
+<tt>SYNC</tt>. All <tt>SYNC</tt> instructions executed on all cores
+and processors within a system occur in a single well defined global
+order.
 </p>
 
 <h3><font face=tahoma,arial,helvetica,sans>Cores</font></h3>
@@ -640,22 +687,59 @@ fields are still undefined.
 Processor</font></h3>
 
 <p>
-Currently, code that knows it is running on System/161 may assume it
-has a MIPS-161 and proceed accordingly.
+Distinguishing the MIPS-161 from an arbitrarily chosen MIPS-I is
+likely to be problematic: according to the lore, the PRID register
+values for MIPS-I processors could not reliably be used to distinguish
+processor types even in real deployed hardware. The recommended method
+is to arrange to know that you have a MIPS-161 because you are running
+on System/161; then the scheme below can be used to identify which
+version you have. If this is not feasible, you're on your own. It
+might be possible to detect the MIPS-161 by enabling certain cache
+control bits and ascertaining that they have no effect.
 </p>
 
 <p>
-Code that wants to run unchanged on a variety of MIPS platforms
-without a System/161-specific startup wedge is likely to run into
-problems: there is no safe way to identify that one is running on
-System/161 as such, and distinguishing the MIPS-161 from an
-arbitrarily chosen MIPS-I is likely to be problematic. The MIPS-161
-sets the PRID register to 0x0000 beef; however, my understanding is
-that the contents of the PRID register for early MIPS models (where
-the upper 16 bits are defined as 0) cannot even be used reliably to
-distinguish real deployed hardware. It might be possible to
-distinguish the MIPS-161 based on its cache (non-)behavior; however,
-this is probably dangerous and not recommended.
+The System/161 1.x processor can be distinguished from the System/161
+2.x processor by fetching the value from the PRID register. The top
+half of the PRID register is 0 (because the MIPS-161 is not a MIPS-32
+or MIPS-64) and the bottom half gives the version:
+<ul>
+<li> 0x3ff (1023) identifies System/161 1.x
+<li> 0xa1 (161) identifies System/161 2.x
+</ul>
+</p>
+
+<p>
+The processors in pre-2.0 versions of System/161 prior to 1.99.07 also
+report 0x3ff in the PRID register. These nonetheless support LL/SC and
+the on-chip timer
+<!-- XXX --> (not documented herein yet, alas)
+but do not support SYNC, coprocessor register selects, or the
+CFEAT/IFEAT registers. The best way to detect this case is to check
+the LAMEbus mainboard version; if the multiprocessor mainboard is
+present, the processor supports LL/SC and the on-chip timer. (If the
+uniprocessor mainboard is present, this support might still be
+present, but can only be detected by direct probing, which is not
+recommended.) Other than this, no guarantees are made about
+mainboard versions and features vs. CPU versions and features.
+Mainboard and CPU properties can be selected independently in
+<tt>sys161.conf</tt>.
+</p>
+
+<p>
+Some ancient prerelease versions of System/161 (0.95 and earlier)
+reported 0xbeef in the PRID register. These versions are now long gone
+and can be ignored. The documentation also for a long time described
+the PRID value for the System/161 1.x processor as 0xbeef; this was
+incorrect.
+</p>
+
+<p>
+CPU features beyond those found by default in the System/161 2.x
+processor should be probed by checking the CFEAT and IFEAT registers,
+after confirming that a System/161 2.x processor is in fact present.
+See the descriptions of these feature bits above. (So far, there are
+none.)
 </p>
 
 </body>

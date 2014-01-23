@@ -28,9 +28,6 @@
 #endif
 
 
-const char rcsid_clock_c[] =
-    "$Id: clock.c,v 1.16 2008/06/27 21:24:27 dholland Exp $";
-
 struct timed_action {
 	struct timed_action *ta_next;
 	u_int64_t ta_clocksat;
@@ -49,6 +46,13 @@ static u_int32_t start_secs, start_nsecs;
 static u_int64_t now_clocks;
 
 static int now_is_behind; // XXX (see uses below)
+
+unsigned progress;
+static int check_progress;
+static int progress_warned;
+static u_int32_t progress_timeout;
+static u_int32_t last_progress_secs;
+static u_int32_t last_progress_nsecs;
 
 /**************************************************************/
 
@@ -207,8 +211,12 @@ clock_time(u_int32_t *secs, u_int32_t *nsecs)
 void
 clock_setsecs(u_int32_t secs)
 {
+	u_int32_t offset;
 	//reschedule_queue(secs - now_secs, 0);
-	now_secs = secs;
+
+	offset = secs - now_secs;
+	now_secs = secs; // equivalent to: now_secs += offset;
+	last_progress_secs += offset;
 }
 
 void
@@ -216,6 +224,7 @@ clock_setnsecs(u_int32_t nsecs)
 {
 	//reschedule_queue(0, nsecs - now_nsecs);
 	now_nsecs = nsecs;
+	/* don't bother adjusting last_progress_nsecs */
 }
 
 /* Always call clock_advance or check_queue after this */
@@ -266,6 +275,8 @@ clock_init(void)
 
 	start_secs = now_secs;
 	start_nsecs = now_nsecs;
+	last_progress_secs = now_secs;
+	last_progress_nsecs = now_nsecs;
 }
 
 void
@@ -286,6 +297,13 @@ clock_cleanup(void)
 	    (unsigned long)secs, 
 	    (unsigned long)nsecs,
 	    1000/NSECS_PER_CLOCK);
+}
+
+void
+clock_setprogresstimeout(u_int32_t secs)
+{
+	check_progress = 1;
+	progress_timeout = secs;
 }
 
 void
@@ -314,9 +332,60 @@ clock_dumpstate(void)
 void
 clock_tick(void)
 {
+	u_int32_t secs, nsecs;
+
 	clock_advance(NSECS_PER_CLOCK);
 	now_clocks++;
 	g_stats.s_tot_rcycles++;
+
+	if (!check_progress) {
+		return;
+	}
+
+	if (progress) {
+		progress = 0;
+
+		last_progress_secs = now_secs;
+		last_progress_nsecs = now_nsecs;
+		if (progress_warned) {
+			progress_warned = 0;
+		}
+		return;
+	}
+
+	Assert(now_secs >= last_progress_secs);
+	secs = now_secs - last_progress_secs;
+	if (secs < progress_timeout ||
+	    (progress_warned && secs < progress_timeout * 2)) {
+		return;
+	}
+
+	/* compute exactly */
+	nsecs = now_nsecs;
+	secs = now_secs;
+
+	if (nsecs < last_progress_nsecs) {
+		nsecs += 1000000000;
+		secs--;
+	}
+	nsecs -= last_progress_nsecs;
+	secs -= last_progress_secs;
+	Assert(secs > 0);
+
+	if (secs >= progress_timeout * 2) {
+		msg("No progress in %u seconds; dropping to debugger",
+		    progress_timeout * 2);
+		main_stop();
+
+		/* avoid repeating */
+		last_progress_nsecs = now_nsecs;
+		last_progress_secs = now_secs;
+		progress_warned = 0;
+	}
+	else if (!progress_warned && secs >= progress_timeout) {
+		msg("Caution: no progress in %u seconds", progress_timeout);
+		progress_warned = 1;
+	}
 }
 
 static
@@ -378,6 +447,25 @@ clock_dowait(u_int32_t secs, u_int32_t nsecs, u_int64_t clocks)
 		now_is_behind = 1;
 		tryselect(1, wsecs, wnsecs);
 		now_is_behind = 0;
+
+		/*
+		 * This is complete bollocks.
+		 *
+		 * The reason we sometimes get huge numbers of idle
+		 * cycles is that sleptsecs can be negative. This
+		 * happens if select returns much earlier than the
+		 * timeout, which can happen if e.g. someone pushes a
+		 * key.
+		 *
+		 * Time handling really does need a big rework. We
+		 * need to be much more careful about separating
+		 * simulator time and wall time. See "bleck" above,
+		 * too.
+		 *
+		 * I am putting off actually doing it until I finish
+		 * collecting assignment 3 timings as fixing this
+		 * might change them.
+		 */
 
 		/* Figure out how long we slept (might be less *or* more) */
 		gettimeofday(&tv, NULL);

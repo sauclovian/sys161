@@ -18,10 +18,8 @@
 #include "main.h"
 
 #include "context.h"
-
-const char rcsid_gdb_fe_c[] = "$Id: gdb_fe.c,v 1.18 2004/02/03 22:10:37 dholland Exp $";
-
 //#include "lamebus.h"
+
 
 static int g_listenfd = -1;
 struct gdbcontext g_ctx;

@@ -19,10 +19,11 @@
 
 //#define SHOW_PACKETS
 
-const char rcsid_gdb_be_c[] = "$Id: gdb_be.c,v 1.27 2008/06/27 21:29:27 dholland Exp $";
 
 extern struct gdbcontext g_ctx;
 extern int g_ctx_inuse;
+
+static unsigned dontwait;
 
 static void debug_notsupp(struct gdbcontext *);
 static void debug_send(struct gdbcontext *, const char *);
@@ -193,6 +194,10 @@ gdb_startbreak(void)
 		debug_send(&g_ctx, "S05");
 	}
 	else {
+		if (dontwait) {
+			msg("Exiting instead of waiting for debugger...");
+			die();
+		}
 		msg("Waiting for debugger connection...");
 	}
 	set_breakcond();
@@ -348,3 +353,8 @@ debug_restart(struct gdbcontext *ctx, const char *addr)
 	cpu_set_entrypoint(0 /*cpunum, XXX*/, realaddr);
 }
 
+void
+gdb_dontwait(void)
+{
+	dontwait = 1;
+}

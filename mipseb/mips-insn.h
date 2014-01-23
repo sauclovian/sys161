@@ -56,6 +56,7 @@
 #define OPS_JALR        9
 #define OPS_SYSCALL     12
 #define OPS_BREAK       13
+#define OPS_SYNC	15
 #define OPS_MFHI        16
 #define OPS_MTHI        17
 #define OPS_MFLO        18

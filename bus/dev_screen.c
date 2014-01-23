@@ -7,8 +7,6 @@
 #include "busids.h"
 #include "lamebus.h"
 
-const char rcsid_dev_screen_c[] = 
-    "$Id: dev_screen.c,v 1.6 2001/07/18 23:49:47 dholland Exp $";
 
 static
 void *screen_init(int slot, int argc, char *argv[])

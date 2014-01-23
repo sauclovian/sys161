@@ -23,10 +23,6 @@
 //#define USE_TLBMAP
 
 
-const char rcsid_mips_c[] =
-	"$Id: mips.c,v 1.84 2004/04/15 20:14:25 dholland Exp $";
-
-
 /* number of tlb entries */
 #define NTLB  64
 
@@ -71,19 +67,36 @@ const char rcsid_mips_c[] =
 #define RANDREG_MAX		56
 #define RANDREG_OFFSET		8
 
-/* system coprocessor (cop0) registers */
-#define C0_INDEX   0
-#define C0_RANDOM  1
-#define C0_TLBLO   2
-#define C0_CONTEXT 4
-#define C0_VADDR   8
-#define C0_COUNT   9
-#define C0_TLBHI   10
-#define C0_COMPARE 11
-#define C0_STATUS  12
-#define C0_CAUSE   13
-#define C0_EPC     14
-#define C0_PRID    15
+/*
+ * Coprocessor registers have a register number (0-31) and then also
+ * a "select" number 0-7, which is basically a bank number. So you can
+ * have up to 256 registers per coprocessor.
+ */
+#define REGSEL(reg, sel) (((reg) << 3) | (sel))
+
+/* system coprocessor (cop0) registers and selects */
+#define C0_INDEX   REGSEL(0, 0)
+#define C0_RANDOM  REGSEL(1, 0)
+#define C0_TLBLO   REGSEL(2, 0)
+#define C0_CONTEXT REGSEL(4, 0)
+#define C0_VADDR   REGSEL(8, 0)
+#define C0_COUNT   REGSEL(9, 0)
+#define C0_TLBHI   REGSEL(10, 0)
+#define C0_COMPARE REGSEL(11, 0)
+#define C0_STATUS  REGSEL(12, 0)
+#define C0_CAUSE   REGSEL(13, 0)
+#define C0_EPC     REGSEL(14, 0)
+#define C0_PRID    REGSEL(15, 0)
+#define C0_CFEAT   REGSEL(15, 1)
+#define C0_IFEAT   REGSEL(15, 2)
+
+/* Version IDs for C0_PRID */
+#define PRID_VALUE_ANCIENT	0xbeef    /* sys161 <= 0.95 */
+#define PRID_VALUE_OLD		0x03ff    /* sys161 1.x and 1.99.x<=1.99.06 */
+#define PRID_VALUE_CURRENT	0x00a1    /* sys161 2.x */
+
+/* Feature flags for C0_CFEAT and C0_IFEAT */
+/* (none yet) */
 
 /* MIPS hardwired memory segments */
 #define KSEG2	0xc0000000
@@ -204,6 +217,8 @@ struct mipscpu {
 	u_int32_t ex_epc;	// cop0 register 14
 	u_int32_t ex_vaddr;	// cop0 register 8
 	u_int32_t ex_prid;	// cop0 register 15
+	u_int32_t ex_cfeat;	// cop0 register 15 sel 1
+	u_int32_t ex_ifeat;	// cop0 register 15 sel 2
 	u_int32_t ex_count;	// cop0 register 9
 	u_int32_t ex_compare;	// cop0 register 11
 	int ex_compare_used;	// timer irq disabled if not set
@@ -343,7 +358,9 @@ mips_init(struct mipscpu *cpu, unsigned cpunum)
 	cpu->ex_context = 0;
 	cpu->ex_epc = 0;
 	cpu->ex_vaddr = 0;
-	cpu->ex_prid = 0x03ff;  // implementation 3, revision 0xff (XXX)
+	cpu->ex_prid = PRID_VALUE_CURRENT;
+	cpu->ex_cfeat = 0;
+	cpu->ex_ifeat = 0;
 	cpu->ex_count = 1;
 	cpu->ex_compare = 0;
 	cpu->ex_compare_used = 0;
@@ -1450,6 +1467,7 @@ static int tracehow;		// how to trace the current instruction
 #define NEEDTARG u_int32_t targ=(insn & 0x03ffffff)           // target of jump
 #define NEEDSH	 u_int32_t sh = (insn & 0x000007c0) >> 6	// shift count
 #define NEEDCN	 u_int32_t cn = (insn & 0x0c000000) >> 26	// coproc. no.
+#define NEEDSEL	 u_int32_t sel= (insn & 0x00000007)	     // register select
 #define NEEDIMM	 u_int32_t imm= (insn & 0x0000ffff)	     // immediate value
 #define NEEDSMM	 NEEDIMM; int32_t smm = (int32_t)(int16_t)imm 
 					       // sign-extended immediate value
@@ -1459,13 +1477,17 @@ static int tracehow;		// how to trace the current instruction
 
 static
 void
-domf(struct mipscpu *cpu, int cn, int reg, int32_t *greg)
+domf(struct mipscpu *cpu, int cn, unsigned reg, unsigned sel, int32_t *greg)
 {
+	unsigned regsel;
+	
 	if (cn!=0 || IS_USERMODE(cpu)) {
 		exception(cpu, EX_CPU, cn, 0);
 		return;
 	}
-	switch (reg) {
+
+	regsel = REGSEL(reg, sel);
+	switch (regsel) {
 	    case C0_INDEX:   *greg = getindex(cpu); break;
 	    case C0_RANDOM:  *greg = getrandom(cpu); break;
 	    case C0_TLBLO:   *greg = tlbgetlo(&cpu->tlbentry); break;
@@ -1478,6 +1500,8 @@ domf(struct mipscpu *cpu, int cn, int reg, int32_t *greg)
 	    case C0_CAUSE:   *greg = getcause(cpu); break;
 	    case C0_EPC:     *greg = cpu->ex_epc; break;
 	    case C0_PRID:    *greg = cpu->ex_prid; break;
+	    case C0_CFEAT:   *greg = cpu->ex_cfeat; break;
+	    case C0_IFEAT:   *greg = cpu->ex_ifeat; break;
 	    default:
 		exception(cpu, EX_RI, cn, 0);
 		break;
@@ -1486,13 +1510,17 @@ domf(struct mipscpu *cpu, int cn, int reg, int32_t *greg)
 
 static
 void
-domt(struct mipscpu *cpu, int cn, int reg, int32_t greg)
+domt(struct mipscpu *cpu, int cn, int reg, int sel, int32_t greg)
 {
+	unsigned regsel;
+
 	if (cn!=0 || IS_USERMODE(cpu)) {
 		exception(cpu, EX_CPU, cn, 0);
 		return;
 	}
-	switch (reg) {
+
+	regsel = REGSEL(reg, sel);
+	switch (regsel) {
 	    case C0_INDEX:   setindex(cpu, greg); break;
 	    case C0_RANDOM:  /* read-only register */ break;
 	    case C0_TLBLO:   tlbsetlo(&cpu->tlbentry, greg); break;
@@ -1516,6 +1544,8 @@ domt(struct mipscpu *cpu, int cn, int reg, int32_t greg)
 	    case C0_CAUSE:   setcause(cpu, greg); break;
 	    case C0_EPC:     /* read-only register */ break;
 	    case C0_PRID:    /* read-only register */ break;
+	    case C0_CFEAT:   /* read-only register */ break;
+	    case C0_IFEAT:   /* read-only register */ break;
 	    default:
 		exception(cpu, EX_RI, cn, 0);
 		break;
@@ -1892,6 +1922,8 @@ mx_ll(struct mipscpu *cpu, u_int32_t insn)
 	cpu->ll_addr = addr;
 	cpu->ll_value = RTs;
 
+	g_stats.s_percpu[cpu->cpunum].sp_lls++;
+
 	TR("%ld", RTsp);
 }
 
@@ -1982,10 +2014,20 @@ mx_sc(struct mipscpu *cpu, u_int32_t insn)
 	 * performing an atomic operation that reads it now. This is
 	 * true even if the target memory has been written to in
 	 * between, even though allowing that is formally against the
-	 * spec. (Other operations that might allow distinguishing
+	 * spec. Other operations that might allow distinguishing
 	 * such a case, such as reading other memory regions with or
 	 * without using LL, lead to the behavior of the SC being
-	 * formally unpredictable or undefined.)
+	 * formally unpredictable or undefined.
+	 *
+	 * (Since a number of people have missed or misunderstood this
+	 * point: it is NOT ALLOWED to do other memory accesses
+	 * between the LL and SC. If you do so, the SC no longer
+	 * guarantees you an atomic operation; it might fail if
+	 * another CPU has accessed the memory you LL'd, but it might
+	 * not. Or it might always fail. This is how LL/SC is defined,
+	 * on MIPS and other architectures, not a "bug" in System/161.
+	 * If you want to make multiple memory accesses atomic, you
+	 * need a transactional memory system; good luck with that.)
 	 *
 	 * The address of the SC must be the same as the LL. That's
 	 * supposed to mean both vaddr and paddr, as well as caching
@@ -2030,11 +2072,13 @@ mx_sc(struct mipscpu *cpu, u_int32_t insn)
 	}
 	/* success */
 	RTx = 1;
+	g_stats.s_percpu[cpu->cpunum].sp_okscs++;
 	return;
 
  fail:
 	/* failure */
 	RTx = 0;
+	g_stats.s_percpu[cpu->cpunum].sp_badscs++;
 }
 
 static
@@ -2199,9 +2243,14 @@ inline
 void
 mx_mf(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRD; NEEDCN;
-	TRL("mfc%d %s, $%u: ... -> ", cn, regname(rt), rd);
-	domf(cpu, cn, rd, &RTx);
+	NEEDRT; NEEDRD; NEEDCN; NEEDSEL;
+	if (sel) {
+		TRL("mfc%d %s, $%u.%u: ... -> ", cn, regname(rt), rd, sel);
+	}
+	else {
+		TRL("mfc%d %s, $%u: ... -> ", cn, regname(rt), rd);
+	}
+	domf(cpu, cn, rd, sel, &RTx);
 	TR("0x%lx", RTup);
 }
 
@@ -2236,9 +2285,15 @@ inline
 void
 mx_mt(struct mipscpu *cpu, u_int32_t insn)
 {
-	NEEDRT; NEEDRD; NEEDCN;
-	TR("mtc%d %s, $%u: 0x%lx -> ...", cn, regname(rt), rd, RTup);
-	domt(cpu, cn, rd, RTs);
+	NEEDRT; NEEDRD; NEEDCN; NEEDSEL;
+	if (sel) {
+		TR("mtc%d %s, $%u.%u: 0x%lx -> ...", cn, regname(rt), rd, sel,
+		   RTup);
+	}
+	else {		
+		TR("mtc%d %s, $%u: 0x%lx -> ...", cn, regname(rt), rd, RTup);
+	}
+	domt(cpu, cn, rd, sel, RTs);
 }
 
 static
@@ -2518,6 +2573,18 @@ mx_subu(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
+mx_sync(struct mipscpu *cpu, u_int32_t insn)
+{
+	/* flush pending memory accesses; for now nothing needed */
+	(void)cpu;
+	(void)insn;
+	TR("sync");
+	g_stats.s_percpu[cpu->cpunum].sp_syncs++;
+}
+
+static
+inline
+void
 mx_syscall(struct mipscpu *cpu, u_int32_t insn)
 {
 	(void)insn;
@@ -2675,6 +2742,8 @@ cpu_cycle(void)
 	u_int32_t op;
 	unsigned whichcpu;
 	unsigned breakpoints = 0;
+	u_int32_t retire_pc;
+	unsigned retire_usermode;
 
 	for (whichcpu=0; whichcpu < ncpus; whichcpu++) {
 		struct mipscpu *cpu = &mycpus[whichcpu];
@@ -2750,7 +2819,18 @@ cpu_cycle(void)
 		tracehow = DOTRACE_KINSN;
 #endif
 	}
-	
+
+	/*
+	 * If at the end of all this logic, the PC (which will hold
+	 * the address of the next instruction to execute) is still
+	 * what's currently nextpc, we haven't taken an exception and
+	 * that means we've retired an instruction. We need to record
+	 * whether it was user or kernel here, because otherwise if we
+	 * switch modes (e.g. with RFE) it'll be credited incorrectly.
+	 */
+	retire_pc = cpu->nextpc;
+	retire_usermode = IS_USERMODE(cpu);
+
 	/*
 	 * Fetch instruction.
 	 *
@@ -2830,6 +2910,7 @@ cpu_cycle(void)
 			}
 			mx_break(cpu, insn);
 			break;
+		    case OPS_SYNC: mx_sync(cpu, insn); break;
 		    case OPS_MFHI: mx_mfhi(cpu, insn); break;
 		    case OPS_MTHI: mx_mthi(cpu, insn); break;
 		    case OPS_MFLO: mx_mflo(cpu, insn); break;
@@ -2920,6 +3001,29 @@ cpu_cycle(void)
 	cpu->in_jumpdelay = 0;
 	
 	cpu->tlbrandom++;
+
+	/*
+	 * If the PC (which is the instruction we're going to execute
+	 * on the next cycle) is still what it was saved as above,
+	 * meaning we aren't jumping to an exception vector, we've
+	 * retired an instruction. If in user mode, we've made
+	 * progress.
+	 *
+	 * Note that it's important to claim progress only when we've
+	 * retired an instruction; just spending a cycle in user mode
+	 * doesn't count as it's possible to set up livelock
+	 * conditions where user-mode instructions are started
+	 * regularly but never complete.
+	 */
+	if (cpu->pc == retire_pc) {
+		if (retire_usermode) {
+			g_stats.s_percpu[cpu->cpunum].sp_uretired++;
+			progress = 1;
+		}
+		else {
+			g_stats.s_percpu[cpu->cpunum].sp_kretired++;
+		}
+	}
 
 	/* INDENT HORROR END */
 

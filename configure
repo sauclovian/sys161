@@ -9,6 +9,7 @@
 #     5. Endianness
 #     6. CHAR_BIT
 #     7. sized integer types
+#     8. if we need -D_FILE_OFFSET_BITS=64 or similar
 #
 
 if [ -f doc/lamebus.html ]; then
@@ -344,6 +345,35 @@ echo 'ok'
 
 ############################################################
 
+echo -n "Checking size of off_t... "
+
+cat > __conftest.c <<EOF
+#include <sys/types.h>
+#include <unistd.h>
+#include "__config.h"
+int main() {
+    int foo[sizeof(off_t) == sizeof(int64_t) ? 1 : -1];
+    foo[0] = 0;
+    return foo[0];
+}
+EOF
+
+if $CC -c __conftest.c >/dev/null 2>&1; then
+    echo "ok"
+else
+    if $CC -c -D_FILE_OFFSET_BITS=64 __conftest.c >/dev/null 2>&1; then
+	echo "bogus"
+	echo "Your C library requires -D_FILE_OFFSET_BITS=64. Please ask your"
+	echo "vendor to provide a reasonable default environment."
+	CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64"
+    else
+	echo "unknown"
+	echo "WARNING -- you will probably not be able to handle large files"
+    fi
+fi
+
+############################################################
+
 echo -n "Checking for struct sockaddr_storage... "
 
 cat >__conftest.c <<EOF
@@ -482,7 +512,7 @@ int main() {
 }
 EOF
 
-if $CC __conftest.c $LIBS >/dev/null 2>&1; then
+if $CC __conftest.c $LIBS -o __conftest >/dev/null 2>&1; then
     echo "yes"
 else
     echo "missing"

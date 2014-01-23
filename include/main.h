@@ -35,6 +35,12 @@ struct stats_percpu {
 	u_int64_t sp_ucycles;  // user mode cycles
 	u_int64_t sp_kcycles;  // kernel mode cycles
 	u_int64_t sp_icycles;  // idle cycles
+	u_int64_t sp_uretired; // user mode instructions retired
+	u_int64_t sp_kretired; // kernel mode instructions retired
+	u_int64_t sp_lls;      // LL instructions
+	u_int64_t sp_okscs;    // successful SC instructions
+	u_int64_t sp_badscs;   // failed SC instructions
+	u_int64_t sp_syncs;    // SYNC instructions
 };
 
 struct stats {

@@ -5,8 +5,6 @@
 #include "console.h"
 #include "trace.h"
 
-const char rcsid_trace_c[] = 
-	"$Id: trace.c,v 1.4 2001/07/09 22:14:18 dholland Exp $";
 
 #ifdef USE_TRACE
 

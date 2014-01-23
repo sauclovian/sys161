@@ -9,8 +9,6 @@
 #include "onsel.h"
 
 
-const char rcsid_onsel_c[] = "$Id: onsel.c,v 1.5 2001/01/27 01:43:16 dholland Exp $";
-
 #define MAXSELS 64
 
 static struct {
