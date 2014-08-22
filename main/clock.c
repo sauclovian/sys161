@@ -27,36 +27,160 @@
 #define RANDOM_MAX 0x7fffffffUL
 #endif
 
+////////////////////////////////////////////////////////////
+// System clock state.
 
-struct timed_action {
-	struct timed_action *ta_next;
-	u_int64_t ta_clocksat;
-	void *ta_data;
-	u_int32_t ta_code;
-	void (*ta_func)(void *, u_int32_t);
-	const char *ta_desc;
-	int ta_dotimefixup; // XXX (see uses below)
-};
+/*
+ * We maintain two notions of time: physical time (time on the host
+ * machine) and virtual time (time in the System/161 environment).
+ * These are nominally synchronized, but in practice they diverge
+ * because the CPU code doesn't run fast enough to keep up with its
+ * nominal speed.
+ *
+ * Virtual time advances as follows:
+ *    - when the main loop is stopped in the debugger: not at all
+ *    - when the CPU is running: NSECS_PER_CLOCK per cpu clock
+ *    - when the CPU is not running and a timed event is pending:
+ *      instantly
+ *    - when the CPU is not running and no timed events are pending:
+ *      synchronously with physical time
+ *
+ * Physical time advances as follows:
+ *    - when the main loop is stopped in the debugger: not at all (*)
+ *    - otherwise: according to the host clock
+ *
+ * (*) not implemented yet
+ *
+ * We measure both kinds of time as a 64-bit nanoseconds counter where
+ * startup is zero. The displayed time returned by the timer/clock
+ * hardware includes a saved startup time used as an offset.
+ */
 
-static u_int32_t now_secs;
-static u_int32_t now_nsecs;
+#define NSECS_PER_SEC 1000000000ULL
 
-static u_int32_t start_secs, start_nsecs;
+static uint64_t virtual_now;
 
-static u_int64_t now_clocks;
-
-static int now_is_behind; // XXX (see uses below)
+static uint32_t start_secs, start_nsecs;
 
 unsigned progress;
 static int check_progress;
 static int progress_warned;
-static u_int32_t progress_timeout;
-static u_int32_t last_progress_secs;
-static u_int32_t last_progress_nsecs;
+static uint64_t progress_timeout; /* nsecs */
+static uint64_t progress_deadline; /* vtime */
 
-/**************************************************************/
+////////////////////////////////////////////////////////////
+// core clock logic
 
-/* up to 16 simultaneous timed actions per device */
+/*
+ * Initialize.
+ *
+ * XXX: progress_deadline is set from command-line processing (if it's
+ * going to be used) BEFORE we get here, so don't initialize it as
+ * that clobbers it.
+ */
+static
+void
+clock_coreinit(void)
+{
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	start_secs = tv.tv_sec;
+	start_nsecs = 1000*tv.tv_usec;
+
+	virtual_now = 0;
+}
+
+/*
+ * Return the current virtual time. Accounts for being partway through
+ * a cpu_cycles() run.
+ */
+static
+inline
+uint64_t
+clock_vnow(void)
+{
+	return virtual_now
+		+ NSECS_PER_CLOCK * cpu_cycles_count
+		+ extra_selecttime;
+}
+
+/*
+ * Advance virtual time.
+ */
+static
+inline
+void
+clock_vadvance(uint64_t nsecs)
+{
+	virtual_now += nsecs;
+}
+
+/*
+ * Establish a new progress deadline.
+ */
+static
+inline
+void
+clock_newprogressdeadline(void)
+{
+	progress_deadline = clock_vnow() + progress_timeout;
+}
+
+/*
+ * Figure out how far a given virtual time is ahead of physical time.
+ * Returns zero if it isn't ahead of physical time.
+ *
+ * If we're already ahead of physical time, limit the amount we report
+ * to the amount the given virtual time is in the virtual future.
+ */
+static
+uint64_t
+clock_vahead(uint64_t vnow, uint64_t vnsecs)
+{
+	struct timeval tv;
+	uint64_t pnsecs;
+
+	/* get the physical time */
+	gettimeofday(&tv, NULL);
+
+	/* convert to time since startup */
+	if (tv.tv_sec < start_secs) {
+		/* just in case */
+		return 0;
+	}
+	else {
+		tv.tv_sec -= start_secs;
+	}
+	pnsecs = tv.tv_sec * NSECS_PER_SEC + tv.tv_usec * 1000;
+	pnsecs -= start_nsecs;
+
+	if (vnsecs <= pnsecs) {
+		return 0;
+	}
+	if (vnow <= pnsecs) {
+		return vnsecs - pnsecs;
+	}
+	return vnsecs - vnow;
+}
+
+////////////////////////////////////////////////////////////
+// timer actions
+
+struct timed_action {
+	struct timed_action *ta_next;
+	u_int64_t ta_vtime;
+	void *ta_data;
+	u_int32_t ta_code;
+	void (*ta_func)(void *, u_int32_t);
+	const char *ta_desc;
+	int ta_runningto;
+};
+
+/*
+ * Pool of timer actions so we don't have to malloc.
+ * Allow up to 16 simultaneous timed actions per device.
+ */
 #define MAXACTIONS 1024
 static struct timed_action action_storage[MAXACTIONS];
 static struct timed_action *ta_freelist = NULL;
@@ -92,8 +216,9 @@ acalloc_init(void)
 	}
 }
 
-/*************************************************************/
-
+/*
+ * The event queue.
+ */
 static struct timed_action *queuehead = NULL;
 
 static
@@ -101,12 +226,12 @@ void
 check_queue(void)
 {
 	struct timed_action *ta;
+	uint64_t vnow;
+
+	vnow = clock_vnow();
 	while (queuehead != NULL) {
 		ta = queuehead;
-		if (ta->ta_dotimefixup) {
-			smoke("Checked a dotimefixup event");
-		}
-		if (ta->ta_clocksat > now_clocks) {
+		if (ta->ta_vtime > vnow) {
 			return;
 		}
 
@@ -116,6 +241,41 @@ check_queue(void)
 
 		acfree(ta);
 	}
+}
+
+/*
+ * Figure out how many ticks we can run before the next scheduled
+ * event.
+ *
+ * The return value needs to be rounded up; otherwise an event due
+ * after the current moment but less than one cpu cycle in the future
+ * never gets dispatched.
+ */
+uint32_t
+clock_getrunticks(void)
+{
+	struct timed_action *ta;
+	uint64_t vnow;
+	uint32_t retnsecs;
+
+/* Go for up to 5 ms at a time (in virtual time) */
+#define MAXRUN 125000
+
+	ta = queuehead;
+	if (ta != NULL) {
+		vnow = clock_vnow();
+		if (ta->ta_vtime <= vnow) {
+			return 0;
+		}
+		if (ta->ta_vtime < vnow + MAXRUN * NSECS_PER_CLOCK) {
+			ta->ta_runningto = 1;
+			/* round up */
+			retnsecs = ta->ta_vtime - vnow;
+			retnsecs += NSECS_PER_CLOCK - 1;
+			return retnsecs / NSECS_PER_CLOCK;
+		}
+	}
+	return MAXRUN;
 }
 
 void
@@ -131,212 +291,56 @@ schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 	clocks = nsecs / NSECS_PER_CLOCK;
 
 	n = acalloc();
-	n->ta_clocksat = now_clocks + clocks;
+	n->ta_vtime = clock_vnow() + nsecs;
 	n->ta_data = data;
 	n->ta_code = code;
 	n->ta_func = func;
 	n->ta_desc = desc;
-	n->ta_dotimefixup = now_is_behind;
+	n->ta_runningto = 0;
 
 	/*
 	 * Sorted linked-list insert.
 	 */
 
 	for (p = &queuehead; (*p) != NULL; p = &(*p)->ta_next) {
-		if (n->ta_clocksat < (*p)->ta_clocksat) {
+		if (n->ta_vtime < (*p)->ta_vtime) {
 			break;
 		}
 	}
 
 	n->ta_next = (*p);
 	(*p) = n;
-}
 
-static
-void
-dotimefixups(u_int64_t cycles)
-{
 	/*
-	 * XXX.
+	 * If the event we're scheduling before is the next event and
+	 * we told the cpu it can run until that time, stop the cpu.
+	 * Then the main loop logic will recalculate things.
 	 *
-	 * The problem is that onsel.c, which is all tidily abstracted
-	 * away, affects timing. In particular, the select with a
-	 * timeout in clock_dowait returns after an interval that can
-	 * only be determined by checking gettimeofday(). Therefore,
-	 * the "current time" (now_*) when it's running can be either
-	 * the time before the sleep or the conjectured time after the
-	 * sleep. Until 20090228 it used to be the latter. But with a
-	 * long timeout that makes a mess if the select returns much
-	 * earlier due to e.g. a keypress.
-	 *
-	 * (With OS/161 2.x, where the 100 Hz hardclock is done by the
-	 * on-chip timer (which just counts cycles and doesn't use
-	 * timed events) there's just a 1 Hz lbolt timer, and assuming
-	 * the sleep had gone that long was leading to 10-second and more
-	 * waits on disk I/Os after typing for a bit.)
-	 *
-	 * However, if the current time is set to the time before the
-	 * sleep, then any events queued by a select handler
-	 * (currently only the console input throttling logic) can be
-	 * queued to happen in what'll be the past when the select
-	 * returns, and that's not so good either; for one thing it'll
-	 * defeat the console input throttling.
-	 *
-	 * So what we do is queue them in the past, mark them for time
-	 * fixup, and after wakeup add time to any marked events in
-	 * the queue.
-	 *
-	 * Bleck.
-	 *
-	 * The timing logic needs a *big* rework.
+	 * XXX: it would be more efficient to tell the cpu when to stop,
+	 * but currently that'd be difficult.
 	 */
-
-	struct timed_action *n;
-
-	for (n = queuehead; n != NULL; n = n->ta_next) {
-		if (n->ta_dotimefixup) {
-			n->ta_clocksat += cycles;
-			n->ta_dotimefixup = 0;
-		}
+	if (n->ta_next != NULL && n->ta_next->ta_runningto) {
+		cpu_stopcycling();
+		n->ta_next->ta_runningto = 0;
 	}
 }
 
+////////////////////////////////////////////////////////////
+// elapsed time interface
+
+/*
+ * The cpu has been running, and ran for some number of cycles; update
+ * the clock accordingly.
+ */
 void
-clock_time(u_int32_t *secs, u_int32_t *nsecs)
+clock_ticks(uint64_t nticks)
 {
-	if (secs) *secs = now_secs;
-	if (nsecs) *nsecs = now_nsecs;
-}
+	uint64_t vnow;
+	uint32_t secs;
 
-void
-clock_setsecs(u_int32_t secs)
-{
-	u_int32_t offset;
-	//reschedule_queue(secs - now_secs, 0);
-
-	offset = secs - now_secs;
-	now_secs = secs; // equivalent to: now_secs += offset;
-	last_progress_secs += offset;
-}
-
-void
-clock_setnsecs(u_int32_t nsecs)
-{
-	//reschedule_queue(0, nsecs - now_nsecs);
-	now_nsecs = nsecs;
-	/* don't bother adjusting last_progress_nsecs */
-}
-
-/* Always call clock_advance or check_queue after this */
-static
-inline
-void
-clock_advance_secs(u_int32_t secs)
-{
-	now_secs += secs;
-}
-
-static
-inline
-void
-clock_advance(u_int32_t nsecs)
-{
-	/* Believe it or not, gcc generates better code with this here */
-	u_int32_t tmp;
-
-	tmp = now_nsecs;
-
-	tmp += nsecs;
-	if (tmp >= 1000000000) {
-		tmp -= 1000000000;
-		now_secs++;
-	}
-
-	now_nsecs = tmp;
-
+	g_stats.s_tot_rcycles += nticks;
+	clock_vadvance(nticks * NSECS_PER_CLOCK);
 	check_queue();
-}
-
-void
-clock_init(void)
-{
-	struct timeval tv;
-	u_int32_t offset;
-
-	acalloc_init();
-	gettimeofday(&tv, NULL);
-	now_secs = tv.tv_sec;
-	now_nsecs = 1000*tv.tv_usec;
-	now_clocks = 0;
-
-	/* Shift the clock ahead a random fraction of 10 ms. */
-	offset = random() % 10000000;
-	clock_advance(offset);
-
-	start_secs = now_secs;
-	start_nsecs = now_nsecs;
-	last_progress_secs = now_secs;
-	last_progress_nsecs = now_nsecs;
-}
-
-void
-clock_cleanup(void)
-{
-	u_int32_t secs, nsecs;
-
-	secs = now_secs - start_secs;
-	if (now_nsecs < start_nsecs) {
-		nsecs = (1000000000 + now_nsecs) - start_nsecs;
-		secs--;
-	}
-	else {
-		nsecs = now_nsecs - start_nsecs;
-	}
-
-	msg("Elapsed virtual time: %lu.%09lu seconds (%d mhz)", 
-	    (unsigned long)secs, 
-	    (unsigned long)nsecs,
-	    1000/NSECS_PER_CLOCK);
-}
-
-void
-clock_setprogresstimeout(u_int32_t secs)
-{
-	check_progress = 1;
-	progress_timeout = secs;
-}
-
-void
-clock_dumpstate(void)
-{
-	struct timed_action *ta;
-
-	msg("clock: %lu.%09lu secs (start at %lu.%09lu)", 
-	    (unsigned long) now_secs,
-	    (unsigned long) now_nsecs,
-	    (unsigned long) start_secs,
-	    (unsigned long) start_nsecs);
-	msg("clock:    %9llu ticks", (unsigned long long) now_clocks);
-
-	if (queuehead==NULL) {
-		msg("clock: No events pending");
-		return;
-	}
-
-	for (ta = queuehead; ta; ta = ta->ta_next) {
-		msg("clock: at %9llu: %s",
-		    (unsigned long long) ta->ta_clocksat, ta->ta_desc);
-	}
-}
-
-void
-clock_tick(void)
-{
-	u_int32_t secs, nsecs;
-
-	clock_advance(NSECS_PER_CLOCK);
-	now_clocks++;
-	g_stats.s_tot_rcycles++;
 
 	if (!check_progress) {
 		return;
@@ -344,205 +348,206 @@ clock_tick(void)
 
 	if (progress) {
 		progress = 0;
-
-		last_progress_secs = now_secs;
-		last_progress_nsecs = now_nsecs;
+		clock_newprogressdeadline();
 		if (progress_warned) {
 			progress_warned = 0;
 		}
 		return;
 	}
 
-	Assert(now_secs >= last_progress_secs);
-	secs = now_secs - last_progress_secs;
-	if (secs < progress_timeout ||
-	    (progress_warned && secs < progress_timeout * 2)) {
+	vnow = clock_vnow();
+	if (vnow < progress_deadline) {
 		return;
 	}
 
-	/* compute exactly */
-	nsecs = now_nsecs;
-	secs = now_secs;
-
-	if (nsecs < last_progress_nsecs) {
-		nsecs += 1000000000;
-		secs--;
-	}
-	nsecs -= last_progress_nsecs;
-	secs -= last_progress_secs;
-	Assert(secs > 0);
-
-	if (secs >= progress_timeout * 2) {
-		msg("No progress in %u seconds; dropping to debugger",
-		    progress_timeout * 2);
-		main_stop();
+	secs = progress_timeout / NSECS_PER_SEC;
+	if (progress_warned) {
+		msg("No progress in %lu seconds; dropping to debugger",
+		    (unsigned long)secs * 2);
+		main_enter_debugger();
 
 		/* avoid repeating */
-		last_progress_nsecs = now_nsecs;
-		last_progress_secs = now_secs;
+		clock_newprogressdeadline();
 		progress_warned = 0;
 	}
-	else if (!progress_warned && secs >= progress_timeout) {
-		msg("Caution: no progress in %u seconds", progress_timeout);
+	else {
+		msg("Caution: no progress in %lu seconds",
+		    (unsigned long)secs);
+		clock_newprogressdeadline();
 		progress_warned = 1;
 	}
 }
 
-static
-void
-report_idletime(u_int32_t secs, u_int32_t nsecs)
-{
-	u_int64_t idlensecs;
-	static u_int32_t slop;
-
-	idlensecs = secs * (u_int64_t)1000000000 + nsecs + slop;
-
-	g_stats.s_tot_icycles += idlensecs / NSECS_PER_CLOCK;
-	slop = idlensecs % NSECS_PER_CLOCK;
-}
-
-static
-void
-clock_dowait(u_int32_t secs, u_int32_t nsecs, u_int64_t clocks)
-{
-	/* XXX fix up the sign handling in here */
-	struct timeval tv;
-	u_int32_t then_secs, then_nsecs;
-	u_int64_t then_clocks;
-	int32_t wsecs, wnsecs;
-	int32_t sleptsecs, sleptnsecs;
-	u_int64_t sleptclocks;
-
-	/*
-	 * Figure the time we're waiting until.
-	 */
-	then_clocks = now_clocks + clocks;
-	then_secs = now_secs + secs;
-	then_nsecs = now_nsecs + nsecs;
-	if (then_nsecs > 1000000000) {
-		then_nsecs -= 1000000000;
-		then_secs++;
-	}
-
-	/*
-	 * Figure out how far ahead of real wall time we will be. If we
-	 * aren't, don't sleep. If we are, sleep to synchronize, as
-	 * long as it's more than 10 ms. (If it's less than that,
-	 * we're not likely to return from select in anything
-	 * approaching an expeditions manner. Also, on some systems,
-	 * select with small timeouts does timing loops to implement
-	 * usleep(), and we don't want that. The only point of
-	 * sleeping at all is to be nice to other users on the system.)
-	 */
-	gettimeofday(&tv, NULL);
-	wsecs = then_secs - tv.tv_sec;
-	wnsecs = then_nsecs - 1000*tv.tv_usec;
-	if (wnsecs < 0) {
-		wnsecs += 1000000000;
-		wsecs--;
-	}
-
-	if (wsecs >= 0 && wnsecs > 10000000) {
-		/* Sleep. */
-		now_is_behind = 1;
-		tryselect(1, wsecs, wnsecs);
-		now_is_behind = 0;
-
-		/*
-		 * This is complete bollocks.
-		 *
-		 * The reason we sometimes get huge numbers of idle
-		 * cycles is that sleptsecs can be negative. This
-		 * happens if select returns much earlier than the
-		 * timeout, which can happen if e.g. someone pushes a
-		 * key.
-		 *
-		 * Time handling really does need a big rework. We
-		 * need to be much more careful about separating
-		 * simulator time and wall time. See "bleck" above,
-		 * too.
-		 *
-		 * I am putting off actually doing it until I finish
-		 * collecting assignment 3 timings as fixing this
-		 * might change them.
-		 */
-
-		/* Figure out how long we slept (might be less *or* more) */
-		gettimeofday(&tv, NULL);
-		sleptsecs = tv.tv_sec - now_secs;
-		sleptnsecs = 1000*tv.tv_usec - now_nsecs;
-		if (sleptnsecs < 0) {
-			sleptnsecs += 1000000000;
-			sleptsecs--;
-		}
-
-		/* Clamp to wsecs/wnsecs to avoid confusion. */
-		if (sleptsecs > wsecs) {
-			sleptsecs = wsecs;
-			sleptnsecs = wnsecs;
-		}
-		else if (sleptnsecs > wnsecs) {
-			sleptnsecs = wnsecs;
-		}
-
-		sleptclocks = (sleptsecs * 1000000000ULL + sleptnsecs)
-			/ NSECS_PER_CLOCK;
-	}
-	else {
-		now_is_behind = 1;
-		tryselect(1, 0, 0);
-		now_is_behind = 0;
-
-		sleptclocks = clocks;
-		sleptsecs = secs;
-		sleptnsecs = nsecs;
-	}
-
-	// XXX (see definition above)
-	dotimefixups(sleptclocks);
-
-	now_clocks += sleptclocks;
-	clock_advance_secs(sleptsecs);
-	clock_advance(sleptnsecs);
-	report_idletime(sleptsecs, sleptnsecs);
-}
-
+/*
+ * The cpu is not running; wait until something happens.
+ */
 void
 clock_waitirq(void)
 {
+	static uint32_t idleslop;
+
+	uint64_t vnow, wnsecs, sleptnsecs, tmp;
+
 	while (cpu_running_mask == 0) {
 		if (queuehead != NULL) {
-			u_int64_t clocks;
-			u_int64_t nsecs;
-			u_int32_t secs;
+			/*
+			 * We have an event due; wait for it. Figure
+			 * out how far ahead of real wall time we will
+			 * be when it's due to fire. If we aren't,
+			 * don't sleep. If we are, sleep to sync up,
+			 * as long as it's more than 10 ms. (Trying to
+			 * sleep less than that is generally not
+			 * useful.)
+			 */
+			vnow = clock_vnow();
+			wnsecs = clock_vahead(vnow, queuehead->ta_vtime);
 
-			clocks = queuehead->ta_clocksat - now_clocks;
-			nsecs = clocks * NSECS_PER_CLOCK;
+			if (wnsecs > 10000000) {
+				/* Sleep. */
+				sleptnsecs = tryselect(1, wnsecs);
 
-			secs = nsecs / 1000000000;
-			nsecs = nsecs % 1000000000;
+				/* Clamp to wnsecs to avoid confusion. */
+				if (sleptnsecs > wnsecs) {
+					sleptnsecs = wnsecs;
+				}
+			}
+			else {
+				sleptnsecs = queuehead->ta_vtime - vnow;
 
-			clock_dowait(secs, nsecs, clocks);
+				(void)tryselect(1, 0);
+			}
 		}
 		else {
-			struct timeval tv1, tv2;
-
-			gettimeofday(&tv1, NULL);
-			tryselect(0, 0, 0);
-			gettimeofday(&tv2, NULL);
-
-			tv2.tv_sec -= tv1.tv_sec;
-			if (tv2.tv_usec < tv1.tv_usec) {
-				tv2.tv_usec += 1000000;
-				tv2.tv_sec--;
-			}
-			tv2.tv_usec -= tv1.tv_usec;
-
-			clock_advance_secs(tv2.tv_sec);
-			clock_advance(tv2.tv_usec * 1000);
-			report_idletime(tv2.tv_sec, tv2.tv_usec * 1000);
-
-			/* don't advance now_clocks - no reason to bother */
+			/*
+			 * No event due; wait for something to happen
+			 * (network packet, keypress, etc.)
+			 */
+			sleptnsecs = tryselect(0, 0);
 		}
+
+		tmp = sleptnsecs + idleslop;
+		sleptnsecs += idleslop;
+		g_stats.s_tot_icycles += tmp / NSECS_PER_CLOCK;
+		idleslop = tmp % NSECS_PER_CLOCK;
+
+		clock_vadvance(sleptnsecs);
+		check_queue();
 	}
+}
+
+////////////////////////////////////////////////////////////
+// auxiliary external clock interfaces
+
+void
+clock_time(uint32_t *secs_ret, uint32_t *nsecs_ret)
+{
+	uint64_t now;
+	uint32_t secs, nsecs;
+
+	now = clock_vnow();
+	secs = start_secs + now / NSECS_PER_SEC;
+	nsecs = start_nsecs + now % NSECS_PER_SEC;
+	if (nsecs > NSECS_PER_SEC) {
+		nsecs -= NSECS_PER_SEC;
+		secs++;
+	}
+	if (secs_ret) {
+		*secs_ret = secs;
+	}
+	if (nsecs_ret) {
+		*nsecs_ret = nsecs;
+	}
+}
+
+void
+clock_setsecs(uint32_t newsecs)
+{
+	uint64_t now;
+	uint32_t offset;
+	uint32_t oldsecs;
+
+	now = clock_vnow();
+	oldsecs = start_secs + now / NSECS_PER_SEC;
+	
+	offset = newsecs - oldsecs;
+	start_secs += offset;
+}
+
+void
+clock_setnsecs(uint32_t newnsecs)
+{
+	uint64_t now;
+	uint32_t offset;
+	uint32_t oldnsecs;
+
+	now = clock_vnow();
+	oldnsecs = start_nsecs + now % NSECS_PER_SEC;
+	
+	offset = newnsecs - oldnsecs;
+	start_nsecs += offset;
+}
+
+void
+clock_dumpstate(void)
+{
+	uint64_t vnow;
+	uint32_t cur_secs, cur_nsecs;
+	struct timed_action *ta;
+
+	vnow = clock_vnow();
+	cur_secs = vnow / NSECS_PER_SEC;
+	cur_nsecs = vnow % NSECS_PER_SEC;
+	msg("clock: %lu.%09lu secs elapsed (start at %lu.%09lu)", 
+	    (unsigned long) cur_secs,
+	    (unsigned long) cur_nsecs,
+	    (unsigned long) start_secs,
+	    (unsigned long) start_nsecs);
+
+	if (queuehead==NULL) {
+		msg("clock: No events pending");
+		return;
+	}
+
+	for (ta = queuehead; ta; ta = ta->ta_next) {
+		msg("clock: at %12llu: %s",
+		    (unsigned long long) ta->ta_vtime, ta->ta_desc);
+	}
+}
+
+void
+clock_setprogresstimeout(uint32_t secs)
+{
+	check_progress = 1;
+	progress_timeout = secs * NSECS_PER_SEC;
+	clock_newprogressdeadline();
+}
+
+void
+clock_init(void)
+{
+	u_int32_t offset;
+
+	clock_coreinit();
+	acalloc_init();
+
+	/* Shift the clock ahead a random fraction of 10 ms. */
+	offset = random() % 10000000;
+	clock_vadvance(offset);
+	check_queue();
+}
+
+void
+clock_cleanup(void)
+{
+	uint64_t vnow;
+	uint32_t secs, nsecs;
+
+	vnow = clock_vnow();
+	secs = vnow / NSECS_PER_SEC;
+	nsecs = vnow % NSECS_PER_SEC;
+
+	msg("Elapsed virtual time: %lu.%09lu seconds (%d mhz)", 
+	    (unsigned long)secs, 
+	    (unsigned long)nsecs,
+	    1000/NSECS_PER_CLOCK);
 }

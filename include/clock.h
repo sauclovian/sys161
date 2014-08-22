@@ -4,7 +4,8 @@ void clock_init(void);
 void clock_cleanup(void);
 void clock_setprogresstimeout(u_int32_t secs);
 
-void clock_tick(void);
+uint32_t clock_getrunticks(void);
+void clock_ticks(uint64_t ticks);
 void schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 		    void (*func)(void *, u_int32_t),
 		    const char *desc);

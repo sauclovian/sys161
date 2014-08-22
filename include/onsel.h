@@ -11,9 +11,21 @@ void onselect(int fd, void *data, int (*func)(void *data),
 
 
 /*
+ * Cancel a prior onselect call. Crashes if the fd isn't there.
+ * The removefunc previously installed (if any) will be called.
+ */
+void notonselect(int fd);
+
+/*
  * Select on the things that have had onselect() called on them.
  *
- * If do_poll is true, tryselect will return immediately. Otherwise
- * it will block until something happens.
+ * If do_timeout is true, tryselect will return after NSECS, which can
+ * be zero. Otherwise it will block indefinitely until something
+ * happens.
+ *
+ * Returns the time spent sleeping in nanoseconds.
  */
-void tryselect(int do_timeout, u_int32_t secs, u_int32_t nsecs);
+uint64_t tryselect(int do_timeout, uint64_t nsecs);
+
+/* Extra time from waiting in select (while dispatching select events) */
+uint64_t extra_selecttime;

@@ -7,6 +7,7 @@
 #include "config.h"
 
 #include "console.h"
+#include "bus.h"
 #include "cpu.h"
 #include "memdefs.h"
 #include "prof.h"

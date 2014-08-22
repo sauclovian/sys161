@@ -22,17 +22,63 @@
 #include "version.h"
 
 
+/* number of cpu cycles between select polls */
+#define ROTOR 50000
+
 /* Global stats */
 struct stats g_stats;
 
 /* Flag for interrupting runloop or stoploop due to poweroff */
 static int shutoff_flag;
 
-/* Flag for interrupting stoploop() */
-static int continue_flag;
+/* Are we stopped in the debugger? */
+static int stopped_in_debugger;
 
-/* Flag for interrupting runloop() */
-static int stop_flag;
+/*
+ * Event dispatching model, as of 20140730:
+ *
+ * 1. main() calls run() calls runloop() and stoploop().
+ * stoploop() is separate because it can be called beforehand to
+ * wait for an initial debugger connection. Nothing calls back
+ * into the main loop from anywhere else.
+ *
+ * 2. At the main loop level we can be stopped in the debugger or not.
+ * (This is about whether the cpu is executing and time is going
+ * forward; whether a debugger is actually connected is separate.)
+ * The state transition is dispatched from the main loop; other events
+ * can request this state transition but should not attempt to
+ * directly enact it.
+ *
+ * 3. At times the main loop will call select, via tryselect(), which
+ * dispatches externally caused events. This includes incoming network
+ * packets, connections or input data for the various control sockets,
+ * and characters typed on the console.
+ *
+ * 4. At times the main loop will also call into the clock subsystem,
+ * which dispatches internally scheduled events. This includes I/O
+ * completions and other virtual hardware conditions.
+ *
+ * 5. Otherwise the main loop calls into the cpu to run. This (in
+ * addition to computing) dispatches explicitly triggered events,
+ * including I/O starts, interprocessor interrupts, and so forth.
+ *
+ * Events of any kind may call:
+ *    main_poweroff
+ *    main_enter_debugger
+ *    main_leave_debugger
+ * to manipulate the main loop state, which will only take effect
+ * once execution returns to the main loop.
+ *
+ * CPU-triggered events may also need to call cpu_stopcycling() in
+ * order to cause this return to the main loop immediately instead of
+ * at an arbitrary and unpredictable future point.
+ *
+ * AN UGLY EXCEPTION to this model is onecycle(), which is called from
+ * the gdb interface code (in an externally triggered event) to
+ * execute a single cpu cycle. Because it only executes one cycle,
+ * however, there is no need to call cpu_stopcycling() in connection
+ * with it.
+ */
 
 void
 main_poweroff(void)
@@ -41,15 +87,33 @@ main_poweroff(void)
 }
 
 void
-main_stop(void)
+main_enter_debugger(void)
 {
-	stop_flag = 1;
+	stopped_in_debugger = 1;
 }
 
 void
-main_continue(void)
+main_leave_debugger(void)
 {
-	continue_flag = 1;
+	stopped_in_debugger = 0;
+}
+
+/*
+ * This is its own function because it's called from the gdb support
+ * to single-step. We only bill the time cpu_cycles reports it
+ * actually spent. It may not, if it hits a builtin breakpoint.
+ * Builtin breakpoints need to be completely transparent, even to the
+ * extent of not wasting a single cycle; then it's at least sort of
+ * possible to debug those race conditions where there's a
+ * two-instruction window for an interrupt to cause a crash.
+ */
+void
+onecycle(void)
+{
+	uint64_t ticks;
+
+	ticks = cpu_cycles(1);
+	clock_ticks(ticks);
 }
 
 static
@@ -57,54 +121,40 @@ void
 stoploop(void)
 {
 	gdb_startbreak();
-	continue_flag = 0;
-	while (!continue_flag && !shutoff_flag) {
-		tryselect(0, 0, 0);
+	while (stopped_in_debugger && !shutoff_flag) {
+		(void)tryselect(0, 0);
 	}
 }
-
-/*
- * This is its own function because it's called from the gdb support
- * to single-step. We only bill time if cpu_cycle reports it actually
- * did something. (Which it always does, except if it hits a builtin
- * breakpoint. It's essential to make the builtin breakpoints
- * completely transparent, even to the extent of not wasting a single
- * cycle, so it's possible to debug those race conditions where
- * there's a two-instruction window for an interrupt to cause a crash.
- */
-inline
-void
-onecycle(void)
-{
-	if (cpu_cycle()) {
-		clock_tick();
-	}
-}
-
-/* number of cpu cycles between select polls */
-#define ROTOR 8192
 
 static
 void
 runloop(void)
 {
-	int rotor=0;
+	unsigned rotor;
+	uint64_t goticks, wentticks;
 
-	stop_flag = 0;
-
+	rotor = ROTOR;
 	while (!shutoff_flag) {
+		goticks = clock_getrunticks();
+		if (goticks > rotor) {
+			goticks = rotor;
+		}
+		wentticks = cpu_cycles(goticks);
+		clock_ticks(wentticks);
 
-		onecycle();
-
-		rotor++;
-		if (rotor >= ROTOR) {
-			rotor = 0;
-			tryselect(1, 0, 0);
+		rotor -= wentticks;
+		if (rotor == 0) {
+			rotor = ROTOR;
+			(void)tryselect(1, 0);
 		}
 
-		if (stop_flag) {
+		if (stopped_in_debugger) {
 			stoploop();
-			stop_flag = 0;
+		}
+
+		if (cpu_running_mask == 0) {
+			HWTRACE(DOTRACE_IRQ, ("Waiting for interrupt"));
+			clock_waitirq();
 		}
 	}
 }
@@ -179,8 +229,8 @@ showstats(void)
 void
 main_dumpstate(void)
 {
-	msg("mainloop: shutoff_flag %d continue_flag %d stop_flag %d",
-	    shutoff_flag, continue_flag, stop_flag);
+	msg("mainloop: shutoff_flag %d stopped_in_debugger %d",
+	    shutoff_flag, stopped_in_debugger);
 #ifdef USE_TRACE
 	print_traceflags();
 #endif
@@ -299,6 +349,7 @@ usage(void)
 	msg("Usage: sys161 [sys161 options] kernel [kernel args...]");
 	msg("   sys161 options:");
 	msg("     -c config      Use alternate config file");
+	msg("     -D count       Set disk I/O doom counter");
 #ifdef USE_TRACE
 	msg("     -f file        Trace to specified file");
 	msg("     -P             Collect kernel execution profile");
@@ -437,6 +488,7 @@ main(int argc, char *argv[])
 #endif
 
 	if (debugwait) {
+		stopped_in_debugger = 1;
 		stoploop();
 	}
 
@@ -453,8 +505,8 @@ main(int argc, char *argv[])
 #endif
 
 	bus_cleanup();
-	console_cleanup();
 	clock_cleanup();
+	console_cleanup();
 	
 	return 0;
 }

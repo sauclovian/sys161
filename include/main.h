@@ -8,12 +8,12 @@ void main_poweroff(void);
 /*
  * Tell mainloop it should suspend execution.
  */
-void main_stop(void);
+void main_enter_debugger(void);
 
 /*
  * Tell mainloop it should resume execution.
  */
-void main_continue(void);
+void main_leave_debugger(void);
 
 /*
  * Have the mainloop code run a single processor cycle.

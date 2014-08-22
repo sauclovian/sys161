@@ -236,6 +236,11 @@ struct mipscpu {
 	int ll_active;
 	u_int32_t ll_addr;
 	u_int32_t ll_value;
+
+	/*
+	 * debugger hooks
+	 */
+	int hit_breakpoint;
 };
 
 #define IS_USERMODE(cpu) ((cpu)->current_usermode)
@@ -244,18 +249,17 @@ static struct mipscpu *mycpus;
 static unsigned ncpus;
 
 /*
- * CPU seen by debugger. Automatically switched when we hit a breakpoint,
- * to allow getting backtraces.
- */
-static unsigned debug_cpu = 0;
-
-/*
  * Hold cpu->state == CPU_RUNNING across all cpus, for rapid testing.
  */
 u_int32_t cpu_running_mask;
 
 #define RUNNING_MASK_OFF(cn) (cpu_running_mask &= ~((u_int32_t)1 << (cn)))
 #define RUNNING_MASK_ON(cn)  (cpu_running_mask |= (u_int32_t)1 << (cn))
+
+/*
+ * Number of cycles into cpu_cycles().
+ */
+uint64_t cpu_cycles_count;
 
 /*************************************************************/
 
@@ -2735,6 +2739,7 @@ mx_copz(struct mipscpu *cpu, u_int32_t insn)
 	}
 }
 
+static
 int
 cpu_cycle(void)
 {
@@ -2821,12 +2826,13 @@ cpu_cycle(void)
 	}
 
 	/*
-	 * If at the end of all this logic, the PC (which will hold
-	 * the address of the next instruction to execute) is still
-	 * what's currently nextpc, we haven't taken an exception and
-	 * that means we've retired an instruction. We need to record
-	 * whether it was user or kernel here, because otherwise if we
-	 * switch modes (e.g. with RFE) it'll be credited incorrectly.
+	 * If at the end of all the following logic, the PC (which
+	 * will hold the address of the next instruction to execute)
+	 * is still what's currently nextpc, we haven't taken an
+	 * exception and that means we've retired an instruction. We
+	 * need to record whether it was user or kernel here, because
+	 * otherwise if we switch modes (e.g. with RFE) it'll be
+	 * credited incorrectly.
 	 */
 	retire_pc = cpu->nextpc;
 	retire_usermode = IS_USERMODE(cpu);
@@ -2872,6 +2878,8 @@ cpu_cycle(void)
 	/*
 	 * Decode instruction.
 	 */
+
+	cpu->hit_breakpoint = 0;
 	
 	op = (insn & 0xfc000000) >> 26;   // opcode
 
@@ -2896,16 +2904,14 @@ cpu_cycle(void)
 			 */
 			if (gdb_canhandle(cpu->expc)) {
 				phony_exception(cpu);
-				main_stop();
+				cpu_stopcycling();
+				main_enter_debugger();
 				/*
 				 * Don't bill time for hitting the breakpoint.
 				 */
 				breakpoints++;
 				cpu->ex_count--;
-				/*
-				 * Expose this cpu to the debugger
-				 */
-				debug_cpu = cpu->cpunum;
+				cpu->hit_breakpoint = 1;
 				continue;
 			}
 			mx_break(cpu, insn);
@@ -3029,11 +3035,6 @@ cpu_cycle(void)
 
 	}
 
-	if (cpu_running_mask == 0) {
-		HWTRACE(DOTRACE_IRQ, ("Waiting for interrupt"));
-		clock_waitirq();
-	}
-
 	if (breakpoints == 0) {
 		return 1;
 	}
@@ -3054,6 +3055,37 @@ cpu_cycle(void)
 	 * configs. Sigh.
 	 */
 	return 0;
+}
+
+static int cpu_cycling;
+
+uint64_t
+cpu_cycles(uint64_t maxcycles)
+{
+	uint64_t i;
+
+	cpu_cycling = 1;
+	i = 0;
+	while (i < maxcycles && cpu_cycling) {
+		if (cpu_cycle()) {
+			i++;
+			cpu_cycles_count = i;
+		}
+		if (cpu_running_mask == 0) {
+			/* nothing occurs until we reach maxcycles */
+			if (cpu_cycling) {
+				i = maxcycles;
+			}
+		}
+	}
+	cpu_cycles_count = 0;
+	return i;
+}
+
+void
+cpu_stopcycling(void)
+{
+	cpu_cycling = 0;
 }
 
 /*************************************************************/
@@ -3160,6 +3192,12 @@ cpu_dumpstate(void)
 	}
 }
 
+unsigned
+cpu_numcpus(void)
+{
+	return ncpus;
+}
+
 void
 cpu_enable(unsigned cpunum)
 {
@@ -3182,6 +3220,17 @@ cpu_disable(unsigned cpunum)
 
 	cpu->state = CPU_DISABLED;
 	RUNNING_MASK_OFF(cpunum);
+}
+
+int
+cpu_enabled(unsigned cpunum)
+{
+	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
+	cpu = &mycpus[cpunum];
+
+	return (cpu->state != CPU_DISABLED);
 }
 
 #define BETWEEN(addr, size, base, top) \
@@ -3283,6 +3332,23 @@ cpu_set_irqs(unsigned cpunum, int lamebus, int ipi)
 	}
 }
 
+/*
+ * Return which CPU hit a breakpoint. If more than one did, use the
+ * first. If none did, use CPU 0.
+ */
+unsigned
+cpudebug_get_break_cpu(void)
+{
+	unsigned i;
+
+	for (i=0; i<ncpus; i++) {
+		if (mycpus[i].hit_breakpoint) {
+			return i;
+		}
+	}
+	return 0;
+}
+
 void
 cpudebug_get_bp_region(u_int32_t *start, u_int32_t *end)
 {
@@ -3291,11 +3357,13 @@ cpudebug_get_bp_region(u_int32_t *start, u_int32_t *end)
 }
 
 int
-cpudebug_fetch_byte(u_int32_t va, u_int8_t *byte)
+cpudebug_fetch_byte(unsigned cpunum, u_int32_t va, u_int8_t *byte)
 {
 	u_int32_t pa;
 	u_int32_t aligned_va;
 	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
 
 	aligned_va = va & 0xfffffffc;
 
@@ -3303,7 +3371,7 @@ cpudebug_fetch_byte(u_int32_t va, u_int8_t *byte)
 	 * For now, only allow KSEG0/1
 	 */
 
-	cpu = &mycpus[debug_cpu];
+	cpu = &mycpus[cpunum];
 	if (debug_translatemem(cpu, aligned_va, 0, &pa)) {
 		return -1;
 	}
@@ -3317,16 +3385,18 @@ cpudebug_fetch_byte(u_int32_t va, u_int8_t *byte)
 }
 
 int
-cpudebug_fetch_word(u_int32_t va, u_int32_t *word)
+cpudebug_fetch_word(unsigned cpunum, u_int32_t va, u_int32_t *word)
 {
 	u_int32_t pa;
 	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
 
 	/*
 	 * For now, only allow KSEG0/1
 	 */
 	
-	cpu = &mycpus[debug_cpu];
+	cpu = &mycpus[cpunum];
 	if (debug_translatemem(cpu, va, 0, &pa)) {
 		return -1;
 	}
@@ -3338,16 +3408,18 @@ cpudebug_fetch_word(u_int32_t va, u_int32_t *word)
 }
 
 int
-cpudebug_store_byte(u_int32_t va, u_int8_t byte)
+cpudebug_store_byte(unsigned cpunum, u_int32_t va, u_int8_t byte)
 {
 	u_int32_t pa;
 	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
 
 	/*
 	 * For now, only allow KSEG0/1
 	 */
 
-	cpu = &mycpus[debug_cpu];
+	cpu = &mycpus[cpunum];
 
 	if (debug_translatemem(cpu, va, 1, &pa)) {
 		return -1;
@@ -3360,16 +3432,18 @@ cpudebug_store_byte(u_int32_t va, u_int8_t byte)
 }
 
 int
-cpudebug_store_word(u_int32_t va, u_int32_t word)
+cpudebug_store_word(unsigned cpunum, u_int32_t va, u_int32_t word)
 {
 	u_int32_t pa;
 	struct mipscpu *cpu;
+
+	Assert(cpunum < ncpus);
 
 	/*
 	 * For now, only allow KSEG0/1.
 	 */
 	
-	cpu = &mycpus[debug_cpu];
+	cpu = &mycpus[cpunum];
 	if (debug_translatemem(cpu, va, 1, &pa)) {
 		return -1;
 	}
@@ -3379,7 +3453,6 @@ cpudebug_store_word(u_int32_t va, u_int32_t word)
 	}
 	return 0;
 }
-
 
 static
 inline
@@ -3394,13 +3467,14 @@ addreg(u_int32_t *regs, int maxregs, int pos, u_int32_t val)
 #define GETREG(r) addreg(regs, maxregs, j++, r)
 
 void
-cpudebug_getregs(u_int32_t *regs, int maxregs, int *nregs)
+cpudebug_getregs(unsigned cpunum, u_int32_t *regs, int maxregs, int *nregs)
 {
 	int i, j=0;
 	struct mipscpu *cpu;
 
 	/* choose a CPU */
-	cpu = &mycpus[debug_cpu];
+	Assert(cpunum < ncpus);
+	cpu = &mycpus[cpunum];
 
 	for (i=0; i<NREGS; i++) {
 		GETREG(cpu->r[i]);

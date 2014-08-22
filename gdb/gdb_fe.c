@@ -138,6 +138,7 @@ gdb_receive(void *x)
 		else {
 			msg("gdbcomm: read: EOF from debugger");
 		}
+		main_leave_debugger();
 		close(ctx->myfd);
 		ctx->myfd = -1;
 		return -1;
@@ -244,8 +245,9 @@ accepter(void *x)
 	ctx->bufptr = 0;
 
 	onselect(remotefd, ctx, gdb_receive, gdb_cleanup);
-	
-	main_stop();
+
+	cpu_stopcycling();
+	main_enter_debugger();
 
 	return 0;
 }

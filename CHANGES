@@ -1,3 +1,15 @@
+20140821 dholland	System/161 1.99.08 released.
+20140807 dholland	Use flock() on disk images to avoid accidents.
+20140801 dholland	Improve gdb interface to treat cpus as "threads".
+20140730 dholland	Rework tty handling. Now behaves when backgrounded.
+20140730 dholland	Change sample disk image names to LHD{0,1}.conf.
+20140730 dholland	Retune main loop now that timing works. Much faster.
+20140730 dholland	Rework timing. Fix bogus large idle counts for real.
+20140729 dholland	Rework main loop. Tidier and noticeably faster.
+20140315 dholland	Handle EOF on input better, from Kevin Elphinstone.
+20140314 dholland	Use -Wstrict-prototypes -Wmissing-prototypes with gcc.
+20140123 dholland	Fix date on front page of docs.
+
 20140123 dholland	System/161 1.99.07 released.
 20140123 dholland	Add a -D option to enable a disk write doom counter.
 20140122 dholland	Skip ELF note sections; from Vincent Danjean.

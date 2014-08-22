@@ -129,8 +129,8 @@
 
 1	emufs
 
-2	disk	rpm=7200	sectors=10240	file=DISK1.img   nodoom
-3	disk	rpm=7200	sectors=10240	file=DISK2.img
+2	disk	rpm=7200	sectors=10240	file=LHD0.img   nodoom
+3	disk	rpm=7200	sectors=10240	file=LHD1.img
 
 #27	nic hwaddr=1
 

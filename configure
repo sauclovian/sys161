@@ -159,7 +159,7 @@ if [ x$DECC = x1 ]; then
     WARN="-std1 -check -msg_error level5 -warnprotos"
     OPT="-fast -O3"
 elif [ x$GCC = x1 ]; then
-    WARN="-Wall -W -Wwrite-strings -Werror"
+    WARN="-Wall -W -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Werror"
     OPT="-O3"
 else
     WARN=""

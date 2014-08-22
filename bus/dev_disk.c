@@ -304,6 +304,29 @@ readheader(struct disk_data *dd, const char *filename)
 
 static
 void
+disk_lock(struct disk_data *dd, const char *filename)
+{
+	if (flock(dd->dd_fd, LOCK_EX|LOCK_NB) < 0) {
+		if (errno == EAGAIN) {
+			msg("disk: slot %d: %s: Locked by another process",
+			    dd->dd_slot, filename);
+			die();
+		}
+		msg("disk: slot %d: %s: flock: %s",
+		    dd->dd_slot, filename, strerror(errno));
+		die();
+	}
+}
+
+static
+void
+disk_unlock(struct disk_data *dd)
+{
+	(void)fcntl(dd->dd_fd, LOCK_UN);
+}
+
+static
+void
 disk_open(struct disk_data *dd, const char *filename)
 {
 	dd->dd_fd = open(filename, O_RDWR);
@@ -314,6 +337,7 @@ disk_open(struct disk_data *dd, const char *filename)
 			    dd->dd_slot, filename, strerror(errno));
 			die();
 		}
+		disk_lock(dd, filename);
 		writeheader(dd, filename);
 		return;
 	}
@@ -322,6 +346,7 @@ disk_open(struct disk_data *dd, const char *filename)
 		    dd->dd_slot, filename, strerror(errno));
 		die();
 	}
+	disk_lock(dd, filename);
 	readheader(dd, filename);
 }
 
@@ -329,6 +354,7 @@ static
 void
 disk_close(struct disk_data *dd)
 {
+	disk_unlock(dd);
 	if (close(dd->dd_fd)) {
 		smoke("disk: slot %d: close: %s", 
 		      dd->dd_slot, strerror(errno));
