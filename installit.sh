@@ -26,7 +26,7 @@ if [ ! -d "$INSTALLDIR" ]; then
 fi
 
 case "$PROG" in
-    sys161|trace161|stat161|hub161) ;;
+    sys161|trace161|stat161|hub161|disk161) ;;
     *)
 	echo "$0: Invalid program $PROG" 1>&2
 	exit 1

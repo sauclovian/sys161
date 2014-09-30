@@ -34,6 +34,7 @@
 #define OPM_SWL         42
 #define OPM_SW          43
 #define OPM_SWR         46
+#define OPM_CACHE	47
 #define OPM_LWC0        48
 #define OPM_LWC1        49
 #define OPM_LWC2        50

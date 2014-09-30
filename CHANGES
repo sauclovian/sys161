@@ -1,3 +1,18 @@
+20140929 dholland	System/161 1.99.09 released.
+20140929 dholland	Support the CACHE instruction as (for now) a nop.
+20140929 dholland	Pretend to have 4K each L1 I/D caches.
+20140929 dholland	Provide the MIPS32 config0 and config1 registers.
+20140929 dholland	Edit/revise the processor docs.
+20140929 dholland	Don't allow attempts to do r3k-style cache flushes.
+20140929 dholland	Sort out status register definition going forward.
+20140925 dholland	Fix address space ID printouts. From Peter Bailis.
+20140925 dholland	Update disk config in sys161.conf.sample.
+20140925 dholland	Added disk161 utility for manipulating disk images.
+20140925 dholland	Warn if the size of a disk in sys161.conf is wrong.
+20140925 dholland	Take the size of a disk from its image file size.
+20140919 dholland	Fix build with gcc 4.8.
+20140919 dholland	Provide flock compat for legacy OSes like Solaris.
+
 20140821 dholland	System/161 1.99.08 released.
 20140807 dholland	Use flock() on disk images to avoid accidents.
 20140801 dholland	Improve gdb interface to treat cpus as "threads".

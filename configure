@@ -597,7 +597,7 @@ echo "$BINDIR" "$EXAMPLEDIR" "$DOCDIR" "$MANDIR"
 
 echo 'Creating build directories'
 
-for d in sys161 trace161 stat161 hub161 doc; do
+for d in sys161 trace161 stat161 hub161 disk161 doc; do
     [ -d build-$d ] || mkdir build-$d
 done
 
@@ -711,6 +711,28 @@ echo 'Generating build-hub161/defs.mk'
 
 ########################################
 
+echo 'Generating build-disk161/defs.mk'
+
+(
+    echo '# Automatically generated file; do not edit'
+    echo "CC=$CC"
+    echo "CFLAGS=$CFLAGS $OPT"
+    echo "LDFLAGS=$LDFLAGS"
+    echo "LIBS=$LIBS"
+    echo
+    echo "PROG=disk161"
+    echo
+    echo "BINDIR=$BINDIR"
+    echo
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo
+) > build-disk161/defs.mk
+
+########################################
+
 echo 'Generating build-doc/defs.mk'
 
 (
@@ -773,6 +795,13 @@ cp -f build-sys161/Makefile build-trace161/Makefile
     echo '# Automatically generated file - do not edit here'
     echo 'include defs.mk'
     echo 'include $S/version.mk'
+    echo 'include $S/mk/disk161.mk'
+) > build-disk161/Makefile
+
+(
+    echo '# Automatically generated file - do not edit here'
+    echo 'include defs.mk'
+    echo 'include $S/version.mk'
     echo 'include $S/mk/doc.mk'
 ) > build-doc/Makefile
 
@@ -799,6 +828,7 @@ cp -f __config.h build-sys161/config.h
 cp -f __config.h build-trace161/config.h
 cp -f __config.h build-stat161/config.h
 cp -f __config.h build-hub161/config.h
+cp -f __config.h build-disk161/config.h
 
 rm -f __conf*
 
@@ -828,6 +858,9 @@ echo 'Generating make rules'
 )
 (
     cd build-hub161 && touch depend.mk rules.mk && make rules
+)
+(
+    cd build-disk161 && touch depend.mk rules.mk && make rules
 )
 
 if [ -d test-cpu ]; then

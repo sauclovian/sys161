@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <string.h>
 #include <stdlib.h>
@@ -169,6 +170,41 @@ doom_establish(unsigned count)
 }
 
 ////////////////////////////////////////////////////////////
+// Compat
+/* XXX two copies of this are pasted here and in dev_disk.c */
+
+/*
+ * Apparently (as of September 2014) Solaris still doesn't have
+ * flock(). What is this, 1990? Provide a wrapper around fcntl locks.
+ *
+ * If you don't have fcntl locks either, you're out of luck.
+ */
+#ifndef LOCK_EX
+
+/*      LOCK_SH F_RDLCK - we don't use this */
+#define LOCK_EX F_WRLCK
+#define LOCK_UN F_UNLCK
+#define LOCK_NB 0  /* assume we always want this */
+
+#define flock(fd, op) myflock(fd, op)
+
+static
+int
+myflock(int fd, int op)
+{
+	struct flock glop;
+
+	glop.l_start = 0;
+	glop.l_len = 0;
+	glop.l_pid = getpid();
+	glop.l_type = op;
+	glop.l_whence = SEEK_SET;
+	return fcntl(fd, F_SETLK, &glop);
+}
+
+#endif /* LOCK_EX */
+
+////////////////////////////////////////////////////////////
 //
 // Raw I/O
 
@@ -256,7 +292,7 @@ dowrite(int fd, off_t offset, const char *buf, size_t bufsize, int paranoid)
 
 static
 void
-writeheader(struct disk_data *dd, const char *filename)
+writeheader(struct disk_data *dd, const char *filename, uint32_t configsectors)
 {
 	off_t fsize;
 	char buf[HEADERSIZE];
@@ -270,7 +306,7 @@ writeheader(struct disk_data *dd, const char *filename)
 		die();
 	}
 	
-	fsize = dd->dd_totsectors;
+	fsize = configsectors;
 	fsize *= SECTSIZE;
 	fsize += HEADERSIZE;
 
@@ -327,19 +363,15 @@ disk_unlock(struct disk_data *dd)
 
 static
 void
-disk_open(struct disk_data *dd, const char *filename)
+disk_open(struct disk_data *dd, const char *filename, uint32_t configsectors)
 {
+	int create = 0;
+	struct stat st;
+
 	dd->dd_fd = open(filename, O_RDWR);
 	if (dd->dd_fd<0 && errno==ENOENT) {
+		create = 1;
 		dd->dd_fd = open(filename, O_RDWR|O_CREAT|O_EXCL, 0664);
-		if (dd->dd_fd<0) {
-			msg("disk: slot %d: %s: %s",
-			    dd->dd_slot, filename, strerror(errno));
-			die();
-		}
-		disk_lock(dd, filename);
-		writeheader(dd, filename);
-		return;
 	}
 	if (dd->dd_fd<0) {
 		msg("disk: slot %d: %s: %s",
@@ -347,7 +379,32 @@ disk_open(struct disk_data *dd, const char *filename)
 		die();
 	}
 	disk_lock(dd, filename);
-	readheader(dd, filename);
+	if (create) {
+		writeheader(dd, filename, configsectors);
+	}
+	else {
+		readheader(dd, filename);
+	}
+
+	if (fstat(dd->dd_fd, &st) == -1) {
+		msg("disk: slot %d: %s: fstat: %s",
+		    dd->dd_slot, filename, strerror(errno));
+		die();
+	}
+	if (st.st_size < HEADERSIZE) {
+		msg("disk: slot %d: %s: No header block",
+		    dd->dd_slot, filename);
+		die();
+	}
+	st.st_size -= HEADERSIZE;
+	if (st.st_size > 0xffffffff) {
+		msg("disk: slot %d: %s: Image too large; using first 4G",
+		    dd->dd_slot, filename);
+		dd->dd_totsectors = 0x100000000ULL / SECTSIZE;
+	}
+	else {
+		dd->dd_totsectors = st.st_size / SECTSIZE;
+	}
 }
 
 static
@@ -397,7 +454,7 @@ int
 compute_sectors(struct disk_data *dd)
 {
 	u_int32_t physsectors;      // total number of actual sectors
-	u_int32_t sectorspertrack;  // average sectors per track
+	//u_int32_t sectorspertrack;  // average sectors per track
 	u_int32_t i, tot;
 
 	double sectors_per_area;
@@ -417,7 +474,7 @@ compute_sectors(struct disk_data *dd)
 		return -1;
 	}
 
-	sectorspertrack = physsectors/NUMTRACKS;
+	//sectorspertrack = physsectors/NUMTRACKS;
 	dd->dd_tracks = NUMTRACKS;
 
 	/* allocate space for dd_tracks entries */
@@ -653,11 +710,6 @@ disk_init(int slot, int argc, char *argv[])
 		}
 	}
 
-	if (totsectors < 128) {
-		msg("disk: slot %d: Too small", slot);
-		die();
-	}
-
 	if (rpm < 60) {
 		msg("disk: slot %d: RPM too low (%d)", slot, rpm);
 		die();
@@ -685,7 +737,7 @@ disk_init(int slot, int argc, char *argv[])
 
 	dd->dd_sectors = NULL;
 	dd->dd_tracks = 0;
-	dd->dd_totsectors = totsectors;
+	dd->dd_totsectors = 0;
 	dd->dd_rpm = rpm;
 	dd->dd_nsecs_per_rev = 1000000000 / (dd->dd_rpm / 60);
 
@@ -703,15 +755,27 @@ disk_init(int slot, int argc, char *argv[])
 
 	dd->dd_buf = domalloc(SECTSIZE);
 
+	disk_open(dd, filename, totsectors);
+	if (dd->dd_totsectors != totsectors && totsectors > 0) {
+		msg("disk: slot %d: %s: Wrong configured size %u (%uK)",
+		    slot, filename, totsectors,
+		    totsectors * 1024 / SECTSIZE);
+		msg("disk: slot %d: %s: Using image size %u (%uK)",
+		    slot, filename, dd->dd_totsectors,
+		    dd->dd_totsectors * 1024 / SECTSIZE);
+	}
 
-	/* set dd_cylinders, dd_sectors, dd_heads */
-	if (compute_sectors(dd)) {
-		msg("disk: slot %d: Geometry initialization failed "
-		    "(try another size)", slot);
+	if (dd->dd_totsectors < 128) {
+		msg("disk: slot %d: %s: Too small", slot, filename);
 		die();
 	}
 
-	disk_open(dd, filename);
+	/* set dd_cylinders, dd_sectors, dd_heads */
+	if (compute_sectors(dd)) {
+		msg("disk: slot %d: %s: Geometry initialization failed "
+		    "(try another size)", slot, filename);
+		die();
+	}
 
 	return dd;
 }

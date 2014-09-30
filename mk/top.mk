@@ -3,6 +3,7 @@ all depend install tidy clean:
 	(cd build-trace161 && $(MAKE) $@)
 	(cd build-stat161 && $(MAKE) $@)
 	(cd build-hub161 && $(MAKE) $@)
+	(cd build-disk161 && $(MAKE) $@)
 	(cd build-doc && $(MAKE) $@)
 
 distclean:

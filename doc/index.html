@@ -19,7 +19,7 @@ System/161 2.x Software and Hardware Manual
 <font size=+1 color=#36648b>
 David A. Holland
 <br>
-January 23, 2014
+September 29, 2014
 </font>
 
 </font>
@@ -55,6 +55,7 @@ The rest of this manual is divided into the following subsections:
 <li> <A HREF=install.html>Getting and Installing System/161</A>
 <li> <A HREF=system.html>System/161 Virtual Hardware</A>
 <li> <A HREF=#running>Running System/161</A> (below)
+<li> <A HREF=#disks>Manipulating disk images</A> (below)
 <li> <A HREF=gdb.html>Remote debugging with <tt>gdb</tt></A>
 <li> <A HREF=networking.html>Network connectivity with <tt>hub161</tt></A>
 <li> Programming specs:
@@ -179,6 +180,62 @@ System/161 is compiled to support. For further information, see below.
 <p>
 Note that options found after the kernel name will be passed to the
 kernel and not interpreted by System/161.
+</p>
+
+<A NAME=disks>
+
+<h3><font face=tahoma,arial,helvetica,sans>Manipulating disk images</font></h3>
+
+<p>
+The <tt>disk161</tt> tool can be used to manipulate disk images.
+It supports three actions: <tt>create</tt>, to create a new disk
+image; <tt>info</tt>, to print image information; and <tt>resize</tt>,
+to change the size of an image.
+</p>
+
+<p>
+<b>Create.</b> Create a disk image like this:
+<pre>
+   disk161 create LHD0.img 5M
+</pre>
+This creates an image called <tt>LHD0.img</tt> capable of holding 5
+megabytes of data.
+The size is given in bytes, but as above can given one of the suffixes
+<tt>G</tt>, <tt>M</tt>, <tt>K</tt>, or <tt>s</tt> for gigabytes,
+megabytes, kilobytes, sectors (512-byte units) respectively.
+The size must be a unit number of sectors.
+</p>
+
+<p>
+<b>Info.</b> After creating <tt>LHD0.img</tt> as above,
+<pre>
+   disk161 info LHD0.img
+</pre>
+prints
+<pre>
+   LHD0.img size 5242880 bytes (10240 sectors; 5120K; 5M)
+   LHD0.img spaceused 8192 bytes (16 sectors; 8K; 0M)
+</pre>
+meaning that the image holds up to 5M, but is currently only using 8K.
+(This is because the image is a sparse file by default; it only uses
+space for regions that have had data written to them.
+The only thing in a new image is the image header block, which is one
+sector rather than 8K; but here 8K is the host file system's block
+size.
+</p>
+
+<p>
+<b>Resize.</b> Change the size of a disk image like this:
+<pre>
+   disk161 resize LHD0.img 10M
+</pre>
+which makes the image twice as big as before.
+You can also use + or - on the size argument to expand or shrink the
+image by a specified amount.
+Note that resizing the image will not resize any file system or other
+logical structure that may be stored on it.
+That must be done separately with other tools.
+Shrinking an image without doing this will destroy data.
 </p>
 
 </body>

@@ -283,12 +283,9 @@ schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
 	       void (*func)(void *, u_int32_t),
 	       const char *desc)
 {
-	u_int64_t clocks;
 	struct timed_action *n, **p;
 
 	nsecs += (u_int64_t)((random()*(nsecs*0.01))/RANDOM_MAX);
-
-	clocks = nsecs / NSECS_PER_CLOCK;
 
 	n = acalloc();
 	n->ta_vtime = clock_vnow() + nsecs;

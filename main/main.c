@@ -185,7 +185,7 @@ static
 u_int64_t
 showstats(void)
 {
-	u_int64_t totcycles, cpu_totcycles;
+	u_int64_t totcycles;
 	unsigned i;
 
 	totcycles = g_stats.s_tot_rcycles + g_stats.s_tot_icycles;
@@ -195,9 +195,6 @@ showstats(void)
 	    (unsigned long long)g_stats.s_tot_icycles);
 
 	for (i=0; i<g_stats.s_numcpus; i++) {
-		cpu_totcycles = g_stats.s_percpu[i].sp_kcycles
-			+ g_stats.s_percpu[i].sp_ucycles
-			+ g_stats.s_percpu[i].sp_icycles;
 		msg("  cpu%u: %llu kern, %llu user, %llu idle; "
 		    "%llu ll, %llu/%llu sc, %llu sync", i,
 		    (unsigned long long) g_stats.s_percpu[i].sp_kcycles,

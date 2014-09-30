@@ -35,9 +35,95 @@
 #define TLB_PAGEFRAME		0xfffff000
 
 /* status register fields */
-#define STATUS_BITS		0xf07f7000	/* these go in status_bits */
-/*				0x0f800000  	   RESERVED set to 0 */
+/*
+ * The status register varies by MIPS model.
+ * On all models, bits 28-31 enable coprocessors 0-3.
+ * On all models, bits 8-15 enable interrupt lines.
+ * On all models, bit 22 enables the bootstrap exception vectors.
+ * Bits 0-7 are for interrupt and user/supervisor control.
+ * Bits 16-21 and 23-27 are for miscellaneous control.
+ *
+ * Bits 0-7 on the r2000/r3000:
+ *    0		interrupt enable
+ *    1		processor is in user mode
+ *    2-3	saved copy of bits 0-1 from exception
+ *    4-5	saved copy of bits 2-3 from exception
+ *    6-7	0
+ *
+ * Bits 0-7 on post-r3000 (incl. mips32):
+ *    0		interrupt enable
+ *    1		exception level (set for exceptions)
+ *    2		error level (set for error exceptions)
+ *    3		processor is in "supervisor" mode
+ *    4		processor is in user mode
+ *    5		0 (enable 64-bit user space on mips64)
+ *    6		0 (enable 64-bit "supervisor" address space on mips64)
+ *    7		0 (enable 64-bit kernel address space on mips64)
+ * Turning on both the user and "supervisor" mode bits is an error.
+ *
+ * Bits 16-21, 23-27 on the r3000:
+ *    16	isolate data cache
+ *    17	swap caches
+ *    18	disable cache parity
+ *    19	becomes 1 if a cache miss occurs with cache isolated
+ *    20	becomes 1 if a cache parity error occurs
+ *    21	becomes 1 on duplicate TLB entries (irretrievable)
+ *    23-24	0
+ *    25	reverse endianness (later r3000 only AFAIK)
+ *    26-27	0
+ *
+ * Bits 16-21, 23-27 on mips32:
+ *    16-17	implementation-dependent
+ *    18	0
+ *    19	becomes 1 on NMI reset (write 0 to clear; don't write 1)
+ *    20	becomes 1 on soft reset (write 0 to clear; don't write 1)
+ *    21	becomes 1 on dup TLB entries (write 0 to clear; don't write 1)
+ *    23	0 (enable 64-bit mode on mips64)
+ *    24	0 (enable MDMX extensions on mips64)
+ *    25	reverse endianness
+ *    26	0 (enable extended FPU mode on mips64)
+ *    27	enable reduced power mode
+ *
+ * Other meanings for bits 16-21, 23-27 seen in docs:
+ *    16	disable cache parity exceptions
+ *    17	enable use of an ECC register
+ *    18	hit or miss indicator for last CACHE instruction
+ *    23	instruction cache lock mode
+ *    24	data cache lock mode
+ *    27	enable non-blocking loads (whatever those are)
+ *
+ * We use the r2k/r3k meaning of bits 0-7, although at some future point
+ * I'd like to have a way to enable the later version and its accompanying
+ * exception handling.
+ *
+ * For bits 16-21, 23-27:
+ *    16-17	machine check if enabled
+ *    18	0 (compatible with both r3k and mips32)
+ *    19	mips32 meaning (note: we don't support NMIs yet)
+ *    20	mips32 meaning (note: we don't support soft reset yet)
+ *    21	mips32 meaning (compatible with r3k) (note: we machine check
+ *                on duplicate TLB entries)
+ *    23-24	mips32 meaning, except machine check if set to 1
+ *    25	reverse endianness (not supported; machine check if set to 1)
+ *    26	mips32 meaning, except machine check if set to 1
+ *    27	0 (might implement a reduced power mode in the future)
+ * Note that we don't support machine check exceptions; instead we do the
+ * debugger thing.
+ */
+#define STATUS_COPENABLE	0xf0000000	/* coprocessor enable bits */
+/*      STATUS_LOWPOWER		0x08000000	   reduced power mode */
+#define STATUS_XFPU64		0x04000000	/* 64-bit only FPU mode */
+#define STATUS_REVENDIAN	0x02000000	/* reverse endian mode */
+#define STATUS_MDMX64		0x01000000	/* 64-bit only MDMX exts */
+#define STATUS_MODE64		0x00800000	/* 64-bit instructions */
+#define STATUS_BOOTVECTORS	0x00400000	/* boot exception vectors */
+#define STATUS_ERRORCAUSES	0x00380000	/* cause bits for error exns */
+/*      STATUS_CACHEPARITY	0x00040000	   disable cache parity */
+#define STATUS_R3KCACHE		0x00030000	/* r3k cache control bits */
 #define STATUS_HARDMASK_TIMER	0x00008000	/* on-chip timer irq enabled */
+#define STATUS_HARDMASK_UNUSED4	0x00004000	/* unused hardware irq lines */
+#define STATUS_HARDMASK_FPU	0x00002000	/* FPU irq enabled */
+#define STATUS_HARDMASK_UNUSED2	0x00001000	/* unused hardware irq lines */
 #define STATUS_HARDMASK_IPI	0x00000800	/* lamebus ipi enabled */
 #define STATUS_HARDMASK_LB	0x00000400	/* lamebus irq enabled */
 #define STATUS_SOFTMASK		0x00000300	/* mask bits for soft irqs */
@@ -67,6 +153,81 @@
 #define RANDREG_MAX		56
 #define RANDREG_OFFSET		8
 
+/* top bit in all config registers tells if the next one exists or not */
+#define CONFIG_NEXTSEL_PRESENT	0x80000000
+
+/* config0 register fields */
+/*      CONFIG0_LOCAL           0x7fff0000 	for local use */
+#define CONFIG0_ENDIAN   	0x00008000	/* endianness */
+#define CONFIG0_TYPE            0x00006000	/* architecture type */
+#define CONFIG0_REVISION        0x00001c00	/* architecture revision */
+#define CONFIG0_MMU             0x000003f0	/* mmu type */
+/*      zero                    0x0000007f */
+#define CONFIG0_KSEG0_COHERE	0x00000007	/* cache coherence for kseg0 */
+
+/* values for CONFIG0_ENDIAN */
+#define CONFIG0_ENDIAN_BIG	0x00008000
+#define CONFIG0_ENDIAN_LITTLE	0x00000000
+
+/* values for CONFIG0_TYPE */
+#define CONFIG0_TYPE_MIPS32     0x00000000
+#define CONFIG0_TYPE_MIPS64_32  0x00002000
+#define CONFIG0_TYPE_MIPS64     0x00004000
+/*      reserved                0x00006000 */
+
+/* value for CONFIG0_REVISION (others reserved) */
+#define CONFIG0_REVISION_1	0x00000000
+
+/* values for CONFIG0_MMU (_VINTAGE is a reserved value in mips32) */
+#define CONFIG0_MMU_NONE        0x00000000	/* no mmu */
+#define CONFIG0_MMU_TLB         0x000000f0	/* mips32 tlb */
+#define CONFIG0_MMU_BAT         0x00000100	/* mips32 base-and-bounds */
+#define CONFIG0_MMU_FIXED       0x000001f0	/* standard fixed mappings */
+#define CONFIG0_MMU_VINTAGE     0x000003f0	/* mips-I MMU (sys161 only) */
+
+/* values for CONFIG0_KSEG0_COHERE */
+#define CONFIG0_KSEG0_COHERE_UNCACHED	2
+#define CONFIG0_KSEG0_COHERE_CACHED	3
+
+/* config1 register fields */
+#define CONFIG1_TLBSIZE		0x7e000000	/* number of TLB entries - 1 */
+#define CONFIG1_ICACHE_SETS	0x01c00000	/* icache sets per way */
+#define CONFIG1_ICACHE_LINE	0x00380000	/* icache line size */
+#define CONFIG1_ICACHE_ASSOC	0x00070000	/* icache associativity */
+#define CONFIG1_DCACHE_SETS	0x0000e000	/* dcache sets per way */
+#define CONFIG1_DCACHE_LINE	0x00001c00	/* dcache line size */
+#define CONFIG1_DCACHE_ASSOC	0x00000380	/* dcache associativity */
+#define CONFIG1_COP2            0x00000040	/* cop2 exists */
+#define CONFIG1_MDMX64		0x00000020	/* MDMX64 implemented */
+#define CONFIG1_PERFCTRS	0x00000010	/* perf counters implemented */
+#define CONFIG1_WATCH		0x00000008	/* watch regs implemented */
+#define CONFIG1_MIPS16		0x00000004	/* mips16 implemented */
+#define CONFIG1_EJTAG		0x00000002	/* ejtag implemented */
+#define CONFIG1_FPU		0x00000001	/* fpu implemented */
+
+/* values for CONFIG1_TLBSIZE (valid inputs 1-64) */
+#define CONFIG1_MK_TLBSIZE(n)	(((n)-1) << 25)
+
+/* values for CONFIG1_[ID]CACHE_* */
+#define CONFIG1_SETS_64		0
+#define CONFIG1_SETS_128	1
+#define CONFIG1_SETS_256	2
+#define CONFIG1_SETS_512	3
+#define CONFIG1_SETS_1024	4
+#define CONFIG1_SETS_2048	5
+#define CONFIG1_SETS_4096	6
+#define CONFIG1_LINE_NONE	0
+#define CONFIG1_LINE_4		1
+#define CONFIG1_LINE_8		2
+#define CONFIG1_LINE_16		3
+#define CONFIG1_LINE_32		4
+#define CONFIG1_LINE_64		5
+#define CONFIG1_LINE_128	6
+#define CONFIG1_MK_ASSOC(n)	(n-1)	/* valid values 1-8 */
+#define CONFIG1_MK_CACHE(s, l, a) (((s) << 6) | ((l) << 3) | (a))
+#define CONFIG1_MK_ICACHE(s, l, a) (CONFIG1_MK_CACHE(s, l, a) << 16)
+#define CONFIG1_MK_DCACHE(s, l, a) (CONFIG1_MK_CACHE(s, l, a) << 7)
+
 /*
  * Coprocessor registers have a register number (0-31) and then also
  * a "select" number 0-7, which is basically a bank number. So you can
@@ -89,6 +250,14 @@
 #define C0_PRID    REGSEL(15, 0)
 #define C0_CFEAT   REGSEL(15, 1)
 #define C0_IFEAT   REGSEL(15, 2)
+#define C0_CONFIG0 REGSEL(16, 0)
+#define C0_CONFIG1 REGSEL(16, 1)
+#define C0_CONFIG2 REGSEL(16, 2)
+#define C0_CONFIG3 REGSEL(16, 3)
+#define C0_CONFIG4 REGSEL(16, 4)
+#define C0_CONFIG5 REGSEL(16, 5)
+#define C0_CONFIG6 REGSEL(16, 6)
+#define C0_CONFIG7 REGSEL(16, 7)
 
 /* Version IDs for C0_PRID */
 #define PRID_VALUE_ANCIENT	0xbeef    /* sys161 <= 0.95 */
@@ -119,7 +288,7 @@ struct mipstlb {
 	int mt_nocache;		// 1: cache disable
 	u_int32_t mt_pfn;	// page number part of physical address
 	u_int32_t mt_vpn;	// page number part of virtual address
-	u_int32_t mt_pid;	// address space id (note: shifted left 6)
+	u_int32_t mt_pid;	// address space id
 };
 
 /* possible states for a cpu */
@@ -196,11 +365,14 @@ struct mipscpu {
 	int prev_irqon;
 	int current_usermode;
 	int current_irqon;
-	int status_hardmask_lb;		// true if lamebus irq is enabled
-	int status_hardmask_ipi;	// true if ipi is enabled
-	int status_hardmask_timer;	// true if on-chip timer irq is enabled
-	u_int32_t status_softmask;	// soft interrupt masking bits
-	u_int32_t status_bits;  // unsplit bits from status register
+	uint32_t status_hardmask_lb;	// nonzero if lamebus irq is enabled
+	uint32_t status_hardmask_ipi;	// nonzero if ipi is enabled
+	uint32_t status_hardmask_fpu;	// nonzero if FPU irq is enabled
+	uint32_t status_hardmask_void;	// unused hard irq bits
+	uint32_t status_hardmask_timer;	// nonzero if timer irq is enabled
+	uint32_t status_softmask;	// soft interrupt masking bits
+	uint32_t status_bootvectors;	// nonzero if BEV bit on
+	uint32_t status_copenable;	// coprocessor 0-3 enable bits
 	
 	/*
 	 * cause register (cop0 register 13)
@@ -209,6 +381,18 @@ struct mipscpu {
 	u_int32_t cause_ce;		// already shifted
 	u_int32_t cause_softirq;	// already shifted
 	u_int32_t cause_code;		// already shifted
+
+	/*
+	 * config registers
+	 */
+	uint32_t ex_config0;	// cop0 register 16 sel 0
+	uint32_t ex_config1;	// cop0 register 16 sel 1
+	uint32_t ex_config2;	// cop0 register 16 sel 2
+	uint32_t ex_config3;	// cop0 register 16 sel 3
+	uint32_t ex_config4;	// cop0 register 16 sel 4
+	uint32_t ex_config5;	// cop0 register 16 sel 5
+	uint32_t ex_config6;	// cop0 register 16 sel 6
+	uint32_t ex_config7;	// cop0 register 16 sel 7
 
 	/*
 	 * other cop0 registers
@@ -342,23 +526,58 @@ mips_init(struct mipscpu *cpu, unsigned cpunum)
 	cpu->tlbpf = 0;
 	cpu->tlbrandom = RANDREG_MAX-1;
 
-	cpu->status_bits = 0x00400000;
-	cpu->status_hardmask_lb = 0;
-	cpu->status_hardmask_ipi = 0;
-	cpu->status_hardmask_timer = 0;
-	cpu->status_softmask = 0;
 	cpu->old_usermode = 0;
 	cpu->old_irqon = 0;
 	cpu->prev_usermode = 0;
 	cpu->prev_irqon = 0;
 	cpu->current_usermode = 0;
 	cpu->current_irqon = 0;
+	cpu->status_hardmask_lb = 0;
+	cpu->status_hardmask_ipi = 0;
+	cpu->status_hardmask_fpu = 0;
+	cpu->status_hardmask_void = 0;
+	cpu->status_hardmask_timer = 0;
+	cpu->status_softmask = 0;
+	cpu->status_bootvectors = STATUS_BOOTVECTORS;
+	cpu->status_copenable = 0;
 
 	cpu->cause_bd = 0;
 	cpu->cause_ce = 0;
 	cpu->cause_softirq = 0;
 	cpu->cause_code = 0;
 
+	/* config register 0 - misc info */
+	cpu->ex_config0 = CONFIG_NEXTSEL_PRESENT |
+		CONFIG0_ENDIAN_BIG |
+		CONFIG0_TYPE_MIPS32 |
+		CONFIG0_REVISION_1 |
+		CONFIG0_MMU_VINTAGE |
+		CONFIG0_KSEG0_COHERE_CACHED;
+
+	/* config register 1 - mostly L1 cache info */
+	/* for now report a 4K each 4-way 16-byte-line icache and dcache */
+	cpu->ex_config1 =
+		CONFIG1_MK_TLBSIZE(NTLB) |
+		CONFIG1_MK_ICACHE(CONFIG1_SETS_64, CONFIG1_LINE_16,
+				  CONFIG1_MK_ASSOC(4)) |
+		CONFIG1_MK_DCACHE(CONFIG1_SETS_64, CONFIG1_LINE_16,
+				  CONFIG1_MK_ASSOC(4));
+
+	/* config register 2 - L2/L3 cache info */
+	cpu->ex_config2 = 0;
+
+	/* config register 3 - architecture extensions */
+	cpu->ex_config3 = 0;
+
+	/* config registers 4 and 5 - not defined in docs I have */
+	cpu->ex_config4 = 0;
+	cpu->ex_config5 = 0;
+
+	/* config registers 6 and 7 - implementation-specific */
+	cpu->ex_config6 = 0;
+	cpu->ex_config7 = 0;
+
+	/* other cop0 registers */
 	cpu->ex_context = 0;
 	cpu->ex_epc = 0;
 	cpu->ex_vaddr = 0;
@@ -419,7 +638,7 @@ u_int32_t
 tlbgethi(const struct mipstlb *mt)
 {
 	u_int32_t val = mt->mt_vpn;
-	val |= mt->mt_pid;
+	val |= (mt->mt_pid << 6);
 	return val;
 }
 
@@ -439,7 +658,7 @@ void
 tlbsethi(struct mipstlb *mt, u_int32_t val)
 {
 	mt->mt_vpn = val & TLB_PAGEFRAME;
-	mt->mt_pid = val & TLBHI_PID;
+	mt->mt_pid = (val & TLBHI_PID) >> 6;
 }
 
 #define TLBTRP(t) CPUTRACEL(DOTRACE_TLB, \
@@ -690,7 +909,7 @@ void
 exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 {
 	//u_int32_t bits;
-	int boot = (cpu->status_bits & 0x00400000)!=0;
+	int boot = (cpu->status_bootvectors) != 0;
 
 	CPUTRACE(DOTRACE_EXN, cpu->cpunum,
 		 "exception: code %d (%s), expc %x, vaddr %x, sp %x", 
@@ -1280,32 +1499,71 @@ rbranch(struct mipscpu *cpu, int32_t rel)
 }
 
 static
-u_int32_t
+uint32_t
 getstatus(struct mipscpu *cpu)
 {
-	u_int32_t val;
-	val = cpu->status_bits | cpu->status_softmask;
-	if (cpu->status_hardmask_lb) val |= STATUS_HARDMASK_LB;
-	if (cpu->status_hardmask_ipi) val |= STATUS_HARDMASK_IPI;
-	if (cpu->status_hardmask_timer) val |= STATUS_HARDMASK_TIMER;
+	uint32_t val;
+
+	val = cpu->status_copenable;
+	/* STATUS_LOWPOWER always reads 0 */
+	/* STATUS_XFPU64 always reads 0 */
+	/* STATUS_REVENDIAN always reads 0 */
+	/* STATUS_MDMX64 always reads 0 */
+	/* STATUS_MODE64 always reads 0 */
+	val |= cpu->status_bootvectors;
+	/* STATUS_ERRORCAUSES always reads 0 */
+	/* STATUS_CACHEPARITY always reads 0 */
+	/* STATUS_R3KCACHE always reads 0 */
+	val |= cpu->status_hardmask_timer;
+	val |= cpu->status_hardmask_void;
+	val |= cpu->status_hardmask_fpu;
+	val |= cpu->status_hardmask_ipi;
+	val |= cpu->status_hardmask_lb;
+	val |= cpu->status_softmask;
+
 	if (cpu->old_usermode) val |= STATUS_KUo;
 	if (cpu->old_irqon) val |= STATUS_IEo;
 	if (cpu->prev_usermode) val |= STATUS_KUp;
 	if (cpu->prev_irqon) val |= STATUS_IEp;
 	if (cpu->current_usermode) val |= STATUS_KUc;
 	if (cpu->current_irqon) val |= STATUS_IEc;
+
 	return val;
 }
 
 static
 void
-setstatus(struct mipscpu *cpu, u_int32_t val)
+setstatus(struct mipscpu *cpu, uint32_t val)
 {
-	cpu->status_bits = val & STATUS_BITS;
+	cpu->status_copenable = val & STATUS_COPENABLE;
+	/* STATUS_LOWPOWER is ignored (for now) */
+	/* STATUS_XFPU64 is ignored because we aren't 64-bit */
+	/* STATUS_REVENDIAN is ignored (for now) */
+	/* STATUS_MDMX64 is ignored because we aren't 64-bit */
+	/* STATUS_MODE64 is ignored because we aren't 64-bit */
+	cpu->status_bootvectors = val & STATUS_BOOTVECTORS;
+	if (val & STATUS_ERRORCAUSES) {
+		/*
+		 * Writing to these bits can turn them off but not on.
+		 * And because for the moment we don't implement the
+		 * conditions that would turn them on (instead we drop
+		 * to the debugger for such things) we can just ignore
+		 * the write.
+		 */
+	}
+	/* STATUS_CACHEPARITY is ignored */
+	if (val & STATUS_R3KCACHE) {
+		hang("Status register write attempted to use "
+		     "r2000/r3000 cache control");
+	}
 	cpu->status_hardmask_timer = val & STATUS_HARDMASK_TIMER;
+	cpu->status_hardmask_void = val & 
+		(STATUS_HARDMASK_UNUSED2 | STATUS_HARDMASK_UNUSED4);
+	cpu->status_hardmask_fpu = val & STATUS_HARDMASK_FPU;
 	cpu->status_hardmask_ipi = val & STATUS_HARDMASK_IPI;
 	cpu->status_hardmask_lb = val & STATUS_HARDMASK_LB;
 	cpu->status_softmask = val & STATUS_SOFTMASK;
+
 	cpu->old_usermode = val & STATUS_KUo;
 	cpu->old_irqon = val & STATUS_IEo;
 	cpu->prev_usermode = val & STATUS_KUp;
@@ -1506,6 +1764,16 @@ domf(struct mipscpu *cpu, int cn, unsigned reg, unsigned sel, int32_t *greg)
 	    case C0_PRID:    *greg = cpu->ex_prid; break;
 	    case C0_CFEAT:   *greg = cpu->ex_cfeat; break;
 	    case C0_IFEAT:   *greg = cpu->ex_ifeat; break;
+	    case C0_CONFIG0: *greg = cpu->ex_config0; break;
+	    case C0_CONFIG1: *greg = cpu->ex_config1; break;
+#if 0 /* not yet */
+	    case C0_CONFIG2: *greg = cpu->ex_config2; break;
+	    case C0_CONFIG3: *greg = cpu->ex_config3; break;
+	    case C0_CONFIG4: *greg = cpu->ex_config4; break;
+	    case C0_CONFIG5: *greg = cpu->ex_config5; break;
+	    case C0_CONFIG6: *greg = cpu->ex_config6; break;
+	    case C0_CONFIG7: *greg = cpu->ex_config7; break;
+#endif
 	    default:
 		exception(cpu, EX_RI, cn, 0);
 		break;
@@ -1550,6 +1818,21 @@ domt(struct mipscpu *cpu, int cn, int reg, int sel, int32_t greg)
 	    case C0_PRID:    /* read-only register */ break;
 	    case C0_CFEAT:   /* read-only register */ break;
 	    case C0_IFEAT:   /* read-only register */ break;
+	    case C0_CONFIG0:
+		/*
+		 * Silently ignore. Note however that the
+		 * CONFIG0_KSEG0_COHERE field to set the coherence
+		 * type for kseg0 is theoretically supposed to be
+		 * read/write.
+		 */
+		break;
+	    case C0_CONFIG1: /* read-only register */ break;
+	    case C0_CONFIG2: /* read-only register */ break;
+	    case C0_CONFIG3: /* read-only register */ break;
+	    case C0_CONFIG4: /* read-only register */ break;
+	    case C0_CONFIG5: /* read-only register */ break;
+	    case C0_CONFIG6: /* read-only register */ break;
+	    case C0_CONFIG7: /* read-only register */ break;
 	    default:
 		exception(cpu, EX_RI, cn, 0);
 		break;
@@ -1809,6 +2092,185 @@ mx_bne(struct mipscpu *cpu, u_int32_t insn)
 	}
 	else {
 		TR("no");
+	}
+}
+
+/*
+ * Cache control. This actually does nothing, but that's adequate for
+ * the time being.
+ */
+static
+inline
+void
+mx_cache(struct mipscpu *cpu, uint32_t insn)
+{
+	NEEDADDR; NEEDRT;
+	unsigned cachecode, op;
+	enum { L1i, L1d, L2, L3 } cache;
+	unsigned cacheway, cacheindex, cacheoffset;
+	uint32_t waymask, indexmask, offsetmask;
+	unsigned wayshift, indexshift;
+
+	/*
+	 * Some documentation says that this instruction is kernel-
+	 * only. Other documentation does not say (and even fails to
+	 * state that either EX_CPU or EX_RI can be triggered) but
+	 * it's clear that at least some of the cache ops cannot be
+	 * allowed to unprivileged code. So, better to be safe.
+	 */
+	if (IS_USERMODE(cpu)) {
+		exception(cpu, EX_CPU, 0 /*cop0*/, 0);
+		return;
+	}
+
+	/*
+	 * The caches we reported in the config1 register are 4K,
+	 * 4-way, with 16-byte cache lines; that is, 64 sets.
+	 * Therefore, the index is 6 bits, the way when we need to
+	 * specify it explicitly is 2 bits, and the offset is 4 bits.
+	 *
+	 * XXX we should have the whole thing parameterized by
+	 * preprocessor macros, or even configured at runtime.
+	 *
+	 * XXX also this should come after we pick the cache, inasmuch
+	 * as the parameters ought to be different for L2 and L3. If
+	 * we have L2 and L3 - a mips of the vintage we're kinda still
+	 * pretending to be wouldn't.
+	 */
+	waymask = 0x00000c00;
+	indexmask = 0x000003f0;
+	offsetmask = 0x0000000f;
+	wayshift = 10;
+	indexshift = 4;
+
+	/* the RT field here is a constant rather than a register number */
+	cachecode = rt >> 3;
+	op = rt & 7;
+
+	/* XXX should have symbolic constants for this */
+	switch (cachecode) {
+	    case 0: cache = L1i; break; /* L1 icache */
+	    case 1: cache = L1d; break; /* L1 dcache or unified L1 */
+	    case 2: cache = L3; break; /* L3 */
+	    case 3: cache = L2; break; /* L2 */
+	}
+
+	switch (op) {
+	    case 0:
+	    case 1:
+	    case 2:
+	    case 3:
+		/* address the cache by index */
+		cacheway = (addr & waymask) >> wayshift;
+		cacheindex = (addr & indexmask) >> indexshift;
+		cacheoffset = (addr & offsetmask);
+		break;
+	    case 4:
+	    case 5:
+	    case 6:
+	    case 7:
+		/* address the cache by address */
+		if (translatemem(cpu, addr, 0, &addr) < 0) {
+			return;
+		}
+		cacheway = 0; /* make compiler happy; need to check all ways */
+		cacheindex = (addr & indexmask) >> indexshift;
+		cacheoffset = (addr & offsetmask);
+		break;
+	}
+
+	switch (op) {
+	    case 0: /* index writeback & invalidate */
+		/*
+		 * Look at cache[cacheindex].ways[cacheway]; write it back
+		 * if needed, then invalidate it. (For the icache, just
+		 * invalidate it.)
+		 */
+		(void)cache;
+		(void)cacheway;
+		(void)cacheindex;
+		break;
+	    case 1: /* index load tag */
+		/*
+		 * Look at cache[cacheindex].ways[cacheway]; read the
+		 * tag into the TagLo and TagHi registers; use the
+		 * offset to read the data out of the cache line into
+		 * the DataLo and DataHi registers. Note: we don't
+		 * have any of these registers, and DataLo/DataHi are
+		 * optional.
+		 *
+		 * The sub-word bits of the offset, if any, should be
+		 * ignored rather than kvetched about.
+		 */
+		(void)cache;
+		(void)cacheindex;
+		(void)cacheway;
+		(void)cacheoffset;
+		break;
+	    case 2: /* index store tag */
+		/*
+		 * Look at cache[cacheindex].ways[cacheway]; write the
+		 * tag from the TagLo and TagHi registers.
+		 */
+		(void)cache;
+		(void)cacheindex;
+		(void)cacheway;
+		break;
+	    case 3: /* implementation-defined operation */
+		break;
+	    case 4: /* hit invalidate */
+		/*
+		 * Look at cache[cacheindex]; check all ways for a
+		 * matching tag, and if found invalidate it without
+		 * writing back.
+		 */
+		(void)cache;
+		(void)cacheindex;
+		break;
+	    case 5: /* hit writeback & invalidate */
+		if (cache == L1i) {
+			/*
+			 * For the L1 cache this op is "fill" (!)
+			 * Load one of the ways at cache[cacheindex]
+			 * from memory using the specified address.
+			 */
+			(void)cache;
+			(void)cacheindex;
+			(void)addr;
+		}
+		else {
+			/*
+			 * Look at cache[cacheindex]; check all ways for
+			 * a matching tag, and if found, write it back if
+			 * necessary and then invalidate it.
+			 */
+			(void)cache;
+			(void)cacheindex;
+		}
+		break;
+	    case 6: /* hit writeback */
+		/*
+		 * Look at cache[cacheindex]; check all ways for a
+		 * matching tag, and if found, write it back if
+		 * necessary. Leave it valid. A nop for the icache, I
+		 * guess.
+		 */
+		(void)cache;
+		(void)cacheindex;
+		break;
+	    case 7: /* fetch and lock */
+		/*
+		 * Look at cache[cacheindex]; load one of the ways
+		 * from memory using the specified address, and lock
+		 * it in. It then won't be kicked out unless
+		 * explicitly invalidated, or revoked from another
+		 * processor. (Or if the lock bit is cleared by
+		 * mucking directly with the tag.)
+		 */
+		(void)cache;
+		(void)cacheindex;
+		(void)addr;
+		break;
 	}
 }
 
@@ -2978,6 +3440,7 @@ cpu_cycle(void)
 	    case OPM_SWL: mx_swl(cpu, insn); break;
 	    case OPM_SW: mx_sw(cpu, insn); break;
 	    case OPM_SWR: mx_swr(cpu, insn); break;
+	    case OPM_CACHE: mx_cache(cpu, insn); break;
 	    case OPM_LWC0: /* LWC0 == LL */ mx_ll(cpu, insn); break;
 	    case OPM_LWC1:
 	    case OPM_LWC2:
@@ -3143,27 +3606,37 @@ cpu_dumpstate(void)
 	msg("tlb random: %d", (cpu->tlbrandom%RANDREG_MAX)+RANDREG_OFFSET);
 
 	msgl("Status register: ");
-	msgl("%s%s%s%s-----",
-	     cpu->status_bits & 0x80000000 ? "3" : "-",
-	     cpu->status_bits & 0x40000000 ? "2" : "-",
-	     cpu->status_bits & 0x20000000 ? "1" : "-",
-	     cpu->status_bits & 0x10000000 ? "0" : "-");
-	msgl("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
-	     cpu->status_bits & 0x00400000 ? "B" : "-",
-	     cpu->status_bits & 0x00200000 ? "T" : "-",
-	     cpu->status_bits & 0x00100000 ? "E" : "-",
-	     cpu->status_bits & 0x00080000 ? "M" : "-",
-	     cpu->status_bits & 0x00040000 ? "Z" : "-",
-	     cpu->status_bits & 0x00020000 ? "S" : "-",
-	     cpu->status_bits & 0x00010000 ? "I" : "-",
+	/* coprocessor enable bits */
+	msgl("%s%s%s%s",
+	     cpu->status_copenable & 0x80000000 ? "3" : "-",
+	     cpu->status_copenable & 0x40000000 ? "2" : "-",
+	     cpu->status_copenable & 0x20000000 ? "1" : "-",
+	     cpu->status_copenable & 0x10000000 ? "0" : "-");
+	/* misc control bits */
+	msgl("%s%s%s%s%s%s%s%s%s%s%s%s",
+	     0 ? "P" : "-",	/* reduced power mode */
+	     0 ? "F" : "-",	/* 64-bit extended FPU mode */
+	     0 ? "R" : "-",	/* reverse endianness */
+	     0 ? "M" : "-",	/* 64-bit MDMX extensions */
+	     0 ? "6" : "-",	/* 64-bit mode */
+	     cpu->status_bootvectors ? "B" : "-",
+	     0 ? "T" : "-",	/* duplicate TLB entries */
+	     0 ? "S" : "-",	/* soft reset */
+	     0 ? "N" : "-",	/* NMI reset */
+	     0 ? "C" : "-",	/* cache parity */
+	     0 ? "W" : "-",	/* r3k swap caches */
+	     0 ? "I" : "-");	/* r3k isolate cache */
+	/* interrupt mask */
+	msgl("%s%s%s%s%s%s%s%s",
 	     cpu->status_hardmask_timer ? "H" : "-",
-	     cpu->status_bits & 0x00004000 ? "h" : "-",
-	     cpu->status_bits & 0x00002000 ? "h" : "-",
-	     cpu->status_bits & 0x00001000 ? "h" : "-",
+	     cpu->status_hardmask_void & 0x00004000 ? "h" : "-",
+	     cpu->status_hardmask_void & 0x00002000 ? "h" : "-",
+	     cpu->status_hardmask_fpu ? "h" : "-",
 	     cpu->status_hardmask_ipi ? "H" : "-",
 	     cpu->status_hardmask_lb ? "H" : "-",
 	     cpu->status_softmask & 0x0200 ? "S" : "-",
 	     cpu->status_softmask & 0x0100 ? "S" : "-");
+	/* mode control */
 	msg("--%s%s%s%s%s%s",
 	    cpu->old_usermode ? "U" : "-",
 	    cpu->old_irqon ? "I" : "-",

@@ -68,7 +68,7 @@
 #
 #   disk      Fixed disk. The options are as follows:
 #                 rpm=NUMBER         Set spin rate of disk.
-#                 sectors=NUMBER     Set disk size. Each sector is 512 bytes.
+#                 sectors=NUMBER     Set disk size (legacy; see below).
 #                 file=PATH          Specify file to use as storage for disk.
 #                 paranoid           Set paranoid mode.
 #                 nodoom             Do not invoke the doom counter.
@@ -86,6 +86,17 @@
 #             for this disk. Otherwise, if the doom counter is enabled
 #             using the sys161 -D option, each write decrements the doom
 #             counter and the machine switches off when it reaches 0.
+#
+#             The "sectors" number, if given, sets the size of the disk.
+#             (Each sector is 512 bytes.) This option is only provided
+#             for compatibility with old configurations. As of System/161
+#             1.99.09, the size of the storage image file determines the
+#             size of the virtual disk. (One sector is used as a header.)
+#             If the configured "sectors" value does not match, a warning
+#             is printed. The "sectors" value is only used if the image
+#             file does not exist, in which case the file is created with
+#             the configured size. This behavior will be removed in a
+#             future version - use the disk161 tool to create disk images.
 #
 #             You can have as many disks as you want (until you run out
 #             of slots) but each should have a distinct file to use for
@@ -120,8 +131,11 @@
 #
 
 #
-# Here is a suggested default configuration: 512k RAM, two 5M disks.
+# Here is a suggested default configuration: 512k RAM, two disks.
 # The first is marked nodoom on the assumption that it will be a swap disk.
+# 5M is probably a good default disk size. Create the disk images with:
+#    disk161 create LHD0.img 5M
+#    disk161 create LHD1.img 5M
 #
 
 0	serial
