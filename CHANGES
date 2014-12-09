@@ -1,3 +1,6 @@
+20141209 dholland	System/161 1.99.10 released.
+20141209 dholland	Add workaround for OpenBSD's srand/srandom breakage.
+
 20140929 dholland	System/161 1.99.09 released.
 20140929 dholland	Support the CACHE instruction as (for now) a nop.
 20140929 dholland	Pretend to have 4K each L1 I/D caches.

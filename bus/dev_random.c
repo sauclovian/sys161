@@ -41,7 +41,16 @@ rand_init(int slot, int argc, char *argv[])
 		}
 	}
 
+#ifdef __OpenBSD__
+	/*
+	 * In 2014 OpenBSD decided to arbitrarily change the behavior
+	 * of srandom() to ignore the seed argument, making it not
+	 * work. You have to call srandom_deterministic() instead.
+	 */
+	srandom_deterministic(seed);
+#else
 	srandom(seed);
+#endif
 
 	return NULL;
 }
