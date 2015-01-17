@@ -32,35 +32,35 @@ void main_dumpstate(void);
  */
 
 struct stats_percpu {
-	u_int64_t sp_ucycles;  // user mode cycles
-	u_int64_t sp_kcycles;  // kernel mode cycles
-	u_int64_t sp_icycles;  // idle cycles
-	u_int64_t sp_uretired; // user mode instructions retired
-	u_int64_t sp_kretired; // kernel mode instructions retired
-	u_int64_t sp_lls;      // LL instructions
-	u_int64_t sp_okscs;    // successful SC instructions
-	u_int64_t sp_badscs;   // failed SC instructions
-	u_int64_t sp_syncs;    // SYNC instructions
+	uint64_t sp_ucycles;  // user mode cycles
+	uint64_t sp_kcycles;  // kernel mode cycles
+	uint64_t sp_icycles;  // idle cycles
+	uint64_t sp_uretired; // user mode instructions retired
+	uint64_t sp_kretired; // kernel mode instructions retired
+	uint64_t sp_lls;      // LL instructions
+	uint64_t sp_okscs;    // successful SC instructions
+	uint64_t sp_badscs;   // failed SC instructions
+	uint64_t sp_syncs;    // SYNC instructions
 };
 
 struct stats {
-	u_int64_t s_tot_rcycles; // cycles with at least one cpu running
-	u_int64_t s_tot_icycles; // cycles when fully idle
+	uint64_t s_tot_rcycles; // cycles with at least one cpu running
+	uint64_t s_tot_icycles; // cycles when fully idle
 	struct stats_percpu *s_percpu;
 	unsigned s_numcpus;
-	u_int32_t s_irqs;     // total interrupts
-	u_int32_t s_exns;     // total exceptions
-	u_int32_t s_rsects;   // disk sectors read
-	u_int32_t s_wsects;   // disk sectors written
-	u_int32_t s_rchars;   // console chars read
-	u_int32_t s_wchars;   // console chars written
-	u_int32_t s_remu;     // emufs reads
-	u_int32_t s_wemu;     // emufs writes
-	u_int32_t s_memu;     // emufs other ops
-	u_int32_t s_rpkts;    // network packets read
-	u_int32_t s_wpkts;    // network packets written
-	u_int32_t s_dpkts;    // network packets dropped
-	u_int32_t s_epkts;    // network errors
+	uint32_t s_irqs;     // total interrupts
+	uint32_t s_exns;     // total exceptions
+	uint32_t s_rsects;   // disk sectors read
+	uint32_t s_wsects;   // disk sectors written
+	uint32_t s_rchars;   // console chars read
+	uint32_t s_wchars;   // console chars written
+	uint32_t s_remu;     // emufs reads
+	uint32_t s_wemu;     // emufs writes
+	uint32_t s_memu;     // emufs other ops
+	uint32_t s_rpkts;    // network packets read
+	uint32_t s_wpkts;    // network packets written
+	uint32_t s_dpkts;    // network packets dropped
+	uint32_t s_epkts;    // network errors
 };
 
 extern struct stats g_stats;

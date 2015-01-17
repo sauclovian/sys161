@@ -12,9 +12,10 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
-#include <string.h>
-#include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
@@ -30,14 +31,14 @@
 #define MAXPACKET       4096
 
 struct linkheader {
-	u_int16_t lh_frame;
-	u_int16_t lh_from;
-	u_int16_t lh_packetlen;
-	u_int16_t lh_to;
+	uint16_t lh_frame;
+	uint16_t lh_from;
+	uint16_t lh_packetlen;
+	uint16_t lh_to;
 };
 
 struct sender {
-	u_int16_t sdr_addr;
+	uint16_t sdr_addr;
 	struct sockaddr_un sdr_sun;
 	socklen_t sdr_len;
 	int sdr_errors;
@@ -52,7 +53,7 @@ static int sock;
 
 static
 void
-checksender(u_int16_t addr, struct sockaddr_un *rsun, socklen_t rlen)
+checksender(uint16_t addr, struct sockaddr_un *rsun, socklen_t rlen)
 {
 	int n, i;
 	struct sender *sdr;

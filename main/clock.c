@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/time.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "config.h"
@@ -86,7 +87,18 @@ clock_coreinit(void)
 
 	gettimeofday(&tv, NULL);
 	start_secs = tv.tv_sec;
-	start_nsecs = 1000*tv.tv_usec;
+	/*
+	 * Pretend we started at the beginning of the current second,
+	 * rather than the actual start time. This means the time
+	 * syncup code will make things run a little fast while it
+	 * catches up (which doesn't matter) but has the important
+	 * effect that the disk rotation model is anchored to a
+	 * deterministic angular position at startup. At least, until
+	 * the time handling for bus devices gets fixed to not expose
+	 * the external physical time. (XXX)
+	 */
+	/* start_nsecs = 1000*tv.tv_usec; */
+	start_nsecs = 0;
 
 	virtual_now = 0;
 }
@@ -169,10 +181,10 @@ clock_vahead(uint64_t vnow, uint64_t vnsecs)
 
 struct timed_action {
 	struct timed_action *ta_next;
-	u_int64_t ta_vtime;
+	uint64_t ta_vtime;
 	void *ta_data;
-	u_int32_t ta_code;
-	void (*ta_func)(void *, u_int32_t);
+	uint32_t ta_code;
+	void (*ta_func)(void *, uint32_t);
 	const char *ta_desc;
 	int ta_runningto;
 };
@@ -279,13 +291,13 @@ clock_getrunticks(void)
 }
 
 void
-schedule_event(u_int64_t nsecs, void *data, u_int32_t code,
-	       void (*func)(void *, u_int32_t),
+schedule_event(uint64_t nsecs, void *data, uint32_t code,
+	       void (*func)(void *, uint32_t),
 	       const char *desc)
 {
 	struct timed_action *n, **p;
 
-	nsecs += (u_int64_t)((random()*(nsecs*0.01))/RANDOM_MAX);
+	nsecs += (uint64_t)((random()*(nsecs*0.01))/RANDOM_MAX);
 
 	n = acalloc();
 	n->ta_vtime = clock_vnow() + nsecs;
@@ -522,7 +534,7 @@ clock_setprogresstimeout(uint32_t secs)
 void
 clock_init(void)
 {
-	u_int32_t offset;
+	uint32_t offset;
 
 	clock_coreinit();
 	acalloc_init();

@@ -1,2 +1,2 @@
-int bootrom_fetch(u_int32_t offset, u_int32_t *val);
-const u_int32_t *bootrom_map(u_int32_t offset);
+int bootrom_fetch(uint32_t offset, uint32_t *val);
+const uint32_t *bootrom_map(uint32_t offset);

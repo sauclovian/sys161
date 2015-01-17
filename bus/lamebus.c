@@ -32,15 +32,15 @@
  * Memory.
  */
 
-u_int32_t bus_ramsize;					/* RAMSZ */
+uint32_t bus_ramsize;					/* RAMSZ */
 char *ram;
 
 /*
  * Interrupts.
  */
 
-static u_int32_t bus_raised_interrupts;			/* IRQS */
-static u_int32_t bus_enabled_interrupts = 0xffffffff;	/* IRQE */
+static uint32_t bus_raised_interrupts;			/* IRQS */
+static uint32_t bus_enabled_interrupts = 0xffffffff;	/* IRQE */
 
 /*
  * CPUs.
@@ -48,7 +48,7 @@ static u_int32_t bus_enabled_interrupts = 0xffffffff;	/* IRQE */
 
 struct lamebus_cpu {
 	int cpu_enabled;				/* one bit of CPUE */
-	u_int32_t cpu_enabled_interrupts;		/* CIRQE */
+	uint32_t cpu_enabled_interrupts;		/* CIRQE */
 	int cpu_interrupting;
 	int cpu_ipi;					/* CIPI, 0 or 1 */
 	/* This used to be cpu_cram[LAMEBUS_CRAM_SIZE] see dev_disk.c */
@@ -101,10 +101,10 @@ static struct lamebus_slot devices[LAMEBUS_NSLOTS];
  * Fetch device register.
  */
 int
-bus_io_fetch(unsigned cpunum, u_int32_t offset, u_int32_t *ret)
+bus_io_fetch(unsigned cpunum, uint32_t offset, uint32_t *ret)
 {
-	u_int32_t slot = offset / LAMEBUS_SLOT_MEM;
-	u_int32_t slotoffset = offset % LAMEBUS_SLOT_MEM;
+	uint32_t slot = offset / LAMEBUS_SLOT_MEM;
+	uint32_t slotoffset = offset % LAMEBUS_SLOT_MEM;
 
 	if (slot >= LAMEBUS_NSLOTS) {
 		/* Out of range */
@@ -126,10 +126,10 @@ bus_io_fetch(unsigned cpunum, u_int32_t offset, u_int32_t *ret)
  * Store to device registers.
  */
 int
-bus_io_store(unsigned cpunum, u_int32_t offset, u_int32_t val)
+bus_io_store(unsigned cpunum, uint32_t offset, uint32_t val)
 {
-	u_int32_t slot = offset / LAMEBUS_SLOT_MEM;
-	u_int32_t slotoffset = offset % LAMEBUS_SLOT_MEM;
+	uint32_t slot = offset / LAMEBUS_SLOT_MEM;
+	uint32_t slotoffset = offset % LAMEBUS_SLOT_MEM;
 
 	if (slot >= LAMEBUS_NSLOTS) {
 		/* Out of range */
@@ -156,7 +156,7 @@ void
 irqupdate(void)
 {
 	struct lamebus_cpu *cpu;
-	u_int32_t mask;
+	uint32_t mask;
 	unsigned i;
 	int irq;
 
@@ -183,7 +183,7 @@ irqupdate(void)
 void
 raise_irq(int slot)
 {
-	bus_raised_interrupts |= ((u_int32_t)1 << slot);
+	bus_raised_interrupts |= ((uint32_t)1 << slot);
 	irqupdate();
 	HWTRACE(DOTRACE_IRQ, "Slot %2d: irq ON", (slot));
 }
@@ -191,7 +191,7 @@ raise_irq(int slot)
 void
 lower_irq(int slot)
 {
-	bus_raised_interrupts &= ~((u_int32_t)1 << slot);
+	bus_raised_interrupts &= ~((uint32_t)1 << slot);
 	irqupdate();
 	HWTRACE(DOTRACE_IRQ, "Slot %2d: irq OFF", (slot));
 }
@@ -199,7 +199,7 @@ lower_irq(int slot)
 int
 check_irq(int slot)
 {
-	return (bus_raised_interrupts & ((u_int32_t)1 << slot)) != 0;
+	return (bus_raised_interrupts & ((uint32_t)1 << slot)) != 0;
 }
 
 /***************************************************************/
@@ -207,7 +207,7 @@ check_irq(int slot)
 
 static
 void
-dopoweroff(void *junk1, u_int32_t junk2)
+dopoweroff(void *junk1, uint32_t junk2)
 {
 	(void)junk1;
 	(void)junk2;
@@ -227,15 +227,15 @@ dopoweroff(void *junk1, u_int32_t junk2)
 }
 
 static
-u_int32_t
+uint32_t
 get_cpue(void)
 {
 	unsigned i;
-	u_int32_t ret = 0;
+	uint32_t ret = 0;
 
 	for (i=0; i<ncpus; i++) {
 		if (cpus[i].cpu_enabled) {
-			ret |= (u_int32_t)1 << i;
+			ret |= (uint32_t)1 << i;
 		}
 	}
 	return ret;
@@ -243,13 +243,13 @@ get_cpue(void)
 
 static
 void
-set_cpue(u_int32_t val)
+set_cpue(uint32_t val)
 {
 	unsigned i, thisbit;
 	struct lamebus_cpu *cpu;
 
 	for (i=0; i<ncpus; i++) {
-		thisbit = val & ((u_int32_t)1 << i);
+		thisbit = val & ((uint32_t)1 << i);
 		cpu = &cpus[i];
 
 		if (cpu->cpu_enabled && thisbit == 0) {
@@ -269,9 +269,9 @@ set_cpue(u_int32_t val)
 			 * of CRAM, and load the PC from the bottom
 			 * end of CRAM.
 			 */
-			u_int32_t cramoffset;
-			u_int32_t stackva, pcva, arg;
-			u_int32_t *cram;
+			uint32_t cramoffset;
+			uint32_t stackva, pcva, arg;
+			uint32_t *cram;
 
 			cramoffset = LAMEBUS_SLOT_MEM * LAMEBUS_CONTROLLER_SLOT
 				+ 32768
@@ -279,7 +279,7 @@ set_cpue(u_int32_t val)
 				+ LBC_CRAM_END;
 
 			stackva = cpu_get_secondary_start_stack(cramoffset);
-			cram = (u_int32_t *)cpu->cpu_cram;
+			cram = (uint32_t *)cpu->cpu_cram;
 			pcva = ntohl(cram[0]);
 			arg = ntohl(cram[1]);
 
@@ -308,10 +308,10 @@ set_cpue(u_int32_t val)
 static
 inline
 void
-lamebus_controller_region(u_int32_t offset,
-			  u_int32_t *region_ret, u_int32_t *regionoffset_ret)
+lamebus_controller_region(uint32_t offset,
+			  uint32_t *region_ret, uint32_t *regionoffset_ret)
 {
-	u_int32_t region, regionoffset;
+	uint32_t region, regionoffset;
 
 	region = offset / LAMEBUS_CONFIG_SIZE;
 	regionoffset = offset % LAMEBUS_CONFIG_SIZE;
@@ -324,10 +324,10 @@ lamebus_controller_region(u_int32_t offset,
 
 static
 int
-lamebus_controller_fetch_cpu(u_int32_t offset, u_int32_t *ret)
+lamebus_controller_fetch_cpu(uint32_t offset, uint32_t *ret)
 {
-	u_int32_t region;
-	u_int32_t *ptr;
+	uint32_t region;
+	uint32_t *ptr;
 	struct lamebus_cpu *cpu;
 
 	lamebus_controller_region(offset, &region, &offset);
@@ -338,7 +338,7 @@ lamebus_controller_fetch_cpu(u_int32_t offset, u_int32_t *ret)
 
 	if (offset >= LBC_CRAM_START && offset < LBC_CRAM_END) {
 		offset -= LBC_CRAM_START;
-		ptr = (u_int32_t *)(cpu->cpu_cram + offset);
+		ptr = (uint32_t *)(cpu->cpu_cram + offset);
 		*ret = ntohl(*ptr);
 		return 0;
 	}
@@ -357,10 +357,10 @@ lamebus_controller_fetch_cpu(u_int32_t offset, u_int32_t *ret)
 
 static
 int
-lamebus_controller_store_cpu(u_int32_t offset, u_int32_t val)
+lamebus_controller_store_cpu(uint32_t offset, uint32_t val)
 {
-	u_int32_t region;
-	u_int32_t *ptr;
+	uint32_t region;
+	uint32_t *ptr;
 	struct lamebus_cpu *cpu;
 
 	lamebus_controller_region(offset, &region, &offset);
@@ -371,7 +371,7 @@ lamebus_controller_store_cpu(u_int32_t offset, u_int32_t val)
 
 	if (offset >= LBC_CRAM_START && offset < LBC_CRAM_END) {
 		offset -= LBC_CRAM_START;
-		ptr = (u_int32_t *)(cpu->cpu_cram + offset);
+		ptr = (uint32_t *)(cpu->cpu_cram + offset);
 		*ptr = htonl(val);
 		return 0;
 	}
@@ -393,10 +393,10 @@ lamebus_controller_store_cpu(u_int32_t offset, u_int32_t val)
 static
 int
 lamebus_controller_fetch_config(unsigned cpunum,
-				int isold, u_int32_t offset, u_int32_t *ret)
+				int isold, uint32_t offset, uint32_t *ret)
 {
 	const struct lamebus_device_info *inf;
-	u_int32_t region;
+	uint32_t region;
 
 	lamebus_controller_region(offset, &region, &offset);
 	inf = devices[region].ls_info;
@@ -445,7 +445,7 @@ lamebus_controller_fetch_config(unsigned cpunum,
 			*ret = 0xffffffff;
 		}
 		else {
-			*ret = ((u_int32_t)1 << ncpus) - 1;
+			*ret = ((uint32_t)1 << ncpus) - 1;
 		}
 		return 0;
 	    case LBC_CTL_CPUE:
@@ -458,7 +458,7 @@ lamebus_controller_fetch_config(unsigned cpunum,
 		if (isold) {
 			return -1;
 		}
-		*ret = (u_int32_t)1 << cpunum;
+		*ret = (uint32_t)1 << cpunum;
 		return 0;
 	}
 
@@ -468,9 +468,9 @@ lamebus_controller_fetch_config(unsigned cpunum,
 
 static
 int
-lamebus_controller_store_config(int isold, u_int32_t offset, u_int32_t val)
+lamebus_controller_store_config(int isold, uint32_t offset, uint32_t val)
 {
-	u_int32_t region;
+	uint32_t region;
 
 	lamebus_controller_region(offset, &region, &offset);
 	if (region != LAMEBUS_CONTROLLER_SLOT) {
@@ -510,7 +510,7 @@ lamebus_controller_store_config(int isold, u_int32_t offset, u_int32_t val)
 static
 int
 lamebus_controller_fetch(unsigned cpunum,
-			 void *data, u_int32_t offset, u_int32_t *ret)
+			 void *data, uint32_t offset, uint32_t *ret)
 {
 	int isold = (data != NULL);
 
@@ -529,7 +529,7 @@ lamebus_controller_fetch(unsigned cpunum,
 static
 int
 lamebus_controller_store(unsigned cpunum,
-			 void *data, u_int32_t offset, u_int32_t val)
+			 void *data, uint32_t offset, uint32_t val)
 {
 	int isold = (data != NULL);
 

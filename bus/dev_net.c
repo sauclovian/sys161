@@ -45,10 +45,10 @@ struct net_data {
 	
 	int nd_lostcarrier;
 
-	u_int32_t nd_rirq;
-	u_int32_t nd_wirq;
-	u_int32_t nd_control;
-	u_int32_t nd_status;
+	uint32_t nd_rirq;
+	uint32_t nd_wirq;
+	uint32_t nd_control;
+	uint32_t nd_status;
 
 	/* These used to be nd_{r,w}buf[NET_BUFSIZE]; see dev_disk.c */
 	char *nd_rbuf;
@@ -68,13 +68,13 @@ struct net_data {
 #define NDS_HWADDR       0x0000ffff
 #define NDS_ZERO         0xffff0000
 
-#define ND_STATUS(hw, c) (((c)?0x80000000:0) | ((u_int32_t)(hw)&0xffff))
+#define ND_STATUS(hw, c) (((c)?0x80000000:0) | ((uint32_t)(hw)&0xffff))
 
 struct linkheader {
-	u_int16_t lh_frame;
-	u_int16_t lh_from;
-	u_int16_t lh_packetlen;
-	u_int16_t lh_to;
+	uint16_t lh_frame;
+	uint16_t lh_from;
+	uint16_t lh_packetlen;
+	uint16_t lh_to;
 };
 
 ////////////////////////////////////////////////////////////
@@ -113,7 +113,7 @@ writedone(struct net_data *nd)
 
 static
 void
-keepalive(void *data, u_int32_t junk)
+keepalive(void *data, uint32_t junk)
 {
 	struct linkheader lh;
 	struct net_data *nd = data;
@@ -169,7 +169,7 @@ void
 dosend(struct net_data *nd)
 {
 	struct linkheader *lh = (struct linkheader *)nd->nd_wbuf;
-	u_int32_t len;
+	uint32_t len;
 	int r;
 
 	len = ntohs(lh->lh_packetlen);
@@ -249,7 +249,7 @@ dorecv(void *data)
 		return 0;
 	}
 
-	if (ntohs(lh->lh_to) != (u_int16_t)(nd->nd_status & NDS_HWADDR) &&
+	if (ntohs(lh->lh_to) != (uint16_t)(nd->nd_status & NDS_HWADDR) &&
 	    ntohs(lh->lh_to) != BROADCAST_ADDR && 
 	    (nd->nd_control & NDC_PROMISC)==0) {
 		HWTRACE(DOTRACE_NET, "nic: slot %d: packet not for us", 
@@ -289,7 +289,7 @@ dorecv(void *data)
 
 static
 void
-setirq(struct net_data *nd, u_int32_t val, int isread)
+setirq(struct net_data *nd, uint32_t val, int isread)
 {
 	if ((val & NDI_ZERO) != 0) {
 		hang("Illegal network interrupt register write");
@@ -307,7 +307,7 @@ setirq(struct net_data *nd, u_int32_t val, int isread)
 
 static
 void
-triggersend(void *n, u_int32_t code)
+triggersend(void *n, uint32_t code)
 {
 	struct net_data *nd = n;
 
@@ -319,7 +319,7 @@ triggersend(void *n, u_int32_t code)
 
 static
 void
-setctl(struct net_data *nd, u_int32_t val)
+setctl(struct net_data *nd, uint32_t val)
 {
 	if ((val & NDC_ZERO) != 0) {
 		hang("Illegal network control register write");
@@ -349,7 +349,7 @@ setctl(struct net_data *nd, u_int32_t val)
 
 static
 int
-net_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
+net_fetch(unsigned cpunum, void *d, uint32_t offset, uint32_t *val)
 {
 	struct net_data *nd = d;
 
@@ -357,12 +357,12 @@ net_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
 
 	if (offset >= NET_READBUF && offset < NET_READBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_rbuf[offset - NET_READBUF];
-		*val = ntohl(*(u_int32_t *)ptr);
+		*val = ntohl(*(uint32_t *)ptr);
 		return 0;
 	}
 	else if (offset >= NET_WRITEBUF && offset < NET_WRITEBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_wbuf[offset - NET_WRITEBUF];
-		*val = ntohl(*(u_int32_t *)ptr);
+		*val = ntohl(*(uint32_t *)ptr);
 		return 0;
 	}
 	switch (offset) {
@@ -376,7 +376,7 @@ net_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
 
 static
 int
-net_store(unsigned cpunum, void *d, u_int32_t offset, u_int32_t val)
+net_store(unsigned cpunum, void *d, uint32_t offset, uint32_t val)
 {
 	struct net_data *nd = d;
 
@@ -384,12 +384,12 @@ net_store(unsigned cpunum, void *d, u_int32_t offset, u_int32_t val)
 
 	if (offset >= NET_READBUF && offset < NET_READBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_rbuf[offset - NET_READBUF];
-		*(u_int32_t *)ptr = htonl(val);
+		*(uint32_t *)ptr = htonl(val);
 		return 0;
 	}
 	else if (offset >= NET_WRITEBUF && offset < NET_WRITEBUF+NET_BUFSIZE) {
 		char *ptr = &nd->nd_wbuf[offset - NET_WRITEBUF];
-		*(u_int32_t *)ptr = htonl(val);
+		*(uint32_t *)ptr = htonl(val);
 		return 0;
 	}
 	switch (offset) {
@@ -424,7 +424,7 @@ net_init(int slot, int argc, char *argv[])
 {
 	struct net_data *nd = domalloc(sizeof(struct net_data));
 	const char *hubname = ".sockets/hub";
-	u_int16_t hwaddr = HUB_ADDR;
+	uint16_t hwaddr = HUB_ADDR;
 	char cwd[PATH_MAX];
 	int len;
 

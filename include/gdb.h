@@ -16,7 +16,7 @@ void gdb_dontwait(void);
 void gdb_startbreak(void);
 
 /* Call to find out if debugging on this address is available */
-int gdb_canhandle(u_int32_t pcaddr);
+int gdb_canhandle(uint32_t pcaddr);
 
 /* Call for diagnostic purposes. */
 void gdb_dumpstate(void);

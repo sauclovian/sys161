@@ -1,9 +1,10 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/stat.h> // for mkdir()
-#include <unistd.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "config.h"
 
 #include "util.h"
@@ -182,10 +183,10 @@ initstats(unsigned ncpus)
 }
 
 static
-u_int64_t
+uint64_t
 showstats(void)
 {
-	u_int64_t totcycles;
+	uint64_t totcycles;
 	unsigned i;
 
 	totcycles = g_stats.s_tot_rcycles + g_stats.s_tot_icycles;
@@ -243,7 +244,7 @@ void
 run(void)
 {
 	struct timeval starttime, endtime;
-	u_int64_t totcycles;
+	uint64_t totcycles;
 	double time;
 
 	gettimeofday(&starttime, NULL);
@@ -390,11 +391,11 @@ main(int argc, char *argv[])
 	/* This must come absolutely first so msg() can be used. */
 	console_earlyinit();
 	
-	if (sizeof(u_int32_t)!=4) {
+	if (sizeof(uint32_t)!=4) {
 		/*
 		 * Just in case.
 		 */
-		msg("sys161 requires sizeof(u_int32_t)==4");
+		msg("sys161 requires sizeof(uint32_t)==4");
 		die();
 	}
 

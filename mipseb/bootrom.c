@@ -13,7 +13,7 @@
  * summons a debugger for you.
  */
 #define ROMWORDS 1024
-static const u_int32_t fakerom[ROMWORDS] = {
+static const uint32_t fakerom[ROMWORDS] = {
 	/* 0 is nop */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0x000 */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* 0x010 */
@@ -83,9 +83,9 @@ static const u_int32_t fakerom[ROMWORDS] = {
 };
 
 int
-bootrom_fetch(u_int32_t offset, u_int32_t *val)
+bootrom_fetch(uint32_t offset, uint32_t *val)
 {
-	if (offset >= ROMWORDS * sizeof(u_int32_t)) {
+	if (offset >= ROMWORDS * sizeof(uint32_t)) {
 		return -1;
 	}
 
@@ -95,17 +95,17 @@ bootrom_fetch(u_int32_t offset, u_int32_t *val)
 	 * as target endianness.
 	 */
 
-	*val = ntohl(fakerom[offset/sizeof(u_int32_t)]);
+	*val = ntohl(fakerom[offset/sizeof(uint32_t)]);
 
 	return 0;
 }
 
-const u_int32_t *
-bootrom_map(u_int32_t offset)
+const uint32_t *
+bootrom_map(uint32_t offset)
 {
-	if (offset >= ROMWORDS * sizeof(u_int32_t)) {
+	if (offset >= ROMWORDS * sizeof(uint32_t)) {
 		return NULL;
 	}
 
-	return &fakerom[offset/sizeof(u_int32_t)];
+	return &fakerom[offset/sizeof(uint32_t)];
 }

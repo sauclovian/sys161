@@ -1,12 +1,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <termios.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <errno.h>
+#include <stdint.h>
 #include <stdarg.h>
-#include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <termios.h>
 #include <signal.h>
 #include "config.h"
 

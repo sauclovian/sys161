@@ -286,9 +286,9 @@ struct mipstlb {
 	int mt_valid;		// 1: translation is valid for use
 	int mt_dirty;		// 1: write enable
 	int mt_nocache;		// 1: cache disable
-	u_int32_t mt_pfn;	// page number part of physical address
-	u_int32_t mt_vpn;	// page number part of virtual address
-	u_int32_t mt_pid;	// address space id
+	uint32_t mt_pfn;	// page number part of physical address
+	uint32_t mt_vpn;	// page number part of virtual address
+	uint32_t mt_pid;	// address space id
 };
 
 /* possible states for a cpu */
@@ -327,20 +327,20 @@ struct mipscpu {
 	// instruction alters nextpc. expc points to the instruction
 	// being executed (unless it's in the delay slot of a jump).
 
-	u_int32_t expc;         // pc for exception (not incr. while jumping)
+	uint32_t expc;         // pc for exception (not incr. while jumping)
 	
-	u_int32_t pc;           // pc
-	u_int32_t nextpc;       // succeeding pc
-	u_int32_t pcoff;	// page offset of pc
-	u_int32_t nextpcoff;	// page offset of nextpc
-	const u_int32_t *pcpage;	// precomputed memory page of pc
-	const u_int32_t *nextpcpage;	// precomputed memory page of nextpc
+	uint32_t pc;           // pc
+	uint32_t nextpc;       // succeeding pc
+	uint32_t pcoff;	// page offset of pc
+	uint32_t nextpcoff;	// page offset of nextpc
+	const uint32_t *pcpage;	// precomputed memory page of pc
+	const uint32_t *nextpcpage;	// precomputed memory page of nextpc
 
 	// mmu
 	struct mipstlb tlb[NTLB];
 	struct mipstlb tlbentry;	// cop0 register 2 (lo) and 10 (hi)
 #ifdef USE_TLBMAP
-	u_int8_t tlbmap[1024*1024];	// vpn -> tlbentry map
+	uint8_t tlbmap[1024*1024];	// vpn -> tlbentry map
 #endif
 
 	/*
@@ -378,9 +378,9 @@ struct mipscpu {
 	 * cause register (cop0 register 13)
 	 */
 	int cause_bd;			// NOT shifted
-	u_int32_t cause_ce;		// already shifted
-	u_int32_t cause_softirq;	// already shifted
-	u_int32_t cause_code;		// already shifted
+	uint32_t cause_ce;		// already shifted
+	uint32_t cause_softirq;	// already shifted
+	uint32_t cause_code;		// already shifted
 
 	/*
 	 * config registers
@@ -397,14 +397,14 @@ struct mipscpu {
 	/*
 	 * other cop0 registers
 	 */
-	u_int32_t ex_context;	// cop0 register 4
-	u_int32_t ex_epc;	// cop0 register 14
-	u_int32_t ex_vaddr;	// cop0 register 8
-	u_int32_t ex_prid;	// cop0 register 15
-	u_int32_t ex_cfeat;	// cop0 register 15 sel 1
-	u_int32_t ex_ifeat;	// cop0 register 15 sel 2
-	u_int32_t ex_count;	// cop0 register 9
-	u_int32_t ex_compare;	// cop0 register 11
+	uint32_t ex_context;	// cop0 register 4
+	uint32_t ex_epc;	// cop0 register 14
+	uint32_t ex_vaddr;	// cop0 register 8
+	uint32_t ex_prid;	// cop0 register 15
+	uint32_t ex_cfeat;	// cop0 register 15 sel 1
+	uint32_t ex_ifeat;	// cop0 register 15 sel 2
+	uint32_t ex_count;	// cop0 register 9
+	uint32_t ex_compare;	// cop0 register 11
 	int ex_compare_used;	// timer irq disabled if not set
 
 	/*
@@ -418,8 +418,8 @@ struct mipscpu {
 	 * LL/SC hooks
 	 */
 	int ll_active;
-	u_int32_t ll_addr;
-	u_int32_t ll_value;
+	uint32_t ll_addr;
+	uint32_t ll_value;
 
 	/*
 	 * debugger hooks
@@ -435,10 +435,10 @@ static unsigned ncpus;
 /*
  * Hold cpu->state == CPU_RUNNING across all cpus, for rapid testing.
  */
-u_int32_t cpu_running_mask;
+uint32_t cpu_running_mask;
 
-#define RUNNING_MASK_OFF(cn) (cpu_running_mask &= ~((u_int32_t)1 << (cn)))
-#define RUNNING_MASK_ON(cn)  (cpu_running_mask |= (u_int32_t)1 << (cn))
+#define RUNNING_MASK_OFF(cn) (cpu_running_mask &= ~((uint32_t)1 << (cn)))
+#define RUNNING_MASK_ON(cn)  (cpu_running_mask |= (uint32_t)1 << (cn))
 
 /*
  * Number of cycles into cpu_cycles().
@@ -614,10 +614,10 @@ mips_init(struct mipscpu *cpu, unsigned cpunum)
 }
 
 static
-u_int32_t
+uint32_t
 tlbgetlo(const struct mipstlb *mt)
 {
-	u_int32_t val = mt->mt_pfn;
+	uint32_t val = mt->mt_pfn;
 	if (mt->mt_global) {
 		val |= TLBLO_GLOBAL;
 	}
@@ -634,17 +634,17 @@ tlbgetlo(const struct mipstlb *mt)
 }
 
 static
-u_int32_t
+uint32_t
 tlbgethi(const struct mipstlb *mt)
 {
-	u_int32_t val = mt->mt_vpn;
+	uint32_t val = mt->mt_vpn;
 	val |= (mt->mt_pid << 6);
 	return val;
 }
 
 static
 void
-tlbsetlo(struct mipstlb *mt, u_int32_t val)
+tlbsetlo(struct mipstlb *mt, uint32_t val)
 {
 	mt->mt_global = val & TLBLO_GLOBAL;
 	mt->mt_valid = val & TLBLO_VALID;
@@ -655,7 +655,7 @@ tlbsetlo(struct mipstlb *mt, u_int32_t val)
 
 static
 void
-tlbsethi(struct mipstlb *mt, u_int32_t val)
+tlbsethi(struct mipstlb *mt, uint32_t val)
 {
 	mt->mt_vpn = val & TLB_PAGEFRAME;
 	mt->mt_pid = (val & TLBHI_PID) >> 6;
@@ -707,7 +707,7 @@ static
 void
 check_tlb_dups(struct mipscpu *cpu, int newix)
 {
-	u_int32_t vpn, pid;
+	uint32_t vpn, pid;
 	int gbl, i;
 
 	vpn = cpu->tlb[newix].mt_vpn;
@@ -746,10 +746,10 @@ check_tlb_dups(struct mipscpu *cpu, int newix)
 static
 inline
 int
-findtlb(const struct mipscpu *cpu, u_int32_t vpage)
+findtlb(const struct mipscpu *cpu, uint32_t vpage)
 {
 #ifdef USE_TLBMAP
-	u_int8_t tm;
+	uint8_t tm;
 
 	tm = cpu->tlbmap[vpage >> 12];
 	if (tm == TM_NOPAGE) {
@@ -774,7 +774,7 @@ static
 void
 probetlb(struct mipscpu *cpu)
 {
-	u_int32_t vpage;
+	uint32_t vpage;
 	int ix;
 
 	vpage = cpu->tlbentry.mt_vpn;
@@ -842,7 +842,7 @@ static
 void
 do_rfe(struct mipscpu *cpu)
 {
-	//u_int32_t bits;
+	//uint32_t bits;
 
 	if (IS_USERMODE(cpu)) {
 		smoke("RFE in usermode not caught by instruction decoder");
@@ -906,9 +906,9 @@ phony_exception(struct mipscpu *cpu)
 
 static
 void
-exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
+exception(struct mipscpu *cpu, int code, int cn_or_user, uint32_t vaddr)
 {
-	//u_int32_t bits;
+	//uint32_t bits;
 	int boot = (cpu->status_bootvectors) != 0;
 
 	CPUTRACE(DOTRACE_EXN, cpu->cpunum,
@@ -924,7 +924,7 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 
 	cpu->cause_bd = cpu->in_jumpdelay;
 	if (code==EX_CPU) {
-		cpu->cause_ce = ((u_int32_t)cn_or_user << 28);
+		cpu->cause_ce = ((uint32_t)cn_or_user << 28);
 	}
 	else {
 		cpu->cause_ce = 0;
@@ -975,10 +975,10 @@ exception(struct mipscpu *cpu, int code, int cn_or_user, u_int32_t vaddr)
 static
 inline
 int
-translatemem(struct mipscpu *cpu, u_int32_t vaddr, int iswrite, u_int32_t *ret)
+translatemem(struct mipscpu *cpu, uint32_t vaddr, int iswrite, uint32_t *ret)
 {
-	u_int32_t seg;
-	u_int32_t paddr;
+	uint32_t seg;
+	uint32_t paddr;
 
 	// MIPS hardwired memory layout:
 	//    0xc0000000 - 0xffffffff   kseg2 (kernel, tlb-mapped)
@@ -1009,9 +1009,9 @@ translatemem(struct mipscpu *cpu, u_int32_t vaddr, int iswrite, u_int32_t *ret)
 		paddr = vaddr & 0x1fffffff;
 	}
 	else {
-		u_int32_t vpage;
-		u_int32_t off;
-		u_int32_t ppage;
+		uint32_t vpage;
+		uint32_t off;
+		uint32_t ppage;
 		int ix;
 
 		vpage = vaddr & 0xfffff000;
@@ -1065,10 +1065,10 @@ translatemem(struct mipscpu *cpu, u_int32_t vaddr, int iswrite, u_int32_t *ret)
 static
 inline
 int
-debug_translatemem(const struct mipscpu *cpu, u_int32_t vaddr, 
-		   int iswrite, u_int32_t *ret)
+debug_translatemem(const struct mipscpu *cpu, uint32_t vaddr, 
+		   int iswrite, uint32_t *ret)
 {
-	u_int32_t paddr;
+	uint32_t paddr;
 
 	if ((vaddr & 0x3)!=0) {
 		return -1;
@@ -1078,9 +1078,9 @@ debug_translatemem(const struct mipscpu *cpu, u_int32_t vaddr,
 		paddr = vaddr & 0x1fffffff;
 	}
 	else {
-		u_int32_t vpage;
-		u_int32_t off;
-		u_int32_t ppage;
+		uint32_t vpage;
+		uint32_t off;
+		uint32_t ppage;
 		int ix;
 
 		vpage = vaddr & 0xfffff000;
@@ -1120,7 +1120,7 @@ debug_translatemem(const struct mipscpu *cpu, u_int32_t vaddr,
 static
 inline
 int
-accessmem(struct mipscpu *cpu, u_int32_t paddr, int iswrite, u_int32_t *val)
+accessmem(struct mipscpu *cpu, uint32_t paddr, int iswrite, uint32_t *val)
 {
 	int buserr;
 
@@ -1183,8 +1183,8 @@ accessmem(struct mipscpu *cpu, u_int32_t paddr, int iswrite, u_int32_t *val)
  */
 static
 inline
-const u_int32_t *
-mapmem(u_int32_t paddr)
+const uint32_t *
+mapmem(uint32_t paddr)
 {
 	/*
 	 * Physical memory layout: 
@@ -1221,10 +1221,10 @@ mapmem(u_int32_t paddr)
  */
 static
 int
-domem(struct mipscpu *cpu, u_int32_t vaddr, u_int32_t *val, 
+domem(struct mipscpu *cpu, uint32_t vaddr, uint32_t *val, 
       int iswrite, int willbewrite)
 {
-	u_int32_t paddr;
+	uint32_t paddr;
 	
 	if (translatemem(cpu, vaddr, willbewrite, &paddr)) {
 		return -1;
@@ -1237,7 +1237,7 @@ static
 int
 precompute_pc(struct mipscpu *cpu)
 {
-	u_int32_t physpc;
+	uint32_t physpc;
 	if (translatemem(cpu, cpu->pc, 0, &physpc)) {
 		return -1;
 	}
@@ -1257,7 +1257,7 @@ static
 int
 precompute_nextpc(struct mipscpu *cpu)
 {
-	u_int32_t physnext;
+	uint32_t physnext;
 	if (translatemem(cpu, cpu->nextpc, 0, &physnext)) {
 		return -1;
 	}
@@ -1285,14 +1285,14 @@ typedef enum {
 
 static
 void
-doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
+doload(struct mipscpu *cpu, memstyles ms, uint32_t addr, uint32_t *res)
 {
 	switch (ms) {
 	    case S_SBYTE:
 	    case S_UBYTE:
 	    {
-		u_int32_t val;
-		u_int8_t bval = 0;
+		uint32_t val;
+		uint8_t bval = 0;
 		if (domem(cpu, addr & 0xfffffffc, &val, 0, 0)) return;
 		switch (addr & 3) {
 			case 0: bval = (val & 0xff000000)>>24; break;
@@ -1308,8 +1308,8 @@ doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
 	    case S_SHALF:
 	    case S_UHALF:
 	    {
-		u_int32_t val;
-		u_int16_t hval = 0;
+		uint32_t val;
+		uint16_t hval = 0;
 		if (domem(cpu, addr & 0xfffffffd, &val, 0, 0)) return;
 		switch (addr & 2) {
 			case 0: hval = (val & 0xffff0000)>>16; break;
@@ -1322,8 +1322,8 @@ doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
      
 	    case S_WORDL:
 	    {
-		u_int32_t val;
-		u_int32_t mask = 0;
+		uint32_t val;
+		uint32_t mask = 0;
 		int shift = 0;
 		if (domem(cpu, addr & 0xfffffffc, &val, 0, 0)) return;
 		switch (addr & 0x3) {
@@ -1338,8 +1338,8 @@ doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
 	    break;
 	    case S_WORDR:
 	    {
-		u_int32_t val;
-		u_int32_t mask = 0;
+		uint32_t val;
+		uint32_t mask = 0;
 		int shift = 0;
 		if (domem(cpu, addr & 0xfffffffc, &val, 0, 0)) return;
 		switch (addr & 0x3) {
@@ -1359,13 +1359,13 @@ doload(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t *res)
 
 static
 void
-dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
+dostore(struct mipscpu *cpu, memstyles ms, uint32_t addr, uint32_t val)
 {
 	switch (ms) {
 	    case S_UBYTE:
 	    {
-		u_int32_t wval;
-		u_int32_t mask = 0;
+		uint32_t wval;
+		uint32_t mask = 0;
 		int shift = 0;
 		switch (addr & 3) {
 		    case 0: mask = 0xff000000; shift=24; break;
@@ -1381,8 +1381,8 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 
 	    case S_UHALF:
 	    {
-		u_int32_t wval;
-		u_int32_t mask = 0;
+		uint32_t wval;
+		uint32_t mask = 0;
 		int shift = 0;
 		switch (addr & 2) {
 			case 0: mask = 0xffff0000; shift=16; break;
@@ -1396,8 +1396,8 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 	
 	    case S_WORDL:
 	    {
-		u_int32_t wval;
-		u_int32_t mask = 0;
+		uint32_t wval;
+		uint32_t mask = 0;
 		int shift = 0;
 		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 1)) return;
 		switch (addr & 0x3) {
@@ -1414,8 +1414,8 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 	    break;
 	    case S_WORDR:
 	    {
-		u_int32_t wval;
-		u_int32_t mask = 0;
+		uint32_t wval;
+		uint32_t mask = 0;
 		int shift = 0;
 		if (domem(cpu, addr & 0xfffffffc, &wval, 0, 1)) return;
 		switch (addr & 0x3) {
@@ -1438,7 +1438,7 @@ dostore(struct mipscpu *cpu, memstyles ms, u_int32_t addr, u_int32_t val)
 
 static 
 void
-abranch(struct mipscpu *cpu, u_int32_t addr)
+abranch(struct mipscpu *cpu, uint32_t addr)
 {
 	CPUTRACE(DOTRACE_JUMP, cpu->cpunum, 
 		 "jump: %x -> %x", cpu->nextpc-8, addr);
@@ -1473,7 +1473,7 @@ abranch(struct mipscpu *cpu, u_int32_t addr)
 
 static
 void
-ibranch(struct mipscpu *cpu, u_int32_t imm)
+ibranch(struct mipscpu *cpu, uint32_t imm)
 {
 	// The mips book is helpfully not specific about whether the
 	// address to take the upper bits of is the address of the
@@ -1486,7 +1486,7 @@ ibranch(struct mipscpu *cpu, u_int32_t imm)
 	// (Note that cpu->pc aims at the delay slot by the time we
 	// get here.)
    
-	u_int32_t addr = (cpu->pc & 0xf0000000) | imm;
+	uint32_t addr = (cpu->pc & 0xf0000000) | imm;
 	abranch(cpu, addr);
 }
 
@@ -1494,7 +1494,7 @@ static
 void
 rbranch(struct mipscpu *cpu, int32_t rel)
 {
-	u_int32_t addr = cpu->pc + rel;  // relative to addr of delay slot
+	uint32_t addr = cpu->pc + rel;  // relative to addr of delay slot
 	abranch(cpu, addr);
 }
 
@@ -1574,10 +1574,10 @@ setstatus(struct mipscpu *cpu, uint32_t val)
 
 
 static
-u_int32_t
+uint32_t
 getcause(struct mipscpu *cpu)
 {
-	u_int32_t val;
+	uint32_t val;
 	val = cpu->cause_ce | cpu->cause_softirq | cpu->cause_code;
 
 	if (cpu->cause_bd) {
@@ -1599,17 +1599,17 @@ getcause(struct mipscpu *cpu)
 
 static
 void
-setcause(struct mipscpu *cpu, u_int32_t val)
+setcause(struct mipscpu *cpu, uint32_t val)
 {
 	/* c0_cause is read-only except for the soft irq bits */
 	cpu->cause_softirq = val & CAUSE_SOFTIRQ;
 }
 
 static
-u_int32_t
+uint32_t
 getindex(struct mipscpu *cpu)
 {
-	u_int32_t val = cpu->tlbindex << 8;
+	uint32_t val = cpu->tlbindex << 8;
 	if (cpu->tlbpf) {
 		val |= 0x80000000;
 	}
@@ -1618,14 +1618,14 @@ getindex(struct mipscpu *cpu)
 
 static
 void
-setindex(struct mipscpu *cpu, u_int32_t val)
+setindex(struct mipscpu *cpu, uint32_t val)
 {
 	cpu->tlbindex = (val >> 8) & 63;
 	cpu->tlbpf = val & 0x80000000;
 }
 
 static
-u_int32_t
+uint32_t
 getrandom(struct mipscpu *cpu)
 {
 	cpu->tlbrandom %= RANDREG_MAX;
@@ -1695,9 +1695,9 @@ static int tracehow;		// how to trace the current instruction
 #define RDs  ((int32_t)RDx)
 
 /* registers as unsigned 32-bit rvalues */
-#define RTu  ((u_int32_t)RTx)
-#define RSu  ((u_int32_t)RSx)
-#define RDu  ((u_int32_t)RDx)
+#define RTu  ((uint32_t)RTx)
+#define RSu  ((uint32_t)RSx)
+#define RDu  ((uint32_t)RDx)
 
 /* registers as printf-able signed values */
 #define RTsp  ((long)RTs)
@@ -1723,17 +1723,17 @@ static int tracehow;		// how to trace the current instruction
 #define TRL(...)  CPUTRACEL(tracehow, cpu->cpunum, __VA_ARGS__)
 #define TR(...)   CPUTRACE(tracehow, cpu->cpunum, __VA_ARGS__)
 
-#define NEEDRS	 u_int32_t rs = (insn & 0x03e00000) >> 21	// register
-#define NEEDRT	 u_int32_t rt = (insn & 0x001f0000) >> 16	// register
-#define NEEDRD	 u_int32_t rd = (insn & 0x0000f800) >> 11	// register
-#define NEEDTARG u_int32_t targ=(insn & 0x03ffffff)           // target of jump
-#define NEEDSH	 u_int32_t sh = (insn & 0x000007c0) >> 6	// shift count
-#define NEEDCN	 u_int32_t cn = (insn & 0x0c000000) >> 26	// coproc. no.
-#define NEEDSEL	 u_int32_t sel= (insn & 0x00000007)	     // register select
-#define NEEDIMM	 u_int32_t imm= (insn & 0x0000ffff)	     // immediate value
+#define NEEDRS	 uint32_t rs = (insn & 0x03e00000) >> 21	// register
+#define NEEDRT	 uint32_t rt = (insn & 0x001f0000) >> 16	// register
+#define NEEDRD	 uint32_t rd = (insn & 0x0000f800) >> 11	// register
+#define NEEDTARG uint32_t targ=(insn & 0x03ffffff)           // target of jump
+#define NEEDSH	 uint32_t sh = (insn & 0x000007c0) >> 6	// shift count
+#define NEEDCN	 uint32_t cn = (insn & 0x0c000000) >> 26	// coproc. no.
+#define NEEDSEL	 uint32_t sel= (insn & 0x00000007)	     // register select
+#define NEEDIMM	 uint32_t imm= (insn & 0x0000ffff)	     // immediate value
 #define NEEDSMM	 NEEDIMM; int32_t smm = (int32_t)(int16_t)imm 
 					       // sign-extended immediate value
-#define NEEDADDR NEEDRS; NEEDSMM; u_int32_t addr = RSu + (u_int32_t)smm
+#define NEEDADDR NEEDRS; NEEDSMM; uint32_t addr = RSu + (uint32_t)smm
                                                      // register+offset address
 
 
@@ -1841,7 +1841,7 @@ domt(struct mipscpu *cpu, int cn, int reg, int sel, int32_t greg)
 
 static
 void
-dolwc(struct mipscpu *cpu, int cn, u_int32_t addr, int reg)
+dolwc(struct mipscpu *cpu, int cn, uint32_t addr, int reg)
 {
 	(void)addr;
 	(void)reg;
@@ -1850,7 +1850,7 @@ dolwc(struct mipscpu *cpu, int cn, u_int32_t addr, int reg)
 
 static
 void
-doswc(struct mipscpu *cpu, int cn, u_int32_t addr, int reg)
+doswc(struct mipscpu *cpu, int cn, uint32_t addr, int reg)
 {
 	(void)addr;
 	(void)reg;
@@ -1860,7 +1860,7 @@ doswc(struct mipscpu *cpu, int cn, u_int32_t addr, int reg)
 static
 inline
 void
-mx_add(struct mipscpu *cpu, u_int32_t insn)
+mx_add(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	int64_t t64;
@@ -1876,7 +1876,7 @@ mx_add(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_addi(struct mipscpu *cpu, u_int32_t insn)
+mx_addi(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
 	int64_t t64;
@@ -1892,14 +1892,14 @@ mx_addi(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_addiu(struct mipscpu *cpu, u_int32_t insn)
+mx_addiu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDRS; NEEDSMM;
 	TRL("addiu %s, %s, %lu: %ld + %ld -> ", 
 	    regname(rt), regname(rs), (unsigned long)imm, RSsp, (long)smm);
 
 	/* must add as unsigned, or overflow behavior is not defined */
-	RTx = RSu + (u_int32_t)smm;
+	RTx = RSu + (uint32_t)smm;
 
 	TR("%ld", RTsp);
 }
@@ -1907,7 +1907,7 @@ mx_addiu(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_addu(struct mipscpu *cpu, u_int32_t insn)
+mx_addu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("addu %s, %s, %s: %ld + %ld -> ",
@@ -1919,7 +1919,7 @@ mx_addu(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_and(struct mipscpu *cpu, u_int32_t insn)
+mx_and(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("and %s, %s, %s: 0x%lx & 0x%lx -> ", 
@@ -1931,7 +1931,7 @@ mx_and(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_andi(struct mipscpu *cpu, u_int32_t insn)
+mx_andi(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
 	TRL("andi %s, %s, %lu: 0x%lx & 0x%lx -> ", 
@@ -1944,7 +1944,7 @@ mx_andi(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bcf(struct mipscpu *cpu, u_int32_t insn)
+mx_bcf(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDSMM; NEEDCN;
 	(void)smm;
@@ -1955,7 +1955,7 @@ mx_bcf(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bct(struct mipscpu *cpu, u_int32_t insn)
+mx_bct(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDSMM; NEEDCN;
 	(void)smm;
@@ -1966,7 +1966,7 @@ mx_bct(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_beq(struct mipscpu *cpu, u_int32_t insn)
+mx_beq(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDRS; NEEDSMM;
 	TRL("beq %s, %s, %ld: %lu==%lu? ", 
@@ -1983,7 +1983,7 @@ mx_beq(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bgezal(struct mipscpu *cpu, u_int32_t insn)
+mx_bgezal(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDSMM;
 	TRL("bgezal %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp);
@@ -2000,7 +2000,7 @@ mx_bgezal(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bgez(struct mipscpu *cpu, u_int32_t insn)
+mx_bgez(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDSMM;
 	TRL("bgez %s, %ld: %ld>=0? ", regname(rs), (long)smm, RSsp);
@@ -2016,7 +2016,7 @@ mx_bgez(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bltzal(struct mipscpu *cpu, u_int32_t insn)
+mx_bltzal(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDSMM;
 	TRL("bltzal %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp);
@@ -2033,7 +2033,7 @@ mx_bltzal(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bltz(struct mipscpu *cpu, u_int32_t insn)
+mx_bltz(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDSMM;
 	TRL("bltz %s, %ld: %ld<0? ", regname(rs), (long)smm, RSsp);
@@ -2049,7 +2049,7 @@ mx_bltz(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bgtz(struct mipscpu *cpu, u_int32_t insn)
+mx_bgtz(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDSMM;
 	TRL("bgtz %s, %ld: %ld>0? ", regname(rs), (long)smm, RSsp);
@@ -2065,7 +2065,7 @@ mx_bgtz(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_blez(struct mipscpu *cpu, u_int32_t insn)
+mx_blez(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDSMM;
 	TRL("blez %s, %ld: %ld<=0? ", regname(rs), (long)smm, RSsp);
@@ -2081,7 +2081,7 @@ mx_blez(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_bne(struct mipscpu *cpu, u_int32_t insn)
+mx_bne(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
 	TRL("bne %s, %s, %ld: %lu!=%lu? ", 
@@ -2277,7 +2277,7 @@ mx_cache(struct mipscpu *cpu, uint32_t insn)
 static
 inline
 void
-mx_cf(struct mipscpu *cpu, u_int32_t insn)
+mx_cf(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN;
 	(void)rt;
@@ -2289,7 +2289,7 @@ mx_cf(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_ct(struct mipscpu *cpu, u_int32_t insn)
+mx_ct(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN;
 	(void)rt;
@@ -2301,7 +2301,7 @@ mx_ct(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_j(struct mipscpu *cpu, u_int32_t insn)
+mx_j(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDTARG;
 	TR("j 0x%lx", (unsigned long)(targ<<2));
@@ -2311,7 +2311,7 @@ mx_j(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_jal(struct mipscpu *cpu, u_int32_t insn)
+mx_jal(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDTARG;
 	TR("jal 0x%lx", (unsigned long)(targ<<2));
@@ -2325,60 +2325,60 @@ mx_jal(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_lb(struct mipscpu *cpu, u_int32_t insn)
+mx_lb(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("lb %s, %ld(%s): [0x%lx] -> ", 
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	doload(cpu, S_SBYTE, addr, (u_int32_t *) &RTx);
+	doload(cpu, S_SBYTE, addr, (uint32_t *) &RTx);
 	TR("%ld", RTsp);
 }
 
 static
 inline
 void
-mx_lbu(struct mipscpu *cpu, u_int32_t insn)
+mx_lbu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("lbu %s, %ld(%s): [0x%lx] -> ",
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	doload(cpu, S_UBYTE, addr, (u_int32_t *) &RTx);
+	doload(cpu, S_UBYTE, addr, (uint32_t *) &RTx);
 	TR("%ld", RTsp);
 }
 
 static
 inline
 void
-mx_lh(struct mipscpu *cpu, u_int32_t insn)
+mx_lh(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("lh %s, %ld(%s): [0x%lx] -> ", 
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	doload(cpu, S_SHALF, addr, (u_int32_t *) &RTx);
+	doload(cpu, S_SHALF, addr, (uint32_t *) &RTx);
 	TR("%ld", RTsp);
 }
 
 static
 inline
 void
-mx_lhu(struct mipscpu *cpu, u_int32_t insn)
+mx_lhu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("lhu %s, %ld(%s): [0x%lx] -> ", 
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	doload(cpu, S_UHALF, addr, (u_int32_t *) &RTx);
+	doload(cpu, S_UHALF, addr, (uint32_t *) &RTx);
 	TR("%ld", RTsp);
 }
 
 static
 inline
 void
-mx_ll(struct mipscpu *cpu, u_int32_t insn)
+mx_ll(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("ll %s, %ld(%s): [0x%lx] -> ", 
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	if (domem(cpu, addr, (u_int32_t *) &RTx, 0, 0)) {
+	if (domem(cpu, addr, (uint32_t *) &RTx, 0, 0)) {
 		/* exception */
 		return;
 	}
@@ -2396,7 +2396,7 @@ mx_ll(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_lui(struct mipscpu *cpu, u_int32_t insn)
+mx_lui(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDIMM;
 	TR("lui %s, 0x%x", regname(rt), imm);
@@ -2406,19 +2406,19 @@ mx_lui(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_lw(struct mipscpu *cpu, u_int32_t insn)
+mx_lw(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("lw %s, %ld(%s): [0x%lx] -> ", 
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	domem(cpu, addr, (u_int32_t *) &RTx, 0, 0);
+	domem(cpu, addr, (uint32_t *) &RTx, 0, 0);
 	TR("%ld", RTsp);
 }
 
 static
 inline
 void
-mx_lwc(struct mipscpu *cpu, u_int32_t insn)
+mx_lwc(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR; NEEDCN;
 	TR("lwc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs));
@@ -2428,31 +2428,31 @@ mx_lwc(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_lwl(struct mipscpu *cpu, u_int32_t insn)
+mx_lwl(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("lwl %s, %ld(%s): [0x%lx] -> ", 
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	doload(cpu, S_WORDL, addr, (u_int32_t *) &RTx);
+	doload(cpu, S_WORDL, addr, (uint32_t *) &RTx);
 	TR("0x%lx", RTup);
 }
 
 static
 inline
 void
-mx_lwr(struct mipscpu *cpu, u_int32_t insn)
+mx_lwr(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TRL("lwr %s, %ld(%s): [0x%lx] -> ", 
 	    regname(rt), (long)smm, regname(rs), (unsigned long)addr);
-	doload(cpu, S_WORDR, addr, (u_int32_t *) &RTx);
+	doload(cpu, S_WORDR, addr, (uint32_t *) &RTx);
 	TR("0x%lx", RTup);
 }
 
 static
 inline
 void
-mx_sb(struct mipscpu *cpu, u_int32_t insn)
+mx_sb(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TR("sb %s, %ld(%s): %d -> [0x%lx]", 
@@ -2464,9 +2464,9 @@ mx_sb(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sc(struct mipscpu *cpu, u_int32_t insn)
+mx_sc(struct mipscpu *cpu, uint32_t insn)
 {
-	u_int32_t temp;
+	uint32_t temp;
 	NEEDRT; NEEDADDR;
 	TR("sw %s, %ld(%s): %ld -> [0x%lx]", 
 	   regname(rt), (long)smm, regname(rs), RTsp, (unsigned long)addr);
@@ -2532,7 +2532,7 @@ mx_sc(struct mipscpu *cpu, u_int32_t insn)
 	if (temp != cpu->ll_value) {
 		goto fail;
 	}
-	if (domem(cpu, addr, (u_int32_t *) &RTx, 1, 1)) {
+	if (domem(cpu, addr, (uint32_t *) &RTx, 1, 1)) {
 		/* exception */
 		return;
 	}
@@ -2550,7 +2550,7 @@ mx_sc(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sh(struct mipscpu *cpu, u_int32_t insn)
+mx_sh(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TR("sh %s, %ld(%s): %d -> [0x%lx]", 
@@ -2562,18 +2562,18 @@ mx_sh(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sw(struct mipscpu *cpu, u_int32_t insn)
+mx_sw(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TR("sw %s, %ld(%s): %ld -> [0x%lx]", 
 	   regname(rt), (long)smm, regname(rs), RTsp, (unsigned long)addr);
-	domem(cpu, addr, (u_int32_t *) &RTx, 1, 1);
+	domem(cpu, addr, (uint32_t *) &RTx, 1, 1);
 }
 
 static
 inline
 void
-mx_swc(struct mipscpu *cpu, u_int32_t insn)
+mx_swc(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR; NEEDCN;
 	TR("swc%d $%u, %ld(%s)", cn, rt, (long)smm, regname(rs));
@@ -2583,7 +2583,7 @@ mx_swc(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_swl(struct mipscpu *cpu, u_int32_t insn)
+mx_swl(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TR("swl %s, %ld(%s): 0x%lx -> [0x%lx]", 
@@ -2594,7 +2594,7 @@ mx_swl(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_swr(struct mipscpu *cpu, u_int32_t insn)
+mx_swr(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDADDR;
 	TR("swr %s, %ld(%s): 0x%lx -> [0x%lx]", 
@@ -2605,7 +2605,7 @@ mx_swr(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_break(struct mipscpu *cpu, u_int32_t insn)
+mx_break(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("break");
@@ -2615,7 +2615,7 @@ mx_break(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_div(struct mipscpu *cpu, u_int32_t insn)
+mx_div(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT;
 	TRL("div %s %s: %ld / %ld -> ", 
@@ -2655,7 +2655,7 @@ mx_div(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_divu(struct mipscpu *cpu, u_int32_t insn)
+mx_divu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT;
 	TRL("divu %s %s: %lu / %lu -> ", 
@@ -2674,8 +2674,8 @@ mx_divu(struct mipscpu *cpu, u_int32_t insn)
 		cpu->lo=RSu/RTu;
 		cpu->hi=RSu%RTu;
 		TR("%lu, remainder %lu", 
-		   (unsigned long)(u_int32_t)cpu->lo, 
-		   (unsigned long)(u_int32_t)cpu->hi);
+		   (unsigned long)(uint32_t)cpu->lo, 
+		   (unsigned long)(uint32_t)cpu->hi);
 	}
 	SETHILO(2);
 }
@@ -2683,7 +2683,7 @@ mx_divu(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_jr(struct mipscpu *cpu, u_int32_t insn)
+mx_jr(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS;
 	TR("jr %s: 0x%lx", regname(rs), RSup);
@@ -2693,7 +2693,7 @@ mx_jr(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_jalr(struct mipscpu *cpu, u_int32_t insn)
+mx_jalr(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRD;
 	TR("jalr %s, %s: 0x%lx", regname(rd), regname(rs), RSup);
@@ -2707,7 +2707,7 @@ mx_jalr(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_mf(struct mipscpu *cpu, u_int32_t insn)
+mx_mf(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN; NEEDSEL;
 	if (sel) {
@@ -2723,7 +2723,7 @@ mx_mf(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_mfhi(struct mipscpu *cpu, u_int32_t insn)
+mx_mfhi(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRD;
 	TRL("mfhi %s: ... -> ", regname(rd));
@@ -2736,7 +2736,7 @@ mx_mfhi(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_mflo(struct mipscpu *cpu, u_int32_t insn)
+mx_mflo(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRD;
 	TRL("mflo %s: ... -> ", regname(rd));
@@ -2749,7 +2749,7 @@ mx_mflo(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_mt(struct mipscpu *cpu, u_int32_t insn)
+mx_mt(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRT; NEEDRD; NEEDCN; NEEDSEL;
 	if (sel) {
@@ -2765,7 +2765,7 @@ mx_mt(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_mthi(struct mipscpu *cpu, u_int32_t insn)
+mx_mthi(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS;
 	TR("mthi %s: 0x%lx -> ...", regname(rs), RSup);
@@ -2777,7 +2777,7 @@ mx_mthi(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_mtlo(struct mipscpu *cpu, u_int32_t insn)
+mx_mtlo(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS;
 	TR("mtlo %s: 0x%lx -> ...", regname(rs), RSup);
@@ -2789,7 +2789,7 @@ mx_mtlo(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_mult(struct mipscpu *cpu, u_int32_t insn)
+mx_mult(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT;
 	int64_t t64;
@@ -2797,8 +2797,8 @@ mx_mult(struct mipscpu *cpu, u_int32_t insn)
 	    regname(rs), regname(rt), RSsp, RTsp);
 	WHILO;
 	t64=(int64_t)RSs*(int64_t)RTs;
-	cpu->hi = (((u_int64_t)t64)&0xffffffff00000000ULL) >> 32;
-	cpu->lo = (u_int32_t)(((u_int64_t)t64)&0x00000000ffffffffULL);
+	cpu->hi = (((uint64_t)t64)&0xffffffff00000000ULL) >> 32;
+	cpu->lo = (uint32_t)(((uint64_t)t64)&0x00000000ffffffffULL);
 	SETHILO(2);
 	TR("%ld %ld", (long)(int32_t)cpu->hi, (long)(int32_t)cpu->lo);
 }
@@ -2806,26 +2806,26 @@ mx_mult(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_multu(struct mipscpu *cpu, u_int32_t insn)
+mx_multu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT;
-	u_int64_t t64;
+	uint64_t t64;
 	TRL("multu %s, %s: %lu * %lu -> ", 
 	    regname(rs), regname(rt), RSup, RTup);
 	WHILO;
-	t64=(u_int64_t)RSu*(u_int64_t)RTu;
+	t64=(uint64_t)RSu*(uint64_t)RTu;
 	cpu->hi = (t64&0xffffffff00000000ULL) >> 32;
-	cpu->lo = (u_int32_t)(t64&0x00000000ffffffffULL);
+	cpu->lo = (uint32_t)(t64&0x00000000ffffffffULL);
 	SETHILO(2);
 	TR("%lu %lu",
-	   (unsigned long)(u_int32_t)cpu->hi,
-	   (unsigned long)(u_int32_t)cpu->lo);
+	   (unsigned long)(uint32_t)cpu->hi,
+	   (unsigned long)(uint32_t)cpu->lo);
 }
 
 static
 inline
 void
-mx_nor(struct mipscpu *cpu, u_int32_t insn)
+mx_nor(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("nor %s, %s, %s: ~(0x%lx | 0x%lx) -> ",
@@ -2837,7 +2837,7 @@ mx_nor(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_or(struct mipscpu *cpu, u_int32_t insn)
+mx_or(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("or %s, %s, %s: 0x%lx | 0x%lx -> ", 
@@ -2849,7 +2849,7 @@ mx_or(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_ori(struct mipscpu *cpu, u_int32_t insn)
+mx_ori(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
 	TRL("ori %s, %s, %lu: 0x%lx | 0x%lx -> ", 
@@ -2862,7 +2862,7 @@ mx_ori(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_rfe(struct mipscpu *cpu, u_int32_t insn)
+mx_rfe(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("rfe");
@@ -2872,7 +2872,7 @@ mx_rfe(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sll(struct mipscpu *cpu, u_int32_t insn)
+mx_sll(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
 	TRL("sll %s, %s, %u: 0x%lx << %u -> ", 
@@ -2884,7 +2884,7 @@ mx_sll(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sllv(struct mipscpu *cpu, u_int32_t insn)
+mx_sllv(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDRS;
 	unsigned vsh = (RSu&31);
@@ -2897,7 +2897,7 @@ mx_sllv(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_slt(struct mipscpu *cpu, u_int32_t insn)
+mx_slt(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("slt %s, %s, %s: %ld < %ld -> ", 
@@ -2909,7 +2909,7 @@ mx_slt(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_slti(struct mipscpu *cpu, u_int32_t insn)
+mx_slti(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
 	TRL("slti %s, %s, %ld: %ld < %ld -> ", 
@@ -2921,22 +2921,22 @@ mx_slti(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sltiu(struct mipscpu *cpu, u_int32_t insn)
+mx_sltiu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDSMM;
 	TRL("sltiu %s, %s, %lu: %lu < %lu -> ", 
 	    regname(rt), regname(rs), (unsigned long)imm, RSup, 
-	    (unsigned long)(u_int32_t)smm);
+	    (unsigned long)(uint32_t)smm);
 	// Yes, the immediate is sign-extended then treated as
 	// unsigned, according to my mips book. Blech.
-	RTx = RSu < (u_int32_t) smm;
+	RTx = RSu < (uint32_t) smm;
 	TR("%ld", RTsp);
 }
 
 static
 inline
 void
-mx_sltu(struct mipscpu *cpu, u_int32_t insn)
+mx_sltu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("sltu %s, %s, %s: %lu < %lu -> ", 
@@ -2947,11 +2947,11 @@ mx_sltu(struct mipscpu *cpu, u_int32_t insn)
 
 static
 inline
-u_int32_t
-signedshift(u_int32_t val, unsigned amt)
+uint32_t
+signedshift(uint32_t val, unsigned amt)
 {
 	/* There's no way to express a signed shift directly in C. */
-	u_int32_t result;
+	uint32_t result;
 	result = val >> amt;
 	if (val & 0x80000000) {
 		result |= (0xffffffff << (31-amt));
@@ -2962,7 +2962,7 @@ signedshift(u_int32_t val, unsigned amt)
 static
 inline
 void
-mx_sra(struct mipscpu *cpu, u_int32_t insn)
+mx_sra(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
 	TRL("sra %s, %s, %u: 0x%lx >> %u -> ", 
@@ -2974,7 +2974,7 @@ mx_sra(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_srav(struct mipscpu *cpu, u_int32_t insn)
+mx_srav(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	unsigned vsh = (RSu&31);
@@ -2987,7 +2987,7 @@ mx_srav(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_srl(struct mipscpu *cpu, u_int32_t insn)
+mx_srl(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRD; NEEDRT; NEEDSH;
 	TRL("srl %s, %s, %u: 0x%lx >> %u -> ", 
@@ -2999,7 +2999,7 @@ mx_srl(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_srlv(struct mipscpu *cpu, u_int32_t insn)
+mx_srlv(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	unsigned vsh = (RSu&31);
@@ -3012,7 +3012,7 @@ mx_srlv(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sub(struct mipscpu *cpu, u_int32_t insn)
+mx_sub(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	int64_t t64;
@@ -3027,7 +3027,7 @@ mx_sub(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_subu(struct mipscpu *cpu, u_int32_t insn)
+mx_subu(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("subu %s, %s, %s: %ld - %ld -> ", 
@@ -3039,7 +3039,7 @@ mx_subu(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_sync(struct mipscpu *cpu, u_int32_t insn)
+mx_sync(struct mipscpu *cpu, uint32_t insn)
 {
 	/* flush pending memory accesses; for now nothing needed */
 	(void)cpu;
@@ -3051,7 +3051,7 @@ mx_sync(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_syscall(struct mipscpu *cpu, u_int32_t insn)
+mx_syscall(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("syscall");
@@ -3061,7 +3061,7 @@ mx_syscall(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_tlbp(struct mipscpu *cpu, u_int32_t insn)
+mx_tlbp(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("tlbp");
@@ -3071,7 +3071,7 @@ mx_tlbp(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_tlbr(struct mipscpu *cpu, u_int32_t insn)
+mx_tlbr(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("tlbr");
@@ -3084,7 +3084,7 @@ mx_tlbr(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_tlbwi(struct mipscpu *cpu, u_int32_t insn)
+mx_tlbwi(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("tlbwi");
@@ -3094,7 +3094,7 @@ mx_tlbwi(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_tlbwr(struct mipscpu *cpu, u_int32_t insn)
+mx_tlbwr(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("tlbwr");
@@ -3105,7 +3105,7 @@ mx_tlbwr(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_wait(struct mipscpu *cpu, u_int32_t insn)
+mx_wait(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("wait");
@@ -3115,7 +3115,7 @@ mx_wait(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_xor(struct mipscpu *cpu, u_int32_t insn)
+mx_xor(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDRD;
 	TRL("xor %s, %s, %s: 0x%lx ^ 0x%lx -> ",
@@ -3127,7 +3127,7 @@ mx_xor(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_xori(struct mipscpu *cpu, u_int32_t insn)
+mx_xori(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDRS; NEEDRT; NEEDIMM;
 	TRL("xori %s, %s, %lu: 0x%lx ^ 0x%lx -> ",
@@ -3140,7 +3140,7 @@ mx_xori(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_ill(struct mipscpu *cpu, u_int32_t insn)
+mx_ill(struct mipscpu *cpu, uint32_t insn)
 {
 	(void)insn;
 	TR("[illegal instruction %08lx]", (unsigned long) insn);
@@ -3155,10 +3155,10 @@ mx_ill(struct mipscpu *cpu, u_int32_t insn)
 static
 inline
 void
-mx_copz(struct mipscpu *cpu, u_int32_t insn)
+mx_copz(struct mipscpu *cpu, uint32_t insn)
 {
 	NEEDCN;
-	u_int32_t copop;
+	uint32_t copop;
 
 	if (cn!=0) {
 		exception(cpu, EX_CPU, cn, 0);
@@ -3205,11 +3205,11 @@ static
 int
 cpu_cycle(void)
 {
-	u_int32_t insn;
-	u_int32_t op;
+	uint32_t insn;
+	uint32_t op;
 	unsigned whichcpu;
 	unsigned breakpoints = 0;
-	u_int32_t retire_pc;
+	uint32_t retire_pc;
 	unsigned retire_usermode;
 
 	for (whichcpu=0; whichcpu < ncpus; whichcpu++) {
@@ -3245,7 +3245,7 @@ cpu_cycle(void)
 	 * Check for interrupts.
 	 */
 	if (cpu->current_irqon) {
-		u_int32_t soft = cpu->status_softmask & cpu->cause_softirq;
+		uint32_t soft = cpu->status_softmask & cpu->cause_softirq;
 		int lb = cpu->irq_lamebus && cpu->status_hardmask_lb;
 		int ipi = cpu->irq_ipi && cpu->status_hardmask_ipi;
 		int timer = cpu->irq_timer && cpu->status_hardmask_timer;
@@ -3586,16 +3586,16 @@ cpu_dumpstate(void)
 
 	for (i=0; i<NREGS; i++) {
 		msgl("r%d:%s 0x%08lx  ", i, i<10 ? " " : "",
-		     (unsigned long) cpu->r[i]);
+		     (unsigned long)(uint32_t) cpu->r[i]);
 		if (i%4==3) {
 			msg(" ");
 		}
 	}
 	msg("lo:  0x%08lx  hi:  0x%08lx  pc:  0x%08lx  npc: 0x%08lx", 
-	    (unsigned long) cpu->lo,
-	    (unsigned long) cpu->hi,
-	    (unsigned long) cpu->pc,
-	    (unsigned long) cpu->nextpc);
+	    (unsigned long)(uint32_t) cpu->lo,
+	    (unsigned long)(uint32_t) cpu->hi,
+	    (unsigned long)(uint32_t) cpu->pc,
+	    (unsigned long)(uint32_t) cpu->nextpc);
 
 	for (i=0; i<NTLB; i++) {
 		tlbmsg("TLB", i, &cpu->tlb[i]);
@@ -3710,7 +3710,7 @@ cpu_enabled(unsigned cpunum)
           ((addr) >= (base) && (size) <= (top)-(base) && (addr)+(size) < (top))
 
 int
-cpu_get_load_paddr(u_int32_t vaddr, u_int32_t size, u_int32_t *paddr)
+cpu_get_load_paddr(uint32_t vaddr, uint32_t size, uint32_t *paddr)
 {
 	if (!BETWEEN(vaddr, size, KSEG0, KSEG2)) {
 		return -1;
@@ -3726,9 +3726,9 @@ cpu_get_load_paddr(u_int32_t vaddr, u_int32_t size, u_int32_t *paddr)
 }
 
 int
-cpu_get_load_vaddr(u_int32_t paddr, u_int32_t size, u_int32_t *vaddr)
+cpu_get_load_vaddr(uint32_t paddr, uint32_t size, uint32_t *vaddr)
 {
-	u_int32_t zero = 0;  /* suppresses silly gcc warning */
+	uint32_t zero = 0;  /* suppresses silly gcc warning */
 	if (!BETWEEN(paddr, size, zero, KSEG1-KSEG0)) {
 		return -1;
 	}
@@ -3737,7 +3737,7 @@ cpu_get_load_vaddr(u_int32_t paddr, u_int32_t size, u_int32_t *vaddr)
 }
 
 void
-cpu_set_entrypoint(unsigned cpunum, u_int32_t addr)
+cpu_set_entrypoint(unsigned cpunum, uint32_t addr)
 {
 	struct mipscpu *cpu;
 
@@ -3760,7 +3760,7 @@ cpu_set_entrypoint(unsigned cpunum, u_int32_t addr)
 }
 
 void
-cpu_set_stack(unsigned cpunum, u_int32_t stackaddr, u_int32_t argument)
+cpu_set_stack(unsigned cpunum, uint32_t stackaddr, uint32_t argument)
 {
 	struct mipscpu *cpu;
 
@@ -3773,8 +3773,8 @@ cpu_set_stack(unsigned cpunum, u_int32_t stackaddr, u_int32_t argument)
 	/* don't need to set $gp - in the ELF model it's start's problem */
 }
 
-u_int32_t
-cpu_get_secondary_start_stack(u_int32_t lboffset)
+uint32_t
+cpu_get_secondary_start_stack(uint32_t lboffset)
 {
 	/* lboffset is the offset from the LAMEbus mapping base. */
 	/* XXX why don't we have a constant for 1fe00000? */
@@ -3823,17 +3823,17 @@ cpudebug_get_break_cpu(void)
 }
 
 void
-cpudebug_get_bp_region(u_int32_t *start, u_int32_t *end)
+cpudebug_get_bp_region(uint32_t *start, uint32_t *end)
 {
 	*start = KSEG0;
 	*end = KSEG2;
 }
 
 int
-cpudebug_fetch_byte(unsigned cpunum, u_int32_t va, u_int8_t *byte)
+cpudebug_fetch_byte(unsigned cpunum, uint32_t va, uint8_t *byte)
 {
-	u_int32_t pa;
-	u_int32_t aligned_va;
+	uint32_t pa;
+	uint32_t aligned_va;
 	struct mipscpu *cpu;
 
 	Assert(cpunum < ncpus);
@@ -3858,9 +3858,9 @@ cpudebug_fetch_byte(unsigned cpunum, u_int32_t va, u_int8_t *byte)
 }
 
 int
-cpudebug_fetch_word(unsigned cpunum, u_int32_t va, u_int32_t *word)
+cpudebug_fetch_word(unsigned cpunum, uint32_t va, uint32_t *word)
 {
-	u_int32_t pa;
+	uint32_t pa;
 	struct mipscpu *cpu;
 
 	Assert(cpunum < ncpus);
@@ -3881,9 +3881,9 @@ cpudebug_fetch_word(unsigned cpunum, u_int32_t va, u_int32_t *word)
 }
 
 int
-cpudebug_store_byte(unsigned cpunum, u_int32_t va, u_int8_t byte)
+cpudebug_store_byte(unsigned cpunum, uint32_t va, uint8_t byte)
 {
-	u_int32_t pa;
+	uint32_t pa;
 	struct mipscpu *cpu;
 
 	Assert(cpunum < ncpus);
@@ -3905,9 +3905,9 @@ cpudebug_store_byte(unsigned cpunum, u_int32_t va, u_int8_t byte)
 }
 
 int
-cpudebug_store_word(unsigned cpunum, u_int32_t va, u_int32_t word)
+cpudebug_store_word(unsigned cpunum, uint32_t va, uint32_t word)
 {
-	u_int32_t pa;
+	uint32_t pa;
 	struct mipscpu *cpu;
 
 	Assert(cpunum < ncpus);
@@ -3930,7 +3930,7 @@ cpudebug_store_word(unsigned cpunum, u_int32_t va, u_int32_t word)
 static
 inline
 void
-addreg(u_int32_t *regs, int maxregs, int pos, u_int32_t val)
+addreg(uint32_t *regs, int maxregs, int pos, uint32_t val)
 {
 	if (pos < maxregs) {
 		regs[pos] = val;
@@ -3940,7 +3940,7 @@ addreg(u_int32_t *regs, int maxregs, int pos, u_int32_t val)
 #define GETREG(r) addreg(regs, maxregs, j++, r)
 
 void
-cpudebug_getregs(unsigned cpunum, u_int32_t *regs, int maxregs, int *nregs)
+cpudebug_getregs(unsigned cpunum, uint32_t *regs, int maxregs, int *nregs)
 {
 	int i, j=0;
 	struct mipscpu *cpu;
@@ -3971,7 +3971,7 @@ cpudebug_getregs(unsigned cpunum, u_int32_t *regs, int maxregs, int *nregs)
 	*nregs = j;
 }
 
-u_int32_t
+uint32_t
 cpuprof_sample(void)
 {
 	/* for now always use CPU 0 (XXX) */

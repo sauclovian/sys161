@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <stdint.h>
 #include <string.h>
 #include <ctype.h>
 #include "config.h"
@@ -43,17 +44,17 @@ struct ser_data {
 	struct serirq sd_rirq;
 	struct serirq sd_wirq;
 
-	u_int32_t sd_readch;
+	uint32_t sd_readch;
 	char sd_inbuf[INBUF_SIZE];
 	int sd_inbufhead;	/* characters are read from inbufhead */
 	int sd_inbuftail;	/* characters are written to inbuftail */
 };
 
 static
-u_int32_t
+uint32_t
 fetchirq(struct serirq *si)
 {
-	u_int32_t val = 0;
+	uint32_t val = 0;
 	if (si->si_on) val |= IRQF_ON;
 	if (si->si_ready) val |= IRQF_READY;
 	if (si->si_force) val |= IRQF_FORCE;
@@ -62,7 +63,7 @@ fetchirq(struct serirq *si)
 
 static
 void
-storeirq(struct serirq *si, u_int32_t val)
+storeirq(struct serirq *si, uint32_t val)
 {
 	si->si_on = (val & IRQF_ON)!=0;
 	si->si_ready = (val & IRQF_READY)!=0;
@@ -87,7 +88,7 @@ setirq(struct ser_data *sd)
 
 static
 void
-serial_writedone(void *d, u_int32_t gen)
+serial_writedone(void *d, uint32_t gen)
 {
 	struct ser_data *sd = d;
 	(void)gen;
@@ -99,10 +100,10 @@ serial_writedone(void *d, u_int32_t gen)
 
 static
 void
-serial_pushinput(void *d, u_int32_t junk)
+serial_pushinput(void *d, uint32_t junk)
 {
 	struct ser_data *sd = d;
-	u_int32_t ch;
+	uint32_t ch;
 
 	(void)junk;
 
@@ -110,7 +111,7 @@ serial_pushinput(void *d, u_int32_t junk)
 		sd->sd_rbusy = 0;
 	}
 	else {
-		ch = (u_int32_t)(unsigned char)sd->sd_inbuf[sd->sd_inbufhead];
+		ch = (uint32_t)(unsigned char)sd->sd_inbuf[sd->sd_inbufhead];
 		sd->sd_inbufhead = (sd->sd_inbufhead+1)%INBUF_SIZE;
 
 		sd->sd_readch = ch;
@@ -151,7 +152,7 @@ serial_input(void *d, int ch)
 
 static
 int
-serial_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
+serial_fetch(unsigned cpunum, void *d, uint32_t offset, uint32_t *val)
 {
 	struct ser_data *sd = d;
 
@@ -174,7 +175,7 @@ serial_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
 
 static
 int
-serial_store(unsigned cpunum, void *d, u_int32_t offset, u_int32_t val)
+serial_store(unsigned cpunum, void *d, uint32_t offset, uint32_t val)
 {
 	struct ser_data *sd = d;
 

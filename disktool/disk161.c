@@ -13,6 +13,15 @@
 #include <unistd.h>
 #include <errno.h>
 
+/*
+ * On Linux, or at least in some glibc versions, fcntl.h defines the
+ * constants for flock(), but not the function, which is in sys/file.h
+ * with a separate copy of the constants.
+ */
+#if defined(__linux__)
+#include <sys/file.h>
+#endif
+
 #define SECTORSIZE 512
 #define MINSIZE (128 * SECTORSIZE)
 #define MAXSIZE 0x100000000LL

@@ -5,9 +5,12 @@ all depend install tidy clean:
 	(cd build-hub161 && $(MAKE) $@)
 	(cd build-disk161 && $(MAKE) $@)
 	(cd build-doc && $(MAKE) $@)
+	(cd build-man && $(MAKE) $@)
 
 distclean:
-	rm -rf build-sys161 build-trace161 build-stat161 build-hub161 build-doc
+	rm -rf build-sys161 build-trace161
+	rm -rf build-stat161 build-hub161 build-disk161
+	rm -rf build-doc build-man
 	rm -rf test-cpu
 	rm -f Makefile defs.mk
 

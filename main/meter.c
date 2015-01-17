@@ -1,6 +1,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,8 +55,8 @@ meter_report(struct meter *m)
 {
 	char buf[4096];
 	char buf2[512];
-	u_int64_t kcycles, ucycles, icycles;
-	u_int64_t kretired, uretired;
+	uint64_t kcycles, ucycles, icycles;
+	uint64_t kretired, uretired;
 
 #if 0
 	kcycles = g_stats.s_kcycles;
@@ -110,7 +111,7 @@ meter_report(struct meter *m)
 
 static
 void
-meter_update(void *x, u_int32_t junk)
+meter_update(void *x, uint32_t junk)
 {
 	struct meter *m = x;
 

@@ -39,7 +39,7 @@ unset_breakcond(void)
 
 static
 void
-printbyte(char *buf, size_t maxlen, u_int32_t val)
+printbyte(char *buf, size_t maxlen, uint32_t val)
 {
 	size_t len = strlen(buf);
 	Assert(len < maxlen);
@@ -49,7 +49,7 @@ printbyte(char *buf, size_t maxlen, u_int32_t val)
 
 static
 void
-printword(char *buf, size_t maxlen, u_int32_t val)
+printword(char *buf, size_t maxlen, uint32_t val)
 {
 	size_t len = strlen(buf);
 	Assert(len < maxlen);
@@ -58,7 +58,7 @@ printword(char *buf, size_t maxlen, u_int32_t val)
 }
 
 static
-u_int8_t
+uint8_t
 hexbyte(const char *s, char **ret)
 {
 	char buf[3];
@@ -187,7 +187,7 @@ static
 void
 debug_register_print(struct gdbcontext *ctx)
 {
-	u_int32_t regs[256];
+	uint32_t regs[256];
 	int i, nregs;
 	char buf[BUFLEN];
 
@@ -206,9 +206,9 @@ static
 void
 debug_read_mem(struct gdbcontext *ctx, const char *spec)
 {
-	u_int32_t vaddr, length, i;
-	u_int32_t word;
-	u_int8_t byte;
+	uint32_t vaddr, length, i;
+	uint32_t word;
+	uint8_t byte;
 	const char *curptr;
 	char buf[BUFLEN];
 
@@ -238,8 +238,8 @@ static
 void
 debug_write_mem(struct gdbcontext *ctx, const char *spec)
 {
-	u_int32_t vaddr, length, i;
-	u_int8_t *bytes;
+	uint32_t vaddr, length, i;
+	uint8_t *bytes;
 	const char *curptr;
 
 	// AAAAAAA,LLL:DDDD
@@ -264,8 +264,8 @@ debug_write_mem(struct gdbcontext *ctx, const char *spec)
 		}
 	}
 	for (; i+4<=length; i+=4) {
-		u_int32_t word;
-		memcpy(&word, bytes+i, sizeof(u_int32_t));
+		uint32_t word;
+		memcpy(&word, bytes+i, sizeof(uint32_t));
 		if (cpudebug_store_word(debug_cpu, vaddr+i, ntohl(word))) {
 			debug_send(ctx, "E03");
 			return;

@@ -1,3 +1,12 @@
+20150115 dholland	System/161 2.0 released.
+20150115 dholland	Add workaround to make disk rotdelay deterministic.
+20150114 dholland	Fix stdint.h-related build problems on Linux.
+20150114 dholland	Fix flock-related build problem on Linux.
+20150109 dholland	Add software debugger requests to the trace device.
+20150105 dholland	Make the testsuite run.
+20150105 dholland	Add support for installing into a chroot/DESTDIR.
+20150105 dholland	Add man pages for all executables.
+
 20141209 dholland	System/161 1.99.10 released.
 20141209 dholland	Add workaround for OpenBSD's srand/srandom breakage.
 

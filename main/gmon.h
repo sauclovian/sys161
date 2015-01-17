@@ -19,12 +19,12 @@
  */
 
 /* all our targets are 32-bit machines */
-typedef u_int32_t target_uintptr_t;
+typedef uint32_t target_uintptr_t;
 
 /* file header */
 struct gmon_file_header {
 	char gfh_magic[4];	/* "gmon" */
-	u_int32_t gfh_version;	/* GMON_VERSION */
+	uint32_t gfh_version;	/* GMON_VERSION */
 	char gfh_unused[12];
 };
 
@@ -39,20 +39,20 @@ struct gmon_file_header {
 struct gmon_histogram_header {
 	target_uintptr_t ghh_lowpc;
 	target_uintptr_t ghh_highpc;
-	u_int32_t ghh_size;	/* size of data in u16's, not incl. header */
-	u_int32_t ghh_hz;	/* sample frequency */
+	uint32_t ghh_size;	/* size of data in u16's, not incl. header */
+	uint32_t ghh_hz;	/* sample frequency */
 	char ghh_name[15];
 	char ghh_abbrev;
 };
 
 /* histogram entry */
 struct gmon_histogram_entry {
-	u_int16_t ghe_count;
+	uint16_t ghe_count;
 };
 
 /* call graph record */
 struct gmon_callgraph_entry {
 	target_uintptr_t gce_from;
 	target_uintptr_t gce_to;
-	u_int32_t gce_count;
+	uint32_t gce_count;
 };

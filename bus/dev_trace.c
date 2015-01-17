@@ -1,8 +1,10 @@
 #include <sys/types.h>
+#include <stdint.h>
 #include <string.h>
 #include "config.h"
 
 #include "main.h"
+#include "cpu.h"
 
 #include "lamebus.h"
 #include "busids.h"
@@ -12,6 +14,7 @@
 #define TRACEREG_OFF    4
 #define TRACEREG_PRINT  8
 #define TRACEREG_DUMP   12
+#define TRACEREG_STOP	16
 
 
 static
@@ -27,7 +30,7 @@ trace_init(int slot, int argc, char *argv[])
 
 static
 int
-trace_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
+trace_fetch(unsigned cpunum, void *data, uint32_t offset, uint32_t *ret)
 {
 	(void)cpunum;
 	(void)data;
@@ -39,7 +42,7 @@ trace_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-trace_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
+trace_store(unsigned cpunum, void *data, uint32_t offset, uint32_t val)
 {
 	(void)cpunum;
 	(void)data;
@@ -74,6 +77,11 @@ trace_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
 		msg("trace: dump complete");
 		msg("----------------------------------------"
 		    "--------------------------------");
+		break;
+	    case TRACEREG_STOP:
+		msg("trace: software-requested debugger stop");
+		cpu_stopcycling();
+		main_enter_debugger();
 		break;
 	    default:
 		return -1;

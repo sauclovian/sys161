@@ -7,6 +7,16 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <math.h>
+
+/*
+ * On Linux, or at least in some glibc versions, fcntl.h defines the
+ * constants for flock(), but not the function, which is in sys/file.h
+ * with a separate copy of the constants.
+ */
+#if defined(__linux__)
+#include <sys/file.h>
+#endif
+
 #include "config.h"
 
 #include "console.h"
@@ -97,11 +107,11 @@ struct disk_data {
 	 * sum(dd_sectors) * dd_heads should give dd_totsectors.
 	 * sum(dd_sectors) should give dd_totsectors.
 	 */
-	u_int32_t *dd_sectors;
-	u_int32_t dd_tracks;	 	/* always is == NUMTRACKS */
-	u_int32_t dd_totsectors;
-	u_int32_t dd_rpm;
-	u_int32_t dd_nsecs_per_rev;
+	uint32_t *dd_sectors;
+	uint32_t dd_tracks;	 	/* always is == NUMTRACKS */
+	uint32_t dd_totsectors;
+	uint32_t dd_rpm;
+	uint32_t dd_nsecs_per_rev;
 
 	/*
 	 * Doom counter
@@ -112,8 +122,8 @@ struct disk_data {
 	 * Timing status
 	 */
 	int dd_current_track;
-	u_int32_t dd_trackarrival_secs;
-	u_int32_t dd_trackarrival_nsecs;
+	uint32_t dd_trackarrival_secs;
+	uint32_t dd_trackarrival_nsecs;
 	int dd_iostatus;
 	int dd_timedop;             /* nonzero if waiting for a timer event */
 
@@ -125,8 +135,8 @@ struct disk_data {
 	/*
 	 * Registers
 	 */
-	u_int32_t dd_stat;
-	u_int32_t dd_sect;
+	uint32_t dd_stat;
+	uint32_t dd_sect;
 
 	/*
 	 * I/O buffer
@@ -453,9 +463,9 @@ static
 int
 compute_sectors(struct disk_data *dd)
 {
-	u_int32_t physsectors;      // total number of actual sectors
-	//u_int32_t sectorspertrack;  // average sectors per track
-	u_int32_t i, tot;
+	uint32_t physsectors;      // total number of actual sectors
+	//uint32_t sectorspertrack;  // average sectors per track
+	uint32_t i, tot;
 
 	double sectors_per_area;
 	double trackwidth;
@@ -467,9 +477,9 @@ compute_sectors(struct disk_data *dd)
 	 * but we could. Note that these spare sectors do not appear in
 	 * the file we use for underlying storage.
 	 */
-	physsectors = (u_int32_t)(dd->dd_totsectors * SECTOR_FUDGE);
+	physsectors = (uint32_t)(dd->dd_totsectors * SECTOR_FUDGE);
 	if (physsectors < dd->dd_totsectors) {
-		/* Overflow - didn't fit in u_int32_t */
+		/* Overflow - didn't fit in uint32_t */
 		smoke("Fatal error computing disk geometry");
 		return -1;
 	}
@@ -478,7 +488,7 @@ compute_sectors(struct disk_data *dd)
 	dd->dd_tracks = NUMTRACKS;
 
 	/* allocate space for dd_tracks entries */
-	dd->dd_sectors = domalloc(dd->dd_tracks*sizeof(u_int32_t));
+	dd->dd_sectors = domalloc(dd->dd_tracks*sizeof(uint32_t));
 
 	/* compute the width of each track */
 	trackwidth = ((OUTER_DIAM - INNER_DIAM)/2) / (double)dd->dd_tracks;
@@ -533,7 +543,7 @@ compute_sectors(struct disk_data *dd)
 static
 void
 locate_sector(struct disk_data *dd,
-	      u_int32_t sector, int *track, int *rotoffset)
+	      uint32_t sector, int *track, int *rotoffset)
 {
 	/* 
 	 * Assume sector has already been checked for being in bounds.
@@ -542,12 +552,12 @@ locate_sector(struct disk_data *dd,
 	 * (fastest) track.
 	 */
 	
-	u_int32_t i;
-	u_int32_t start = 0;
+	uint32_t i;
+	uint32_t start = 0;
 
 	for (i = dd->dd_tracks; i > 0; i--) {
-		u_int32_t tr = i-1;
-		u_int32_t end = start + dd->dd_sectors[tr];
+		uint32_t tr = i-1;
+		uint32_t end = start + dd->dd_sectors[tr];
 		if (sector >= start && sector < end) {
 			*track = tr;
 			*rotoffset = sector - start;
@@ -560,7 +570,7 @@ locate_sector(struct disk_data *dd,
 }
 
 static
-u_int32_t
+uint32_t
 disk_seektime(struct disk_data *dd, int ntracks)
 {
 	(void)dd;
@@ -576,20 +586,20 @@ disk_seektime(struct disk_data *dd, int ntracks)
 }
 
 static
-u_int32_t
-disk_readrotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
+uint32_t
+disk_readrotdelay(struct disk_data *dd, uint32_t cyl, uint32_t rotoffset)
 {
-	u_int32_t nowsecs, nownsecs;
+	uint32_t nowsecs, nownsecs;
 
 	/*
 	 * Time for crossing a single sector.
 	 */
-	u_int32_t nsecs_per_sector = dd->dd_nsecs_per_rev/dd->dd_sectors[cyl];
+	uint32_t nsecs_per_sector = dd->dd_nsecs_per_rev/dd->dd_sectors[cyl];
 
 	/*
 	 * Next sector after the one we want.
 	 */
-	u_int32_t targsector = (rotoffset+1) % dd->dd_sectors[cyl];
+	uint32_t targsector = (rotoffset+1) % dd->dd_sectors[cyl];
 
 	/*
 	 * Compute when the next sector would first be reached after
@@ -600,8 +610,8 @@ disk_readrotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 	 * revs per second, and that we assume the platters are always
 	 * at position 0 when nownsecs = 0.
 	 */
-	u_int32_t targsecs = dd->dd_trackarrival_secs;
-	u_int32_t targnsecs = targsector * nsecs_per_sector;
+	uint32_t targsecs = dd->dd_trackarrival_secs;
+	uint32_t targnsecs = targsector * nsecs_per_sector;
 	while (targnsecs < dd->dd_trackarrival_nsecs) {
 		targnsecs += dd->dd_nsecs_per_rev;
 	}
@@ -632,24 +642,24 @@ disk_readrotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
 }
 
 static
-u_int32_t
-disk_writerotdelay(struct disk_data *dd, u_int32_t cyl, u_int32_t rotoffset)
+uint32_t
+disk_writerotdelay(struct disk_data *dd, uint32_t cyl, uint32_t rotoffset)
 {
-	u_int32_t nowsecs, nownsecs;
+	uint32_t nowsecs, nownsecs;
 
 	/*
 	 * Time for crossing a single sector.
 	 */
-	u_int32_t nsecs_per_sector = dd->dd_nsecs_per_rev/dd->dd_sectors[cyl];
+	uint32_t nsecs_per_sector = dd->dd_nsecs_per_rev/dd->dd_sectors[cyl];
 
 	/*
 	 * Compute when the sector we want will next be reached.
 	 * (Ignore seconds. The disk must be at least 60 rpm, so we
-	 * can get to any sector without overflowing a u_int32_t of
+	 * can get to any sector without overflowing a uint32_t of
 	 * nsecs.)
 	 */
-	u_int32_t targnsecs = rotoffset * nsecs_per_sector;
-	u_int32_t delay;
+	uint32_t targnsecs = rotoffset * nsecs_per_sector;
+	uint32_t delay;
 
 	clock_time(&nowsecs, &nownsecs);
 
@@ -681,8 +691,8 @@ disk_init(int slot, int argc, char *argv[])
 {
 	struct disk_data *dd;
 	const char *filename = NULL;
-	u_int32_t totsectors=0;
-	u_int32_t rpm = 3600;
+	uint32_t totsectors=0;
+	uint32_t rpm = 3600;
 	int i, paranoid=0, usedoom = 1;
 
 	for (i=1; i<argc; i++) {
@@ -798,7 +808,7 @@ static void disk_update(struct disk_data *dd);
 
 static
 void
-disk_seekdone(void *data, u_int32_t cyl)
+disk_seekdone(void *data, uint32_t cyl)
 {
 	struct disk_data *dd = data;
 
@@ -811,7 +821,7 @@ disk_seekdone(void *data, u_int32_t cyl)
 
 static
 void
-disk_waitdone(void *data, u_int32_t status)
+disk_waitdone(void *data, uint32_t status)
 {
 	struct disk_data *dd = data;
 
@@ -826,7 +836,7 @@ void
 disk_work(struct disk_data *dd)
 {
 	int cyl, rotoffset;
-	u_int32_t rotdelay;
+	uint32_t rotdelay;
 	int err;
 
 	if (dd->dd_timedop) {
@@ -881,7 +891,7 @@ disk_work(struct disk_data *dd)
 		/*
 		 * Need to seek.
 		 */
-		u_int32_t nsecs;
+		uint32_t nsecs;
 		int distance;
 
 		HWTRACE(DOTRACE_DISK, "disk: slot %d: seeking to track %d",
@@ -987,7 +997,7 @@ disk_update(struct disk_data *dd)
 
 static
 void
-disk_setstatus(struct disk_data *dd, u_int32_t val)
+disk_setstatus(struct disk_data *dd, uint32_t val)
 {
 	switch (val) {
 	    case DISKSTAT_IDLE:
@@ -1019,16 +1029,16 @@ disk_setstatus(struct disk_data *dd, u_int32_t val)
 
 static
 int
-disk_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
+disk_fetch(unsigned cpunum, void *data, uint32_t offset, uint32_t *ret)
 {
 	struct disk_data *dd = data;
-	u_int32_t *ptr;
+	uint32_t *ptr;
 
 	(void)cpunum;
 
 	if (offset >= DISK_BUF_START && offset < DISK_BUF_END) {
 		offset -= DISK_BUF_START;
-		ptr = (u_int32_t *)(dd->dd_buf + offset);
+		ptr = (uint32_t *)(dd->dd_buf + offset);
 		*ret = ntohl(*ptr);
 		return 0;
 	}
@@ -1044,16 +1054,16 @@ disk_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-disk_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
+disk_store(unsigned cpunum, void *data, uint32_t offset, uint32_t val)
 {
 	struct disk_data *dd = data;
-	u_int32_t *ptr;
+	uint32_t *ptr;
 
 	(void)cpunum;
 
 	if (offset >= DISK_BUF_START && offset < DISK_BUF_END) {
 		offset -= DISK_BUF_START;
-		ptr = (u_int32_t *)(dd->dd_buf + offset);
+		ptr = (uint32_t *)(dd->dd_buf + offset);
 		*ptr = htonl(val);
 		return 0;
 	}

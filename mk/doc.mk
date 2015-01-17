@@ -11,14 +11,16 @@ include defs.mk
 all tidy distclean clean rules depend: ;
 
 install:
-	(umask 022; [ -d "$(EXAMPLEDIR)" ] || mkdir -p $(EXAMPLEDIR))
-	(umask 022; [ -d "$(DOCDIR)" ] || mkdir -p $(DOCDIR))
+	(umask 022; \
+	  [ -d "$(DESTDIR)$(EXAMPLEDIR)" ] || mkdir -p $(DESTDIR)$(EXAMPLEDIR))
+	(umask 022; \
+	  [ -d "$(DESTDIR)$(DOCDIR)" ] || mkdir -p $(DESTDIR)$(DOCDIR))
 	@for h in $(HTML); do \
-		echo cp $S/doc/$$h $(DOCDIR)/$$h; \
-		cp $S/doc/$$h $(DOCDIR)/$$h; \
-		chmod 644 $(DOCDIR)/$$h; \
+		echo cp $S/doc/$$h $(DESTDIR)$(DOCDIR)/$$h; \
+		cp $S/doc/$$h $(DESTDIR)$(DOCDIR)/$$h; \
+		chmod 644 $(DESTDIR)$(DOCDIR)/$$h; \
 	  done
-	cp $S/COPYING $(DOCDIR)/copying.txt
-	chmod 644 $(DOCDIR)/copying.txt
-	cp $S/sys161.conf.sample $(EXAMPLEDIR)/sys161.conf.sample
-	chmod 644 $(EXAMPLEDIR)/sys161.conf.sample
+	cp $S/COPYING $(DESTDIR)$(DOCDIR)/copying.txt
+	chmod 644 $(DESTDIR)$(DOCDIR)/copying.txt
+	cp $S/sys161.conf.sample $(DESTDIR)$(EXAMPLEDIR)/sys161.conf.sample
+	chmod 644 $(DESTDIR)$(EXAMPLEDIR)/sys161.conf.sample

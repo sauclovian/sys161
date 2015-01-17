@@ -76,9 +76,9 @@ gdb_dumpstate(void)
 }
 
 int
-gdb_canhandle(u_int32_t pcaddr)
+gdb_canhandle(uint32_t pcaddr)
 {
-	u_int32_t start, end;
+	uint32_t start, end;
 
 	if (g_listenfd < 0) {
 		/* Remote debugging support not initialized */

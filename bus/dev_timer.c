@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/time.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "config.h"
@@ -42,8 +43,8 @@
 struct timer_data {
 	int td_slot;
 	int td_restartflag;
-	u_int32_t td_count_usecs; /* for restarting */
-	u_int32_t td_generation;  /* for discarding old events */
+	uint32_t td_count_usecs; /* for restarting */
+	uint32_t td_generation;  /* for discarding old events */
 };
 
 static
@@ -66,7 +67,7 @@ static void timer_start(struct timer_data *td);
 
 static
 void
-timer_interrupt(void *d, u_int32_t gen)
+timer_interrupt(void *d, uint32_t gen)
 {
 	struct timer_data *td = d;
 	if (gen!=td->td_generation) {
@@ -84,7 +85,7 @@ static
 void
 timer_start(struct timer_data *td)
 {
-	u_int64_t nsecs = td->td_count_usecs;
+	uint64_t nsecs = td->td_count_usecs;
 	nsecs *= 1000;
 	td->td_generation++;
 	schedule_event(nsecs, td, td->td_generation, timer_interrupt, "timer");
@@ -92,7 +93,7 @@ timer_start(struct timer_data *td)
 
 static
 int
-timer_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
+timer_fetch(unsigned cpunum, void *d, uint32_t offset, uint32_t *val)
 {
 	struct timer_data *td = d;
 
@@ -133,7 +134,7 @@ timer_fetch(unsigned cpunum, void *d, u_int32_t offset, u_int32_t *val)
 
 static
 int
-timer_store(unsigned cpunum, void *d, u_int32_t offset, u_int32_t val)
+timer_store(unsigned cpunum, void *d, uint32_t offset, uint32_t val)
 {
 	struct timer_data *td = d;
 

@@ -18,19 +18,19 @@
 #define	ELF_NIDENT	16
 typedef struct {
 	unsigned char	e_ident[ELF_NIDENT];   /* magic number et al. */
-	u_int16_t	e_type;                /* type of file this is */
-	u_int16_t	e_machine;             /* processor type file is for */
-	u_int32_t	e_version;             /* ELF version */
-	u_int32_t	e_entry;           /* address of program entry point */
-	u_int32_t	e_phoff;           /* location in file of phdrs */
-	u_int32_t	e_shoff;           /* ignore */
-	u_int32_t	e_flags;	   /* ignore */
-	u_int16_t	e_ehsize;          /* actual size of file header */
-	u_int16_t	e_phentsize;       /* actual size of phdr */
-	u_int16_t	e_phnum;           /* number of phdrs */
-	u_int16_t	e_shentsize;       /* ignore */
-	u_int16_t	e_shnum;           /* ignore */
-	u_int16_t	e_shstrndx;        /* ignore */
+	uint16_t	e_type;                /* type of file this is */
+	uint16_t	e_machine;             /* processor type file is for */
+	uint32_t	e_version;             /* ELF version */
+	uint32_t	e_entry;           /* address of program entry point */
+	uint32_t	e_phoff;           /* location in file of phdrs */
+	uint32_t	e_shoff;           /* ignore */
+	uint32_t	e_flags;	   /* ignore */
+	uint16_t	e_ehsize;          /* actual size of file header */
+	uint16_t	e_phentsize;       /* actual size of phdr */
+	uint16_t	e_phnum;           /* number of phdrs */
+	uint16_t	e_shentsize;       /* ignore */
+	uint16_t	e_shnum;           /* ignore */
+	uint16_t	e_shstrndx;        /* ignore */
 } Elf32_Ehdr;
 
 /* Offsets for the 1-byte fields within e_ident[] */
@@ -134,14 +134,14 @@ typedef struct {
  * Note: if p_memsz > p_filesz, the leftover space should be zero-filled.
  */
 typedef struct {
-	u_int32_t	p_type;      /* Type of segment */
-	u_int32_t	p_offset;    /* Location of data within file */
-	u_int32_t	p_vaddr;     /* Virtual address */
-	u_int32_t	p_paddr;     /* Ignore */
-	u_int32_t	p_filesz;    /* Size of data within file */
-	u_int32_t	p_memsz;     /* Size of data to be loaded into memory*/
-	u_int32_t	p_flags;     /* Flags */
-	u_int32_t	p_align;     /* Required alignment - can ignore */
+	uint32_t	p_type;      /* Type of segment */
+	uint32_t	p_offset;    /* Location of data within file */
+	uint32_t	p_vaddr;     /* Virtual address */
+	uint32_t	p_paddr;     /* Ignore */
+	uint32_t	p_filesz;    /* Size of data within file */
+	uint32_t	p_memsz;     /* Size of data to be loaded into memory*/
+	uint32_t	p_flags;     /* Flags */
+	uint32_t	p_align;     /* Required alignment - can ignore */
 } Elf32_Phdr;
 
 /* values for p_type */

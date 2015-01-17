@@ -17,7 +17,7 @@
 
 static
 void
-doread(int fd, u_int32_t pos, void *buf, size_t len)
+doread(int fd, uint32_t pos, void *buf, size_t len)
 {
 	int r;
 
@@ -44,7 +44,7 @@ load_elf(int fd)
 {
 	Elf_Ehdr eh;
 	Elf_Phdr ph;
-	u_int32_t paddr, i;
+	uint32_t paddr, i;
 
 	doread(fd, 0, &eh, sizeof(eh));
 
@@ -152,13 +152,13 @@ static
 void
 setstack(const char *argument)
 {
-	u_int32_t vaddr, paddr;
-	u_int32_t size;
+	uint32_t vaddr, paddr;
+	uint32_t size;
 
 	size = strlen(argument) + 1;
 
 	/* align size upwards */
-	size = (size+3) & ~(u_int32_t)3;
+	size = (size+3) & ~(uint32_t)3;
 
 	paddr = bus_ramsize - size;
 

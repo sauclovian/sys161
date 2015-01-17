@@ -159,17 +159,17 @@ struct emufs_data {
 
 	/* This used to be ed_buf[EMU_BUF_SIZE]; see dev_disk.c */
 	char *ed_buf;
-	u_int32_t ed_handle;		/* file handle register */
-	u_int32_t ed_offset;		/* offset register */
-	u_int32_t ed_iolen;		/* iolen register */
-	u_int32_t ed_result;		/* result register */
+	uint32_t ed_handle;		/* file handle register */
+	uint32_t ed_offset;		/* offset register */
+	uint32_t ed_iolen;		/* iolen register */
+	uint32_t ed_result;		/* result register */
 
 	/* Handles from ed_handle are indexes into here */
 	int ed_fds[MAXHANDLES];
 
 	/* Timing stuff */
 	int ed_busy;			/* true if operation in progress */
-	u_int32_t ed_busyresult;	/* result for ed_result when done */
+	uint32_t ed_busyresult;		/* result for ed_result when done */
 };
 
 static
@@ -204,7 +204,7 @@ popdir(int oldfd)
 
 static
 void
-emufs_setresult(struct emufs_data *ed, u_int32_t result)
+emufs_setresult(struct emufs_data *ed, uint32_t result)
 {
 	ed->ed_result = result;
 	if (ed->ed_result>0) {
@@ -216,7 +216,7 @@ emufs_setresult(struct emufs_data *ed, u_int32_t result)
 }
 
 static
-u_int32_t
+uint32_t
 errno_to_code(int err)
 {
 	switch (err) {
@@ -266,7 +266,7 @@ emufs_openfirst(struct emufs_data *ed, const char *dir)
 }
 
 static
-u_int32_t
+uint32_t
 emufs_open(struct emufs_data *ed, int flags)
 {
 	int handle;
@@ -335,7 +335,7 @@ emufs_open(struct emufs_data *ed, int flags)
 }
 
 static
-u_int32_t
+uint32_t
 emufs_close(struct emufs_data *ed)
 {
 	close(ed->ed_fds[ed->ed_handle]);
@@ -347,7 +347,7 @@ emufs_close(struct emufs_data *ed)
 }
 
 static
-u_int32_t
+uint32_t
 emufs_read(struct emufs_data *ed)
 {
 	int len;
@@ -381,13 +381,13 @@ emufs_read(struct emufs_data *ed)
 }
 
 static
-u_int32_t
+uint32_t
 emufs_readdir(struct emufs_data *ed)
 {
 	struct dirent *dp;
 	DIR *d;
 
-	u_int32_t ct, len;
+	uint32_t ct, len;
 	int herefd, fd;
 
 	if (ed->ed_iolen > EMU_BUF_SIZE) {
@@ -464,7 +464,7 @@ emufs_readdir(struct emufs_data *ed)
 }
 
 static
-u_int32_t
+uint32_t
 emufs_write(struct emufs_data *ed)
 {
 	int len;
@@ -498,7 +498,7 @@ emufs_write(struct emufs_data *ed)
 }
 
 static
-u_int32_t
+uint32_t
 emufs_getsize(struct emufs_data *ed)
 {
 	struct stat sb;
@@ -523,7 +523,7 @@ emufs_getsize(struct emufs_data *ed)
 }
 
 static
-u_int32_t
+uint32_t
 emufs_trunc(struct emufs_data *ed)
 {
 	int fd;
@@ -545,8 +545,8 @@ emufs_trunc(struct emufs_data *ed)
 }
 
 static
-u_int32_t
-emufs_op(struct emufs_data *ed, u_int32_t op)
+uint32_t
+emufs_op(struct emufs_data *ed, uint32_t op)
 {
 	switch (op) {
 	    case EMU_OP_OPEN:       return emufs_open(ed, 0);
@@ -578,7 +578,7 @@ emufs_op(struct emufs_data *ed, u_int32_t op)
 
 static
 void
-emufs_done(void *d, u_int32_t gen)
+emufs_done(void *d, uint32_t gen)
 {
 	struct emufs_data *ed = d;
 	(void)gen;
@@ -595,9 +595,9 @@ emufs_done(void *d, u_int32_t gen)
 
 static
 void
-emufs_do_op(struct emufs_data *ed, u_int32_t op)
+emufs_do_op(struct emufs_data *ed, uint32_t op)
 {
-	u_int32_t res;
+	uint32_t res;
 
 	if (ed->ed_busy != 0) {
 		hang("emufs operation started while an operation "
@@ -653,16 +653,16 @@ emufs_init(int slot, int argc, char *argv[])
 
 static
 int
-emufs_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
+emufs_fetch(unsigned cpunum, void *data, uint32_t offset, uint32_t *ret)
 {
 	struct emufs_data *ed = data;
-	u_int32_t *ptr;
+	uint32_t *ptr;
 
 	(void)cpunum;
 
 	if (offset >= EMU_BUF_START && offset < EMU_BUF_END) {
 		offset -= EMU_BUF_START;
-		ptr = (u_int32_t *)(ed->ed_buf + offset);
+		ptr = (uint32_t *)(ed->ed_buf + offset);
 		*ret = ntohl(*ptr);
 		return 0;
 	}
@@ -679,16 +679,16 @@ emufs_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-emufs_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
+emufs_store(unsigned cpunum, void *data, uint32_t offset, uint32_t val)
 {
 	struct emufs_data *ed = data;
-	u_int32_t *ptr;
+	uint32_t *ptr;
 
 	(void)cpunum;
 
 	if (offset >= EMU_BUF_START && offset < EMU_BUF_END) {
 		offset -= EMU_BUF_START;
-		ptr = (u_int32_t *)(ed->ed_buf + offset);
+		ptr = (uint32_t *)(ed->ed_buf + offset);
 		*ptr = htonl(val);
 		return 0;
 	}

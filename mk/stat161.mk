@@ -25,8 +25,9 @@ realdepend:
 	$(CC) $(CFLAGS) $(DEPINCLUDES) -MM $(SRCS) > depend.mk
 
 install:
-	[ -d "$(BINDIR)" ] || mkdir -p "$(BINDIR)"
-	$S/installit.sh "$(BINDIR)" "$(PROG)" "$(VERSION)"
+	(umask 022; \
+		[ -d "$(DESTDIR)$(BINDIR)" ] || mkdir -p "$(DESTDIR)$(BINDIR)")
+	$S/installit.sh "$(DESTDIR)$(BINDIR)" "$(PROG)" "$(VERSION)"
 
 $(PROG): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -lm -o $(PROG)

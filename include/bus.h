@@ -9,10 +9,10 @@
  * The _mem_ functions are now kept in inlinemem.h
  */
 
-//int bus_mem_fetch(u_int32_t addr, u_int32_t *);
-//int bus_mem_store(u_int32_t addr, u_int32_t);
-int bus_io_fetch(unsigned cpunum, u_int32_t addr, u_int32_t *);
-int bus_io_store(unsigned cpunum, u_int32_t addr, u_int32_t);
+//int bus_mem_fetch(uint32_t addr, uint32_t *);
+//int bus_mem_store(uint32_t addr, uint32_t);
+int bus_io_fetch(unsigned cpunum, uint32_t addr, uint32_t *);
+int bus_io_store(unsigned cpunum, uint32_t addr, uint32_t);
 
 /*
  * Set up bus and cards in bus. Returns number of CPUs to pass to cpu_init.

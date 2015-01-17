@@ -7,12 +7,12 @@
  * Info for a simulated device.
  */
 struct lamebus_device_info {
-   u_int32_t ldi_vendorid;
-   u_int32_t ldi_deviceid;
-   u_int32_t ldi_revision;
+   uint32_t ldi_vendorid;
+   uint32_t ldi_deviceid;
+   uint32_t ldi_revision;
    void   *(*ldi_init)(int slot, int argc, char *argv[]);
-   int     (*ldi_fetch)(unsigned, void *, u_int32_t offset, u_int32_t *rt);
-   int     (*ldi_store)(unsigned, void *, u_int32_t offset, u_int32_t val);
+   int     (*ldi_fetch)(unsigned, void *, uint32_t offset, uint32_t *rt);
+   int     (*ldi_store)(unsigned, void *, uint32_t offset, uint32_t val);
    void    (*ldi_dumpstate)(void *);
    void    (*ldi_cleanup)(void *);
 };

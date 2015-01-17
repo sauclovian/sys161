@@ -1,6 +1,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +17,7 @@
 #define PROTO_VERSION	1
 
 struct field {
-	u_int64_t lastval;
+	uint64_t lastval;
 	unsigned width;
 	char header[MAXHEADERLEN];
 };
@@ -41,11 +42,11 @@ reset(void)
 }
 
 static
-u_int64_t
+uint64_t
 getval(const char *s)
 {
 	/* We could (should?) use strtoull, but it's not always available. */
-	u_int64_t val = 0;
+	uint64_t val = 0;
 	unsigned i;
 
 	for (i=0; s[i]; i++) {
@@ -107,7 +108,7 @@ static
 void
 showdata(int nwords, char **words)
 {
-	u_int64_t val, printval;
+	uint64_t val, printval;
 	int i;
 	char tmp[128];
 
@@ -130,7 +131,7 @@ showdata(int nwords, char **words)
 		printval = val - fields[i].lastval;
 		fields[i].lastval = val;
 
-		if (sizeof(u_int64_t)==sizeof(unsigned long)) {
+		if (sizeof(uint64_t)==sizeof(unsigned long)) {
 			snprintf(tmp, sizeof(tmp), "%lu", 
 				 (unsigned long) printval);
 		}

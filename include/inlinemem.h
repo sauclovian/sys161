@@ -16,7 +16,7 @@
 static
 inline
 int
-bus_mem_fetch(u_int32_t offset, u_int32_t *ret)
+bus_mem_fetch(uint32_t offset, uint32_t *ret)
 {
 	char *ptr;
 	
@@ -30,7 +30,7 @@ bus_mem_fetch(u_int32_t offset, u_int32_t *ret)
 	//Assert((offset & 0x3)==0);
 	
 	ptr = ram+offset;
-	*ret = ntohl(*(u_int32_t *)ptr);
+	*ret = ntohl(*(uint32_t *)ptr);
 	
 	return 0;
 }
@@ -41,7 +41,7 @@ bus_mem_fetch(u_int32_t offset, u_int32_t *ret)
 static
 inline
 int
-bus_mem_fetchbyte(u_int32_t offset, u_int8_t *ret)
+bus_mem_fetchbyte(uint32_t offset, uint8_t *ret)
 {
 	char *ptr;
 	
@@ -51,7 +51,7 @@ bus_mem_fetchbyte(u_int32_t offset, u_int8_t *ret)
 	}
 
 	ptr = ram+offset;
-	*ret = *(u_int8_t *)ptr;
+	*ret = *(uint8_t *)ptr;
 	
 	return 0;
 }
@@ -62,7 +62,7 @@ bus_mem_fetchbyte(u_int32_t offset, u_int8_t *ret)
 static
 inline
 int
-bus_mem_store(u_int32_t offset, u_int32_t val)
+bus_mem_store(uint32_t offset, uint32_t val)
 {
 	char *ptr;
 
@@ -76,7 +76,7 @@ bus_mem_store(u_int32_t offset, u_int32_t val)
 	//Assert((offset & 0x3)==0);
 
 	ptr = ram+offset;
-	*(u_int32_t *)ptr = htonl(val);
+	*(uint32_t *)ptr = htonl(val);
 	
 	return 0;
 }
@@ -87,7 +87,7 @@ bus_mem_store(u_int32_t offset, u_int32_t val)
 static
 inline
 int
-bus_mem_storebyte(u_int32_t offset, u_int8_t val)
+bus_mem_storebyte(uint32_t offset, uint8_t val)
 {
 	char *ptr;
 
@@ -97,7 +97,7 @@ bus_mem_storebyte(u_int32_t offset, u_int8_t val)
 	}
 
 	ptr = ram+offset;
-	*(u_int8_t *)ptr = val;
+	*(uint8_t *)ptr = val;
 
 	return 0;
 }
@@ -107,20 +107,20 @@ bus_mem_storebyte(u_int32_t offset, u_int8_t val)
  */
 static
 inline
-const u_int32_t *
-bus_mem_map(u_int32_t offset)
+const uint32_t *
+bus_mem_map(uint32_t offset)
 {
 	if (offset >= bus_ramsize) {
 		/* No such memory */
 		return NULL;
 	}
-	return (u_int32_t *)(ram+offset);
+	return (uint32_t *)(ram+offset);
 }
 
 static
 inline
-u_int32_t
-bus_use_map(const u_int32_t *page, u_int32_t pageoffset)
+uint32_t
+bus_use_map(const uint32_t *page, uint32_t pageoffset)
 {
-	return ntohl(page[pageoffset/sizeof(u_int32_t)]);
+	return ntohl(page[pageoffset/sizeof(uint32_t)]);
 }

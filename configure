@@ -26,6 +26,7 @@ Options are:
     --help              Print this message
     --with-compiler=CC  Use CC as compiler [probed]
     --prefix=DIR        Install under DIR [/usr/local]
+    --destdir=DIR       Install under chroot tree DIR [empty]
     --bindir=DIR        Install programs into DIR [PREFIX/bin]
     --exampledir=DIR    Install examples in DIR [PREFIX/share/examples/sys161]
     --docdir=DIR        Install docs into DIR [PREFIX/share/doc/sys161]
@@ -39,6 +40,7 @@ EOF
     ;;
 	--with-compiler=*) CC=`echo $1 | sed 's/^[^=]*=//'`;;
 	--prefix=*) PREFIX=`echo $1 | sed 's/^[^=]*=//'`;;
+	--destdir=*) DESTDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--bindir=*) BINDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--exampledir=*) EXAMPLEDIR=`echo $1 | sed 's/^[^=]*=//'`;;
 	--docdir=*) DOCDIR=`echo $1 | sed 's/^[^=]*=//'`;;
@@ -299,21 +301,24 @@ EOF
 $CC __conftest2.c -o __conftest2
 
 for size in 8 16 32 64; do
-    for sign in u_int int; do
+    for sign in uint int; do
 	echo '#include <sys/types.h>' > __conftest.c
+	echo '#include <stdint.h>' >> __conftest.c
 	echo "${sign}${size}_t x;" >> __conftest.c
 
 	if $CC -c __conftest.c >/dev/null 2>&1; then
 	    break;
 	fi
 
-	if [ $sign = u_int ]; then
+	if [ $sign = uint ]; then
 	    echo '#include <sys/types.h>' > __conftest.c
-	    echo "uint${size}_t x;" >> __conftest.c
+	    echo '#include <stdint.h>' >> __conftest.c
+	    echo "u_int${size}_t x;" >> __conftest.c
 
 	    if $CC -c __conftest.c >/dev/null 2>&1; then
 		echo '#include <sys/types.h>' >> __config.h;
-		echo "typedef uint${size}_t u_int${size}_t;" >> __config.h;
+		echo '#include <stdint.h>' >> __config.h
+		echo "typedef u_int${size}_t uint${size}_t;" >> __config.h;
 		break;
 	    fi
 	fi
@@ -332,7 +337,7 @@ for size in 8 16 32 64; do
 	    RESULT="signed char"
 	fi
 
-	if [ $sign = "u_int" ]; then
+	if [ $sign = "uint" ]; then
 	    RESULT="unsigned $RESULT"
 	fi
 
@@ -597,7 +602,7 @@ echo "$BINDIR" "$EXAMPLEDIR" "$DOCDIR" "$MANDIR"
 
 echo 'Creating build directories'
 
-for d in sys161 trace161 stat161 hub161 disk161 doc; do
+for d in sys161 trace161 stat161 hub161 disk161 doc man; do
     [ -d build-$d ] || mkdir build-$d
 done
 
@@ -632,6 +637,7 @@ echo 'Generating build-sys161/defs.mk'
     echo
     echo "PROG=sys161"
     echo
+    echo "DESTDIR=$DESTDIR"
     echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
@@ -655,6 +661,7 @@ echo 'Generating build-trace161/defs.mk'
     echo
     echo "PROG=trace161"
     echo
+    echo "DESTDIR=$DESTDIR"
     echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
@@ -678,6 +685,7 @@ echo 'Generating build-stat161/defs.mk'
     echo
     echo "PROG=stat161"
     echo
+    echo "DESTDIR=$DESTDIR"
     echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
@@ -700,6 +708,7 @@ echo 'Generating build-hub161/defs.mk'
     echo
     echo "PROG=hub161"
     echo
+    echo "DESTDIR=$DESTDIR"
     echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
@@ -722,6 +731,7 @@ echo 'Generating build-disk161/defs.mk'
     echo
     echo "PROG=disk161"
     echo
+    echo "DESTDIR=$DESTDIR"
     echo "BINDIR=$BINDIR"
     echo
     case "$SRCDIR" in
@@ -736,6 +746,7 @@ echo 'Generating build-disk161/defs.mk'
 echo 'Generating build-doc/defs.mk'
 
 (
+    echo "DESTDIR=$DESTDIR"
     echo "BINDIR=$BINDIR"
     echo "EXAMPLEDIR=$EXAMPLEDIR"
     echo "DOCDIR=$DOCDIR"
@@ -747,6 +758,21 @@ echo 'Generating build-doc/defs.mk'
     esac
     echo
 ) > build-doc/defs.mk
+
+########################################
+
+echo 'Generating build-man/defs.mk'
+
+(
+    echo "DESTDIR=$DESTDIR"
+    echo "MANDIR=$MANDIR"
+    echo
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo
+) > build-man/defs.mk
 
 ########################################
 
@@ -804,6 +830,13 @@ cp -f build-sys161/Makefile build-trace161/Makefile
     echo 'include $S/version.mk'
     echo 'include $S/mk/doc.mk'
 ) > build-doc/Makefile
+
+(
+    echo '# Automatically generated file - do not edit here'
+    echo 'include defs.mk'
+    echo 'include $S/version.mk'
+    echo 'include $S/mk/man.mk'
+) > build-man/Makefile
 
 if [ -d ${SRCDIR}$CPU/tests ]; then
     (

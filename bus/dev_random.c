@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/time.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "config.h"
@@ -10,7 +11,7 @@
 #include "busids.h"
 
 /*
- * Note. We assume that random() ^ (random() << 16) fills a u_int32_t with
+ * Note. We assume that random() ^ (random() << 16) fills a uint32_t with
  * 32 good random bits. random() is a BSD function that appears to be
  * defined to return values in the range 0 to 2^31-1, no matter what
  * RAND_MAX may be. The configure script should probably attempt to check
@@ -22,7 +23,7 @@ static
 void *
 rand_init(int slot, int argc, char *argv[])
 {
-	u_int32_t seed = 0;
+	uint32_t seed = 0;
 	int i;
 
 	for (i=1; i<argc; i++) {
@@ -57,7 +58,7 @@ rand_init(int slot, int argc, char *argv[])
 
 static
 int
-rand_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
+rand_fetch(unsigned cpunum, void *data, uint32_t offset, uint32_t *ret)
 {
 	(void)cpunum; // not used
 	(void)data;   // not used
@@ -71,7 +72,7 @@ rand_fetch(unsigned cpunum, void *data, u_int32_t offset, u_int32_t *ret)
 
 static
 int
-rand_store(unsigned cpunum, void *data, u_int32_t offset, u_int32_t val)
+rand_store(unsigned cpunum, void *data, uint32_t offset, uint32_t val)
 {
 	(void)cpunum;
 	(void)data;

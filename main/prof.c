@@ -39,18 +39,18 @@ struct cgbin {
 	struct cgentry *list;
 };
 
-static u_int32_t prof_textbase = 0;
-static u_int32_t prof_textend = 0;
-static u_int32_t prof_samplenum;
-static u_int16_t *prof_sampledata;
+static uint32_t prof_textbase = 0;
+static uint32_t prof_textend = 0;
+static uint32_t prof_samplenum;
+static uint16_t *prof_sampledata;
 static struct cgbin *prof_cg;
 static int prof_active=0;
 
 static
 void
-prof_sample(void *junk1, u_int32_t junk2)
+prof_sample(void *junk1, uint32_t junk2)
 {
-	u_int32_t pc;
+	uint32_t pc;
 	unsigned bin;
 
 	(void)junk1;
@@ -68,7 +68,7 @@ prof_sample(void *junk1, u_int32_t junk2)
 }
 
 void
-prof_call(u_int32_t frompc, u_int32_t topc)
+prof_call(uint32_t frompc, uint32_t topc)
 {
 	unsigned bin;
 	struct cgbin *cb;
@@ -113,8 +113,8 @@ static
 void
 writebyte(int val, FILE *f)
 {
-	u_int8_t byte = val;
-	fwrite(&byte, 1, sizeof(u_int8_t), f);
+	uint8_t byte = val;
+	fwrite(&byte, 1, sizeof(uint8_t), f);
 }
 
 void
@@ -152,7 +152,7 @@ prof_write(void)
 	ghh.ghh_abbrev = 's';
 	fwrite(&ghh, 1, sizeof(ghh), f);
 	for (i=0; i<prof_samplenum; i++) {
-		u_int16_t tmp = htons(prof_sampledata[i]);
+		uint16_t tmp = htons(prof_sampledata[i]);
 		fwrite(&tmp, 1, sizeof(tmp), f);
 	}
 
@@ -180,12 +180,12 @@ prof_write(void)
 }
 
 void
-prof_addtext(u_int32_t textbase, u_int32_t textsize)
+prof_addtext(uint32_t textbase, uint32_t textsize)
 {
-	u_int32_t textend;
+	uint32_t textend;
 
 	/* Round size up to a multiple of PROF_BINSIZE, which is a power of 2*/
-	textsize = (textsize+PROF_BINSIZE+1) & ~(u_int32_t)PROF_BINSIZE;
+	textsize = (textsize+PROF_BINSIZE+1) & ~(uint32_t)PROF_BINSIZE;
 
 	if (textsize==0) {
 		/* just in case */
@@ -228,7 +228,7 @@ prof_setup(void)
 	/* note: prof_textend has already been rounded up appropriately */
 	prof_samplenum = (prof_textend - prof_textbase) / PROF_BINSIZE;
 
-	prof_sampledata = malloc(sizeof(u_int16_t)*prof_samplenum);
+	prof_sampledata = malloc(sizeof(uint16_t)*prof_samplenum);
 	if (prof_sampledata==NULL) {
 		msg("malloc failed");
 		die();
