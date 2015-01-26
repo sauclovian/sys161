@@ -78,7 +78,14 @@ getthreadid(const char *s)
 {
 	char *ign;
 
-	return hexbyte(s, &ign);
+	return hexbyte(s, &ign) - 10;
+}
+
+static
+unsigned
+mkthreadid(unsigned cpunum)
+{
+	return cpunum + 10;
 }
 
 ////////////////////////////////////////////////////////////
@@ -150,8 +157,8 @@ debug_send_stopinfo(struct gdbcontext *ctx)
 	 * document.
 	 */
 	//debug_sendf(ctx, "T05thread:%x;core:%x;",
-	//	    debug_cpu, debug_cpu);
-	debug_sendf(ctx, "T05thread:%x;", debug_cpu);
+	//	    mkthreadid(debug_cpu), mkthreadid(debug_cpu));
+	debug_sendf(ctx, "T05thread:%x;", mkthreadid(debug_cpu));
 }
 
 ////////////////////////////////////////////////////////////
@@ -345,6 +352,7 @@ debug_getthreadinfo(struct gdbcontext *ctx, const char *threadid)
 	snprintf(buf, sizeof(buf), "CPU %u", cpunum);
 
 	/* Code as hex for transmission */
+	xbuf[0] = 0;
 	for (i=0; buf[i]; i++) {
 		printbyte(xbuf, sizeof(xbuf), (unsigned char)buf[i]);
 	}
@@ -546,7 +554,7 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 		/* General query */
 		if (strcmp(pkt + 2, "C") == 0) {
 			/* Return current thread id */
-			debug_sendf(ctx,"QC%x", debug_cpu);
+			debug_sendf(ctx,"QC%x", mkthreadid(debug_cpu));
 		}
 		else if (!strcmp(pkt+2, "fThreadInfo")) {
 			char buf[128];
@@ -560,7 +568,7 @@ debug_exec(struct gdbcontext *ctx, const char *pkt)
 				if (i > 0) {
 					strcat(buf, ",");
 				}
-				printbyte(buf, sizeof(buf), i);
+				printbyte(buf, sizeof(buf), mkthreadid(i));
 			}
 			debug_send(ctx, buf);
 		}
