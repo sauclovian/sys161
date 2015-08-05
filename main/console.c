@@ -16,6 +16,7 @@
 #include "cpu.h"
 #include "main.h"
 #include "trace.h"
+#include "prof.h"
 
 
 /*
@@ -602,6 +603,9 @@ console_beep(void)
 void
 die(void)
 {
+#ifdef USE_TRACE
+	prof_write();
+#endif
 	console_cleanup();
 	exit(1);
 }

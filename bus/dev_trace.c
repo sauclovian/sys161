@@ -5,6 +5,7 @@
 
 #include "main.h"
 #include "cpu.h"
+#include "prof.h"
 
 #include "lamebus.h"
 #include "busids.h"
@@ -15,6 +16,8 @@
 #define TRACEREG_PRINT  8
 #define TRACEREG_DUMP   12
 #define TRACEREG_STOP	16
+#define TRACEREG_PROFEN	20
+#define TRACEREG_PROFCL	24
 
 
 static
@@ -34,10 +37,20 @@ trace_fetch(unsigned cpunum, void *data, uint32_t offset, uint32_t *ret)
 {
 	(void)cpunum;
 	(void)data;
-	(void)offset;
-	(void)ret;
 
-	return -1;
+	switch (offset) {
+	    case TRACEREG_PROFEN:
+#ifdef USE_TRACE
+		*ret = prof_isenabled() ? 1 : 0;
+#else
+		*ret = 0;
+#endif
+		break;
+	    default:
+		return -1;
+	}
+
+	return 0;
 }
 
 static
@@ -82,6 +95,21 @@ trace_store(unsigned cpunum, void *data, uint32_t offset, uint32_t val)
 		msg("trace: software-requested debugger stop");
 		cpu_stopcycling();
 		main_enter_debugger();
+		break;
+	    case TRACEREG_PROFEN:
+#ifdef USE_TRACE
+		if (val) {
+			prof_enable();
+		}
+		else {
+			prof_disable();
+		}
+#endif
+		break;
+	    case TRACEREG_PROFCL:
+#ifdef USE_TRACE
+		prof_clear();
+#endif
 		break;
 	    default:
 		return -1;

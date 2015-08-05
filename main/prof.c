@@ -44,7 +44,28 @@ static uint32_t prof_textend = 0;
 static uint32_t prof_samplenum;
 static uint16_t *prof_sampledata;
 static struct cgbin *prof_cg;
-static int prof_active=0;
+static int prof_on = 0;
+static int prof_active = 0;
+
+void
+prof_enable(void)
+{
+	if (prof_on) {
+		prof_active = 1;
+	}
+}
+
+void
+prof_disable(void)
+{
+	prof_active = 0;
+}
+
+int
+prof_isenabled(void)
+{
+	return prof_active;
+}
 
 static
 void
@@ -56,11 +77,13 @@ prof_sample(void *junk1, uint32_t junk2)
 	(void)junk1;
 	(void)junk2;
 
-	pc = cpuprof_sample();
-	bin = PROF_ADDR2BIN(pc);
+	if (prof_active) {
+		pc = cpuprof_sample();
+		bin = PROF_ADDR2BIN(pc);
 
-	if (bin < prof_samplenum) {
-		prof_sampledata[bin]++;
+		if (bin < prof_samplenum) {
+			prof_sampledata[bin]++;
+		}
 	}
 
 	schedule_event(PROFILE_NSECS, NULL, 0, prof_sample, 
@@ -109,6 +132,26 @@ prof_call(uint32_t frompc, uint32_t topc)
 	cb->list = ce;
 }
 
+void
+prof_clear(void)
+{
+	struct cgentry *ce;
+	unsigned i;
+
+	if (prof_on == 0) {
+		return;
+	}
+
+	for (i=0; i<prof_samplenum; i++) {
+		prof_sampledata[i] = 0;
+		while (prof_cg[i].list != NULL) {
+			ce = prof_cg[i].list;
+			prof_cg[i].list = prof_cg[i].list->next;
+			free(ce);
+		}
+	}
+}
+
 static
 void
 writebyte(int val, FILE *f)
@@ -128,6 +171,10 @@ prof_write(void)
 	struct cgentry *ce;
 	unsigned i;
 	unsigned long len;
+
+	if (prof_on == 0) {
+		return;
+	}
 
 	f = fopen(PROFILE_FILE, "w");
 	if (!f) {
@@ -245,6 +292,7 @@ prof_setup(void)
 		prof_cg[i].list = NULL;
 	}
 
+	prof_on = 1;
 	prof_active = 1;
 	schedule_event(PROFILE_NSECS, NULL, 0, prof_sample, 
 		       "profiling sampler");

@@ -27,7 +27,7 @@ Old uniprocessor bus controller -- see <A HREF=lamebus.html>LAMEbus spec</A>
 <tr><td>5</td><td>1</td><td><A HREF=#screen>Text screen</A></td></tr>
 <tr><td>6</td><td>2</td><td><A HREF=#nic>Network interface</A></td></tr>
 <tr><td>7</td><td>1</td><td><A HREF=#emufs>Emulator filesystem</A></td></tr>
-<tr><td>8</td><td>2</td><td><A HREF=#trace>Hardware trace control</td></tr>
+<tr><td>8</td><td>3</td><td><A HREF=#trace>Hardware trace control</td></tr>
 <tr><td>9</td><td>1</td><td><A HREF=#rand>Random number generator</A></td></tr>
 
 <tr><td>10</td><td>1</td><td>
@@ -403,7 +403,7 @@ frequent change.
 controller</font></h4>
 Device id: 8<br>
 Oldest revision: 1<br>
-Current revision: 2<br>
+Current revision: 3<br>
 Registers:
 <blockquote>
 <table width=100% border=0>
@@ -413,6 +413,8 @@ Registers:
 <tr><td>8-11</td><td>Debugging printout register</td></tr>
 <tr><td>12-15</td><td>System state dump register</td></tr>
 <tr><td>16-19</td><td>Software debugger request</td></tr>
+<tr><td>20-23</td><td>Profiling enable toggle</td></tr>
+<tr><td>24-27</td><td>Profiling data clear</td></tr>
 </table>
 </blockquote>
 
@@ -443,13 +445,33 @@ because debuggers don't cope very well with hitting breakpoint
 instructions they didn't insert themselves.
 <p>
 
+When System/161 is collecting a profile, the profiling enable toggle
+register can be used to turn profile sampling on and off. Writing zero
+disables sampling; writing nonzero enables sampling. This value may be
+read back. Sampling is on by default if profiling was requested on the
+<tt>trace161</tt> command line; otherwise this register always reads
+zero and ignores writes.
+<p>
+
+If a profile is being collected, writing to the profiling data clear
+register erases all currently stored profile information. This can be
+used, for example, to discard profile data from system boot.
+<p>
+
 The software debugger request register was introduced in DRL 2.
 (This appeared in the System/161 2.0 release, after 1.99.10.)
 A device that reports DRL 1 does not have this register and attempts
 to write to it will fault.
 <p>
 
-All these registers are write-only.
+The profiling enable toggle and profiling data clear registers were
+introduced in DRL 3. (This appeared in System/161 2.0.3.) A device
+that reports DRL 1 or 2 does not have these registers and accesses to
+them will fault.
+<p>
+
+All these registers, except for the profiling enable toggle register,
+are write-only.
 
 <hr>
 

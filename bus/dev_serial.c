@@ -77,7 +77,7 @@ setirq(struct ser_data *sd)
 	int rirq = sd->sd_rirq.si_on &&
 		(sd->sd_rirq.si_ready || sd->sd_rirq.si_force);
 	int wirq = sd->sd_wirq.si_on &&
-		(sd->sd_wirq.si_ready || sd->sd_rirq.si_force);
+		(sd->sd_wirq.si_ready || sd->sd_wirq.si_force);
 	if (rirq || wirq) {
 		raise_irq(sd->sd_slot);
 	}

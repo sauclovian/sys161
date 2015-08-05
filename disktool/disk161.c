@@ -424,7 +424,8 @@ main(int argc, char *argv[])
 		}
 		docreate(argv[optind], argv[optind+1], doforce);
 	}
-	else if (!strcmp(command, "info")) {
+	else if (!strcmp(command, "info") || !strcmp(command, "stat") ||
+		 !strcmp(command, "stats") || !strcmp(command, "status")) {
 		if (doforce) {
 			usage();
 		}
@@ -432,7 +433,7 @@ main(int argc, char *argv[])
 			doinfo(argv[i]);
 		}
 	}
-	else if (!strcmp(command, "resize")) {
+	else if (!strcmp(command, "resize") || !strcmp(command, "setsize")) {
 		if (optind + 2 != argc) {
 			usage();
 		}

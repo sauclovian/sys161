@@ -894,15 +894,16 @@ disk_work(struct disk_data *dd)
 		uint32_t nsecs;
 		int distance;
 
-		HWTRACE(DOTRACE_DISK, "disk: slot %d: seeking to track %d",
-			dd->dd_slot, cyl);
-
 		distance = cyl - dd->dd_current_track;
 		if (distance<0) {
 			distance = -distance;
 		}
 		
 		nsecs = disk_seektime(dd, distance);
+
+		HWTRACE(DOTRACE_DISK,
+			"disk: slot %d: seeking to track %d: %u ns",
+			dd->dd_slot, cyl, nsecs);
 		
 		dd->dd_timedop = 1;
 		schedule_event(nsecs, dd, cyl, disk_seekdone, "disk seek");

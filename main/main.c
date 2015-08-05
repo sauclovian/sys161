@@ -497,9 +497,7 @@ main(int argc, char *argv[])
 	run();
 
 #ifdef USE_TRACE
-	if (profiling) {
-		prof_write();
-	}
+	prof_write();
 #endif
 
 	bus_cleanup();

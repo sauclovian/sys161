@@ -29,5 +29,5 @@
 #define SCREEN_REVISION    1
 #define NET_REVISION       1
 #define EMUFS_REVISION     1
-#define TRACE_REVISION     2
+#define TRACE_REVISION     3
 #define RANDOM_REVISION    1

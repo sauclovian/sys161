@@ -13,4 +13,10 @@ void prof_write(void);
 /* call from cpu code when a function-call instruction is reached */
 void prof_call(uint32_t frompc, uint32_t topc);
 
+/* call from ltrace to manipulate profiling state */
+void prof_enable(void);
+void prof_disable(void);
+int prof_isenabled(void);
+void prof_clear(void);
+
 #endif /* PROF_H */

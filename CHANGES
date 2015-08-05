@@ -1,3 +1,13 @@
+20150804 dholland	System/161 2.0.3 released.
+20150714 dholland	Fix the serial port FORCE logic meant to prevent
+........		interrupt flapping. Thanks to Winnie Wu for a test
+........		kernel and workload that reliably repeated the problem.
+20150709 dholland	Recognize some obvious aliases for disk161 commands.
+20150706 dholland	Add page on profiling to the manual.
+20150706 dholland	Add dynamic profiling control to the trace device.
+20150703 dholland	If profiling, write the profile out if we die().
+20150703 dholland	Include seek times in disk activity trace output.
+
 20150126 dholland	System/161 2.0.2 released.
 20150126 dholland	Fix brown paper bag release. Sigh.
 20150126 dholland	System/161 2.0.1 released.
