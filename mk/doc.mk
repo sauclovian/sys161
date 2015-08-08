@@ -3,7 +3,7 @@
 #
 
 HTML=devices.html gdb.html index.html install.html lamebus.html \
-     mips.html networking.html system.html
+     mips.html networking.html prof.html system.html
 
 
 include defs.mk
