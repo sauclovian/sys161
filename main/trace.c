@@ -12,18 +12,19 @@ static const struct {
 	int ch;
 	int flag;
 	const char *name;
+	const char *desc;
 } flaginfo[] = {
 	/* Note: not necessarily in same order as DOTRACE flags */
-	{ 'k', DOTRACE_KINSN, "kinsn" },
-	{ 'u', DOTRACE_UINSN, "uinsn" },
-	{ 'j', DOTRACE_JUMP,  "jump" },
-	{ 't', DOTRACE_TLB,   "tlb" },
-	{ 'x', DOTRACE_EXN,   "exn" },
-	{ 'i', DOTRACE_IRQ,   "irq" },
-	{ 'd', DOTRACE_DISK,  "disk" },
-	{ 'n', DOTRACE_NET,   "net" },
-	{ 'e', DOTRACE_EMUFS, "emufs" },
-	{ -1, -1, NULL }
+	{ 'k', DOTRACE_KINSN, "kinsn", "Kernel-mode instructions" },
+	{ 'u', DOTRACE_UINSN, "uinsn", "User-mode instructions" },
+	{ 'j', DOTRACE_JUMP,  "jump",  "Jumps" },
+	{ 't', DOTRACE_TLB,   "tlb",   "TLB operations" },
+	{ 'x', DOTRACE_EXN,   "exn",   "Exceptions" },
+	{ 'i', DOTRACE_IRQ,   "irq",   "Interrupts" },
+	{ 'd', DOTRACE_DISK,  "disk",  "Disk activity" },
+	{ 'n', DOTRACE_NET,   "net",   "Network activity" },
+	{ 'e', DOTRACE_EMUFS, "emufs", "Emufs activity" },
+	{ -1, -1, NULL, NULL }
 };
 
 int g_traceflags[NDOTRACES];
@@ -90,6 +91,22 @@ print_traceflags(void)
 		}
 	}
 	msg(" ");
+}
+
+void
+print_traceflags_usage(void)
+{
+	int i;
+	size_t len;
+
+	for (i=0; i<NDOTRACES; i++) {
+		msgl("        %c %s", flaginfo[i].ch, flaginfo[i].name);
+		len = strlen(flaginfo[i].name);
+		if (len < 12) {
+			msgl("%.*s", (int)(12-len), "         ");
+		}
+		msg(" %s", flaginfo[i].desc);
+	}
 }
 
 #endif /* USE_TRACE */

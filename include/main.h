@@ -8,7 +8,7 @@ void main_poweroff(void);
 /*
  * Tell mainloop it should suspend execution.
  */
-void main_enter_debugger(void);
+void main_enter_debugger(int lethal);
 
 /*
  * Tell mainloop it should resume execution.

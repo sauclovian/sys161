@@ -373,7 +373,7 @@ clock_ticks(uint64_t nticks)
 	if (progress_warned) {
 		msg("No progress in %lu seconds; dropping to debugger",
 		    (unsigned long)secs * 2);
-		main_enter_debugger();
+		main_enter_debugger(1 /* lethal */);
 
 		/* avoid repeating */
 		clock_newprogressdeadline();

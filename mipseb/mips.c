@@ -997,6 +997,8 @@ translatemem(struct mipscpu *cpu, uint32_t vaddr, int iswrite, uint32_t *ret)
 	 * My guess is that gcc's instruction scheduler isn't good enough to
 	 * handle this on its own and we get pipeline stalls with a more
 	 * sensible organization.
+	 *
+	 * XXX retest this with modern gcc
 	 */
 	seg = vaddr >> 30;
 
@@ -3367,7 +3369,7 @@ cpu_cycle(void)
 			if (gdb_canhandle(cpu->expc)) {
 				phony_exception(cpu);
 				cpu_stopcycling();
-				main_enter_debugger();
+				main_enter_debugger(0 /* not lethal */);
 				/*
 				 * Don't bill time for hitting the breakpoint.
 				 */

@@ -94,7 +94,7 @@ trace_store(unsigned cpunum, void *data, uint32_t offset, uint32_t val)
 	    case TRACEREG_STOP:
 		msg("trace: software-requested debugger stop");
 		cpu_stopcycling();
-		main_enter_debugger();
+		main_enter_debugger(0 /* not lethal */);
 		break;
 	    case TRACEREG_PROFEN:
 #ifdef USE_TRACE

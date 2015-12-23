@@ -22,6 +22,7 @@ extern int g_traceflags[NDOTRACES];
 int adjust_traceflag(int flag, int onoff); /* returns -1 on error */
 void set_traceflags(const char *letters);
 void print_traceflags(void);
+void print_traceflags_usage(void);
 
 
 /*

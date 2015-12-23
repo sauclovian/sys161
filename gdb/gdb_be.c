@@ -24,7 +24,6 @@
 extern struct gdbcontext g_ctx;
 extern int g_ctx_inuse;
 
-static unsigned dontwait;
 static unsigned debug_cpu;
 
 static
@@ -165,13 +164,7 @@ debug_send_stopinfo(struct gdbcontext *ctx)
 // external control interface
 
 void
-gdb_dontwait(void)
-{
-	dontwait = 1;
-}
-
-void
-gdb_startbreak(void)
+gdb_startbreak(int dontwait, int lethal)
 {
 	debug_cpu = cpudebug_get_break_cpu();
 	if (g_ctx_inuse) {
@@ -179,11 +172,17 @@ gdb_startbreak(void)
 		debug_send_stopinfo(&g_ctx);
 	}
 	else {
-		if (dontwait) {
+		if (dontwait && lethal) {
 			msg("Exiting instead of waiting for debugger...");
 			die();
 		}
-		msg("Waiting for debugger connection...");
+		else if (dontwait) {
+			msg("Not waiting for debugger...");
+			main_leave_debugger();
+		}
+		else {
+			msg("Waiting for debugger connection...");
+		}
 	}
 }
 

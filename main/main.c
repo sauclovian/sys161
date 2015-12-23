@@ -34,6 +34,8 @@ static int shutoff_flag;
 
 /* Are we stopped in the debugger? */
 static int stopped_in_debugger;
+static int stop_is_lethal;
+static int no_debugger_wait;
 
 /*
  * Event dispatching model, as of 20140730:
@@ -88,15 +90,17 @@ main_poweroff(void)
 }
 
 void
-main_enter_debugger(void)
+main_enter_debugger(int lethal)
 {
 	stopped_in_debugger = 1;
+	stop_is_lethal = lethal;
 }
 
 void
 main_leave_debugger(void)
 {
 	stopped_in_debugger = 0;
+	stop_is_lethal = 0;
 }
 
 /*
@@ -121,7 +125,7 @@ static
 void
 stoploop(void)
 {
-	gdb_startbreak();
+	gdb_startbreak(no_debugger_wait, stop_is_lethal);
 	while (stopped_in_debugger && !shutoff_flag) {
 		(void)tryselect(0, 0);
 	}
@@ -359,6 +363,7 @@ usage(void)
 	msg("     -s             Pass signal-generating characters through");
 #ifdef USE_TRACE
 	msg("     -t[kujtxidne]  Set tracing flags");
+	print_traceflags_usage();
 #else
 	msg("     -t[flags]      (trace161 only)");
 #endif
@@ -381,7 +386,6 @@ main(int argc, char *argv[])
 	int debugwait=0;
 	int pass_signals=0;
 	int timeout;
-	int dontwait=0;
 #ifdef USE_TRACE
 	int profiling=0;
 #endif
@@ -421,7 +425,7 @@ main(int argc, char *argv[])
 #endif
 			break;
 		    case 'w': debugwait = 1; break;
-		    case 'X': dontwait = 1; break;
+		    case 'X': no_debugger_wait = 1; break;
 		    case 'Z':
 			timeout = atoi(myoptarg);
 			if (timeout <= 1) {
@@ -490,7 +494,7 @@ main(int argc, char *argv[])
 		stoploop();
 	}
 
-	if (dontwait) {
+	if (no_debugger_wait) {
 		gdb_dontwait();
 	}
 

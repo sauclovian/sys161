@@ -10,6 +10,7 @@
 #     6. CHAR_BIT
 #     7. sized integer types
 #     8. if we need -D_FILE_OFFSET_BITS=64 or similar
+#     9. if we need -D_GNU_SOURCE or similar
 #
 
 if [ -f doc/lamebus.html ]; then
@@ -61,16 +62,16 @@ done
 
 ############################################################
 
-echo -n 'Looking for source code... '
+printf 'Looking for source code... '
 
 if [ "x$SRCDIR" = "x" ]; then
-    echo 'here'
+    printf 'here\n'
 else
     if [ -f ${SRCDIR}doc/lamebus.html ]; then
-	echo $SRCDIR
+	printf "$SRCDIR\n"
     else
-	echo 'missing'
-	echo "Cannot find source - please run $0 out of source tree"
+	printf 'missing\n'
+	printf "Cannot find source - please run $0 out of the source tree\n"
 	exit 1
     fi
 fi
@@ -78,17 +79,17 @@ fi
 ############################################################
 
 if [ "x$CPU" = x ]; then
-    echo "No architecture specified."
-    echo "Use --help to get a list of supported architectures."
+    printf "No architecture specified.\n"
+    printf "Use --help to get a list of supported architectures.\n"
     exit 1
 fi
 
 if [ ! -f "${SRCDIR}$CPU/cpuinfo.txt" ]; then
-    echo "Invalid architecture $CPU (try --help for a list)"
+    printf "Invalid architecture $CPU (try --help for a list)\n"
     exit 1
 fi
 
-echo "Checking architecture... $CPU"
+printf "Checking architecture... $CPU\n"
 
 ############################################################
 
@@ -98,7 +99,7 @@ echo '/* Automatically generated file; do not edit */' > __config.h
 
 ############################################################
 
-echo -n "Checking for C compiler... "
+printf "Checking for C compiler... "
 
 cat >__conftest.c <<EOF
 int main() {
@@ -126,32 +127,32 @@ for TRYCC in "$CC" $COMPILERS; do
 done
 
 if [ "x$GOTCC" = x ]; then
-    echo "not found"
-    echo "Cannot find C compiler - please use the --with-compiler option"
+    printf "not found\n"
+    printf "Cannot find C compiler - please use the --with-compiler option\n"
     rm -f __conf*
     exit 1
 fi
 
 CC="$GOTCC"
-echo "$CC"
+printf "$CC\n"
 
 ############################################################
 
-echo -n "Checking if $CC is DEC cc... "
+printf "Checking if $CC is DEC cc... "
 
 if $CC -V 2>&1 | grep "DEC C " >/dev/null 2>&1; then
     DECC=1;
-    echo 'yes'
+    printf 'yes\n'
 else
-    echo 'no'
+    printf 'no\n'
 fi
 
-echo -n "Checking if $CC is gcc... "
+printf "Checking if $CC is gcc... "
 if $CC -v 2>&1 | egrep 'gcc version' >/dev/null 2>&1; then
     GCC=1;
-    echo 'yes'
+    printf 'yes\n'
 else
-    echo 'no'
+    printf 'no\n'
 fi
 
 
@@ -169,7 +170,7 @@ else
 fi
 
 if [ "x$USEWARNS" != x ]; then
-    echo "Checking warning options... $WARN"
+    printf "Checking warning options... $WARN\n"
     CFLAGS=`echo "$CFLAGS $WARN" | sed 's/^ *//;s/ *$//'`
 fi
 
@@ -177,11 +178,11 @@ if [ "x$USEDEBUG" = x1 ]; then
     OPT="-g"
 fi
 
-echo "Checking optimization options... $OPT"
+printf "Checking optimization options... $OPT\n"
 
 ############################################################
 
-echo -n "Checking if compiler understands inline... "
+printf "Checking if compiler understands inline... "
 cat >__conftest.c <<EOF
 static inline int foo(void) {
     return 6;
@@ -192,15 +193,15 @@ int bar(int x) {
 EOF
 
 if $CC -c __conftest.c >/dev/null 2>&1; then
-    echo "yes"
+    printf "yes\n"
 else
-    echo "no"
+    printf "no\n"
     echo "#define inline" >> __config.h
 fi
 
 ############################################################
 
-echo -n "Checking endianness... "
+printf "Checking endianness... "
 
 cat >__conftest.c <<EOF
 #include <stdio.h>
@@ -224,17 +225,17 @@ ENDIAN=`./__conftest || echo unknown`
 
 case $ENDIAN in
      little)
-	echo 'little-endian'
+	printf 'little-endian\n'
 	echo '#define QUAD_HIGHWORD 1' >> __config.h
 	echo '#define QUAD_LOWWORD  0' >> __config.h
 	;;
      big)
-	echo 'big-endian'
+	printf 'big-endian\n'
 	echo '#define QUAD_HIGHWORD 0' >> __config.h
 	echo '#define QUAD_LOWWORD  1' >> __config.h
 	;;
-     *) echo 'unknown'; 
-        echo 'Help!'; 
+     *) printf 'unknown\n'; 
+        printf 'Help!\n'; 
 	rm -f __conf*
         exit 1
 	;;
@@ -242,7 +243,34 @@ esac
 
 ############################################################
 
-echo -n "Checking number of bits in a char... "
+printf "Checking if ftruncate is hidden behind _GNU_SOURCE... "
+
+cat > __conftest.c <<EOF
+#include <unistd.h>
+int foo(int fd) {
+    return ftruncate(fd, 12345);
+}
+EOF
+
+if $CC -c __conftest.c >/dev/null 2>&1; then
+    printf "no\n"
+else
+    if $CC -c -D_GNU_SOURCE  __conftest.c >/dev/null 2>&1; then
+	printf "yes\n"
+	printf "Your C library is broken.\n"
+	if uname -a | grep -i linux >/dev/null 2>&1; then
+	    printf '(Film at 11.)\n'
+	fi
+	CFLAGS="$CFLAGS -D_GNU_SOURCE"
+    else
+	printf "missing\n"
+	printf "Cannot find ftruncate - this probably will not work\n"
+    fi
+fi
+
+############################################################
+
+printf "Checking number of bits in a char... "
 
 cat > __conftest.c <<EOF
 #include <stdio.h>
@@ -264,13 +292,13 @@ $CC __conftest.c -o __conftest
 CHARBIT=`./__conftest || echo unknown`
 
 if [ x"$CHARBIT" = xunknown ]; then
-    echo 'unknown'
-    echo 'Help!'
+    printf 'unknown\n'
+    printf 'Help!\n'
     rm -f __conf*
     exit 1
 fi
 
-echo $CHARBIT
+printf "$CHARBIT\n"
 
 (
     echo '#ifndef CHAR_BIT'
@@ -280,7 +308,7 @@ echo $CHARBIT
 
 ############################################################
 
-echo -n "Checking sized integer types... "
+printf "Checking sized integer types... "
 
 cat > __conftest2.c <<EOF
 #include <stdlib.h>
@@ -326,9 +354,9 @@ for size in 8 16 32 64; do
 	RESULT=`./__conftest2 $size $CHARBIT 2>/dev/null || echo unknown`
 
 	if [ "x$RESULT" = xunknown ]; then
-	    echo 'oops'
-	    echo "Cannot determine type for ${sign}${size}_t"
-	    echo 'Help!'
+	    printf 'oops\n'
+	    printf "Cannot determine type for ${sign}${size}_t\n"
+	    printf 'Help!\n'
 	    rm -f __conf*
 	    exit 1;
 	fi
@@ -346,15 +374,16 @@ for size in 8 16 32 64; do
     done
 done
 
-echo 'ok'
+printf 'ok\n'
 
 ############################################################
 
-echo -n "Checking size of off_t... "
+printf "Checking size of off_t... "
 
 cat > __conftest.c <<EOF
 #include <sys/types.h>
 #include <unistd.h>
+#include <stdint.h>
 #include "__config.h"
 int main() {
     int foo[sizeof(off_t) == sizeof(int64_t) ? 1 : -1];
@@ -364,22 +393,24 @@ int main() {
 EOF
 
 if $CC -c __conftest.c >/dev/null 2>&1; then
-    echo "ok"
+    printf "ok\n"
 else
     if $CC -c -D_FILE_OFFSET_BITS=64 __conftest.c >/dev/null 2>&1; then
-	echo "bogus"
-	echo "Your C library requires -D_FILE_OFFSET_BITS=64. Please ask your"
-	echo "vendor to provide a reasonable default environment."
+	printf "bogus\n"
+	printf "Your C library requires -D_FILE_OFFSET_BITS=64. Please ask"
+	printf "your vendor to\n provide a reasonable default environment.\n"
 	CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64"
     else
-	echo "unknown"
-	echo "WARNING -- you will probably not be able to handle large files"
+	printf "small or unknown\n"
+	printf "WARNING -- large files will probably not work\n"
+	# ...although they mostly don't anyway owing to 32-bit limitations
+	# in the guest environment
     fi
 fi
 
 ############################################################
 
-echo -n "Checking for struct sockaddr_storage... "
+printf "Checking for struct sockaddr_storage... "
 
 cat >__conftest.c <<EOF
 #include <sys/types.h>
@@ -389,9 +420,9 @@ char *foo() { return (char *)&testing; }
 EOF
 
 if $CC -c __conftest.c >/dev/null 2>&1; then
-    echo "ok"
+    printf "ok\n"
 else
-    echo "missing"
+    printf "missing\n"
     echo '#include <sys/types.h>' >> __config.h
     echo '#include <sys/socket.h>' >> __config.h
     echo 'struct sockaddr_storage { struct sockaddr data; };' >> __config.h
@@ -399,7 +430,7 @@ fi
 
 ############################################################
 
-echo -n "Checking for socklen_t... "
+printf "Checking for socklen_t... "
 cat >__conftest.c <<EOF
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -410,20 +441,20 @@ int foo() {
 EOF
 
 if $CC -c __conftest.c >/dev/null 2>&1; then
-    echo "socklen_t"
+    printf "socklen_t\n"
 else
     OK=0
     for TRY in int size_t long unsigned "unsigned long"; do
 	if $CC -D"socklen_t=$TRY" -c __conftest.c >/dev/null 2>&1; then
-	    echo "$TRY"
+	    printf "$TRY\n"
 	    echo "typedef $TRY socklen_t;" >> __config.h
 	    OK=1;
 	    break;
 	fi
     done
     if [ $OK != 1 ]; then
-	echo 'missing'
-	echo 'Cannot determine type for socklen_t... help!'
+	printf 'missing\n'
+	printf 'Cannot determine type for socklen_t... help!\n'
 	rm -f __conf*
 	exit 1
     fi
@@ -431,7 +462,8 @@ fi
 
 ############################################################
 
-echo -n "Checking if struct sockaddr_un has sun_len... "
+printf "Checking if struct sockaddr_un has sun_len... "
+
 cat >__conftest.c <<EOF
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -444,15 +476,16 @@ int foo() {
 EOF
 
 if $CC -c __conftest.c >/dev/null 2>&1; then
-    echo "yes"
+    printf "yes\n"
     echo '#define HAS_SUN_LEN 1' >> __config.h
 else
-    echo "no"
+    printf "no\n"
 fi
 
 ############################################################
 
-echo -n "Checking for -lsocket..."
+printf "Checking for -lsocket..."
+
 cat >__conftest.c <<EOF
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -462,20 +495,21 @@ int main() {
 EOF
 
 if $CC __conftest.c -o __conftest >/dev/null 2>&1; then
-    echo 'no'
+    printf 'no\n'
 elif $CC __conftest.c -lsocket -o __conftest >/dev/null 2>&1; then
-    echo 'yes'
+    printf 'yes\n'
     LIBS=`echo "$LIBS -lsocket" | sed 's/^ *//;s/ *$//'`
 else
-    echo 'missing'
-    echo 'Cannot find socket()... help!'
+    printf 'missing\n'
+    printf 'Cannot find socket()... help!\n'
     rm -f __conf*
     exit 1
 fi
 
 ############################################################
 
-echo -n "Checking for -lnsl..."
+printf "Checking for -lnsl..."
+
 cat >__conftest.c <<EOF
 #include <sys/types.h>
 #include <netdb.h>
@@ -486,13 +520,13 @@ int main() {
 EOF
 
 if $CC __conftest.c -o __conftest >/dev/null 2>&1; then
-    echo 'no'
+    printf 'no\n'
 elif $CC __conftest.c -lnsl -o __conftest >/dev/null 2>&1; then
-    echo 'yes'
+    printf 'yes\n'
     LIBS=`echo "$LIBS -lnsl" | sed 's/^ *//;s/ *$//'`
 else
-    echo 'missing'
-    echo 'Cannot find gethostbyname()... help!'
+    printf 'missing\n'
+    printf 'Cannot find gethostbyname()... help!\n'
     exit 5
     rm -f __conf*
     exit 1
@@ -500,7 +534,8 @@ fi
 
 ############################################################
 
-echo -n "Checking if SUN_LEN is defined... "
+printf "Checking if SUN_LEN is defined... "
+
 cat >__conftest.c <<EOF
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -518,9 +553,9 @@ int main() {
 EOF
 
 if $CC __conftest.c $LIBS -o __conftest >/dev/null 2>&1; then
-    echo "yes"
+    printf "yes\n"
 else
-    echo "missing"
+    printf "missing\n"
     echo '#define SUN_LEN(x) '"\\" >>__config.h
     echo '    (sizeof(*(x)) - sizeof((x)->sun_path) '"\\" >>__config.h
     echo '     + strlen((x)->sun_path))' >>__config.h
@@ -528,7 +563,8 @@ fi
 
 ############################################################
 
-echo -n "Checking for snprintf... "
+printf "Checking for snprintf... "
+
 cat >__conftest.c <<EOF
 #include <stdio.h>
 #include <string.h>
@@ -543,7 +579,7 @@ EOF
 OK=0
 if $CC __conftest.c -o __conftest >/dev/null 2>&1; then
     if ./__conftest >/dev/null 2>&1; then
-	echo 'ok'
+	printf 'ok\n'
 	OK=1
     fi
 fi
@@ -552,7 +588,7 @@ if [ $OK = 0 ]; then
     for TRY in -lsnprintf -ldb; do
 	if $CC __conftest.c $TRY -o __conftest >/dev/null 2>&1; then
 	    if ./__conftest; then
-		echo $TRY
+		printf "$TRY\n"
 		LIBS=`echo "$LIBS $TRY" | sed 's/^ *//;s/ *$//'`
 		OK=1
 		break
@@ -562,15 +598,15 @@ if [ $OK = 0 ]; then
 fi
 
 if [ $OK = 0 ]; then
-    echo 'missing'
-    echo 'Cannot find snprintf... help!'
+    printf 'missing\n'
+    printf 'Cannot find snprintf... help!\n'
     rm -f __conf*
     exit 1
 fi
 
 ############################################################
 
-echo -n "Install directories: "
+printf "Install directories:\n"
 
 if [ "x$PREFIX" = x ]; then
     PREFIX='/usr/local'
@@ -596,11 +632,14 @@ if [ "x$MANDIR" = x ]; then
     fi
 fi
 
-echo "$BINDIR" "$EXAMPLEDIR" "$DOCDIR" "$MANDIR"
+printf "   $BINDIR\n"
+printf "   $EXAMPLEDIR\n"
+printf "   $DOCDIR\n"
+printf "   $MANDIR\n"
 
 ############################################################
 
-echo 'Creating build directories'
+printf 'Creating build directories\n'
 
 for d in sys161 trace161 stat161 hub161 disk161 doc man; do
     [ -d build-$d ] || mkdir build-$d
@@ -612,7 +651,7 @@ fi
 
 ########################################
 
-echo 'Generating defs.mk'
+printf 'Generating defs.mk\n'
 
 (
     echo '# Automatically generated file; do not edit'
@@ -626,7 +665,7 @@ echo 'Generating defs.mk'
 
 ########################################
 
-echo 'Generating build-sys161/defs.mk'
+printf 'Generating build-sys161/defs.mk\n'
 
 (
     echo '# Automatically generated file; do not edit'
@@ -650,7 +689,7 @@ echo 'Generating build-sys161/defs.mk'
 
 ########################################
 
-echo 'Generating build-trace161/defs.mk'
+printf 'Generating build-trace161/defs.mk\n'
 
 (
     echo '# Automatically generated file; do not edit'
@@ -674,7 +713,7 @@ echo 'Generating build-trace161/defs.mk'
 
 ########################################
 
-echo 'Generating build-stat161/defs.mk'
+printf 'Generating build-stat161/defs.mk\n'
 
 (
     echo '# Automatically generated file; do not edit'
@@ -697,7 +736,7 @@ echo 'Generating build-stat161/defs.mk'
 
 ########################################
 
-echo 'Generating build-hub161/defs.mk'
+printf 'Generating build-hub161/defs.mk\n'
 
 (
     echo '# Automatically generated file; do not edit'
@@ -720,7 +759,7 @@ echo 'Generating build-hub161/defs.mk'
 
 ########################################
 
-echo 'Generating build-disk161/defs.mk'
+printf 'Generating build-disk161/defs.mk\n'
 
 (
     echo '# Automatically generated file; do not edit'
@@ -743,7 +782,7 @@ echo 'Generating build-disk161/defs.mk'
 
 ########################################
 
-echo 'Generating build-doc/defs.mk'
+printf 'Generating build-doc/defs.mk\n'
 
 (
     echo "DESTDIR=$DESTDIR"
@@ -761,7 +800,7 @@ echo 'Generating build-doc/defs.mk'
 
 ########################################
 
-echo 'Generating build-man/defs.mk'
+printf 'Generating build-man/defs.mk\n'
 
 (
     echo "DESTDIR=$DESTDIR"
@@ -777,7 +816,7 @@ echo 'Generating build-man/defs.mk'
 ########################################
 
 if [ -d ${SRCDIR}$CPU/tests ]; then
-    echo 'Generating test-cpu/defs.mk'
+    printf 'Generating test-cpu/defs.mk\n'
 
     (
 	case "$SRCDIR" in
@@ -791,7 +830,7 @@ fi
 
 ########################################
 
-echo 'Generating Makefiles'
+printf 'Generating Makefiles\n'
 
 (
     echo '# Automatically generated file - do not edit here'
@@ -855,7 +894,7 @@ fi
 
 ########################################
 
-echo 'Generating config.h'
+printf 'Generating config.h\n'
 
 cp -f __config.h build-sys161/config.h
 cp -f __config.h build-trace161/config.h
@@ -867,7 +906,7 @@ rm -f __conf*
 
 ########################################
 
-echo 'Generating cpu-elf.h'
+printf 'Generating cpu-elf.h\n'
 
 (
     echo '/* Automatically generated file - do not edit here */'
@@ -878,7 +917,7 @@ cp -f build-sys161/cpu-elf.h build-trace161/cpu-elf.h
 
 ########################################
 
-echo 'Generating make rules'
+printf 'Generating make rules\n'
 
 (
     cd build-sys161 && touch depend.mk rules.mk && make rules
@@ -904,6 +943,6 @@ fi
 
 ########################################
 
-echo 'Now do make; make install'
+printf 'Now do make && make install\n'
 
 exit 0

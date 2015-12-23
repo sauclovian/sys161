@@ -25,6 +25,14 @@ static int g_listenfd = -1;
 struct gdbcontext g_ctx;
 int g_ctx_inuse = 0;
 
+static int dontwait;
+
+void
+gdb_dontwait(void)
+{
+	dontwait = 1;
+}
+
 void
 gdb_dumpstate(void)
 {
@@ -88,7 +96,15 @@ gdb_canhandle(uint32_t pcaddr)
 	/*
 	 * Note that if g_ctx.myfd isn't open we still do builtin
 	 * debugging - in that case we wait for a debugger connection.
+	 *
+	 * However, if dontwait has been set, and a debugger isn't
+	 * connected, return false here so that the cpu's own
+	 * breakpoint trap can fire.
 	 */
+
+	if (!g_ctx_inuse && dontwait) {
+		return 0;
+	}
 
 	cpudebug_get_bp_region(&start, &end);
 
@@ -247,7 +263,7 @@ accepter(void *x)
 	onselect(remotefd, ctx, gdb_receive, gdb_cleanup);
 
 	cpu_stopcycling();
-	main_enter_debugger();
+	main_enter_debugger(0 /* not lethal */);
 
 	return 0;
 }

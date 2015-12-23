@@ -516,7 +516,7 @@ console_sel(void *unused)
 		cpu_stopcycling();
 
 		/* drop to the debugger */
-		main_enter_debugger();
+		main_enter_debugger(0 /* not lethal */);
 	}
 	else if (ch == -1) {
 		/*
@@ -669,7 +669,7 @@ hang(const char *fmt, ...)  // was crash()
 
 	// wait for debugger connection
 	cpu_stopcycling();
-	main_enter_debugger();
+	main_enter_debugger(1 /* lethal */);
 	
 	//console_cleanup();
 	//exit(1);

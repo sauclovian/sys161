@@ -1,3 +1,13 @@
+20151222 dholland	System/161 2.0.4 released.
+20151222 dholland	Improve the way -X works.
+20151222 dholland	Make trace161 -h output include the trace flag list.
+20151222 dholland	Use shell printf instead of echo -n. Apparently Apple
+........		still ships a broken sh whose echo prints literal "-n".
+20151222 dholland	Apparently some Linux installs demand _GNU_SOURCE to
+........		be allowed to see/use ftruncate.
+20150808 dholland	Actually install the new prof.html. Sigh.
+........		(issued as patch for 2.0.3)
+
 20150804 dholland	System/161 2.0.3 released.
 20150714 dholland	Fix the serial port FORCE logic meant to prevent
 ........		interrupt flapping. Thanks to Winnie Wu for a test

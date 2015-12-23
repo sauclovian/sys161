@@ -12,8 +12,8 @@ void gdb_unix_init(const char *socketpath);
 /* Call to disable waiting for connections */
 void gdb_dontwait(void);
 
-/* Call when stopping for a breakpoint */
-void gdb_startbreak(void);
+/* Call when stopping for a breakpoint; die if DONTWAIT and LETHAL */
+void gdb_startbreak(int dontwait, int lethal);
 
 /* Call to find out if debugging on this address is available */
 int gdb_canhandle(uint32_t pcaddr);

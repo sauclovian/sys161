@@ -111,7 +111,7 @@ sys161: System/161 timer device rev 1
 sys161:     0 microseconds, one-shot
 sys161:     Generation number: 0
 sys161: ************ Slot 30 ************
-sys161: System/161 trace control device rev 1
+sys161: System/161 trace control device rev 3
 sys161: ************ Slot 31 ************
 sys161: LAMEbus uniprocessor controller rev 2
 sys161:     ramsize: 16384 (16k)
