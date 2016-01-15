@@ -468,6 +468,12 @@ clock_time(uint32_t *secs_ret, uint32_t *nsecs_ret)
 	}
 }
 
+uint64_t
+clock_monotime(void)
+{
+	return clock_vnow();
+}
+
 void
 clock_setsecs(uint32_t newsecs)
 {

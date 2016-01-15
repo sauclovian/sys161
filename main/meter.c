@@ -3,6 +3,7 @@
 #include <sys/un.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -16,47 +17,61 @@
 #include "main.h" /* for g_stats */
 #include "meter.h"
 
-#define PROTOCOL_VERSION  1
+#define PROTOCOL_VERSION  2
 
 ////////////////////////////////////////////////////////////
 
+#define METER_BUFSIZE 128
+
 struct meter {
+	uint64_t interval;
 	int fd;
+	char buf[METER_BUFSIZE];
+	size_t bufpos;
 };
 
 static int meter_socket = -1;
 
 static
+PF(2, 3)
+void
+meter_say(struct meter *m, const char *fmt, ...)
+{
+	char buf[4096];
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	write(m->fd, buf, strlen(buf));
+}
+
+static
 void
 meter_hello(struct meter *m)
 {
-	char buf[4096];
-	snprintf(buf, sizeof(buf), 
-		 "HELLO %d\r\n", PROTOCOL_VERSION);
-	write(m->fd, buf, strlen(buf));
+	meter_say(m, "HELLO %d\r\n", PROTOCOL_VERSION);
 }
 
 static
 void
 meter_header(struct meter *m)
 {
-	char buf[4096];
-	snprintf(buf, sizeof(buf), 
-		 "HEAD kern user idle kinsns uinsns irqs exns disk con emu net\r\n");
-	write(m->fd, buf, strlen(buf));
-	snprintf(buf, sizeof(buf),
-		 "WIDTH 9 9 9 7 7 4 4 4 5 4 4\r\n");
-	write(m->fd, buf, strlen(buf));
+	meter_say(m, "HEAD nsec kinsns uinsns udud idle"
+		  " irqs exns disk con emu net\r\n");
+	meter_say(m, "WIDTH 11 9 9 4 9 4 4 4 5 4 4\r\n");
 }
 
 static
 void
 meter_report(struct meter *m)
 {
-	char buf[4096];
 	char buf2[512];
+	uint64_t timestamp;
 	uint64_t kcycles, ucycles, icycles;
 	uint64_t kretired, uretired;
+
+	timestamp = clock_monotime();
 
 #if 0
 	kcycles = g_stats.s_kcycles;
@@ -89,14 +104,14 @@ meter_report(struct meter *m)
 	Assert(uretired <= ucycles);
 #endif
 
-	snprintf(buf2, sizeof(buf2), "%llu %llu %llu %llu %llu",
-		 (unsigned long long) kcycles,
-		 (unsigned long long) ucycles,
-		 (unsigned long long) icycles,
+	snprintf(buf2, sizeof(buf2), "%llu %llu %llu %llu",
 		 (unsigned long long) kretired,
-		 (unsigned long long) uretired);
+		 (unsigned long long) uretired,
+		 (unsigned long long) (ucycles - uretired),
+		 (unsigned long long) icycles);
 
-	snprintf(buf, sizeof(buf), "DATA %s %lu %lu %lu %lu %lu %lu\r\n",
+	meter_say(m, "DATA %llu %s %lu %lu %lu %lu %lu %lu\r\n",
+		 (unsigned long long) timestamp,
 		 buf2,
 		 (unsigned long) g_stats.s_irqs,
 		 (unsigned long) g_stats.s_exns,
@@ -105,8 +120,6 @@ meter_report(struct meter *m)
 		 (unsigned long) (g_stats.s_remu + g_stats.s_wemu + 
 				  g_stats.s_memu),
 		 (unsigned long) (g_stats.s_rpkts + g_stats.s_wpkts));
-
-	write(m->fd, buf, strlen(buf));
 }
 
 static
@@ -123,26 +136,95 @@ meter_update(void *x, uint32_t junk)
 	}
 
 	meter_report(m);
-	schedule_event(METER_NSECS, m, 0, meter_update, "perfmeter");
+	schedule_event(m->interval, m, 0, meter_update, "perfmeter");
+}
+
+static
+void
+processline(struct meter *m, char *line)
+{
+#define MAXWORDS 8
+	char *words[MAXWORDS];
+	char *s, *ctx;
+	unsigned long newinterval;
+	int nwords;
+
+	nwords = 0;
+	for (s = strtok_r(line, " \t\r\n", &ctx);
+	     s != NULL;
+	     s = strtok_r(NULL, " \t\r\n", &ctx)) {
+		if (nwords >= MAXWORDS) {
+			meter_say(m, "BAD Too many words in command\r\n");
+			return;
+		}
+		words[nwords++] = s;
+	}
+	if (nwords==0) {
+		return;
+	}
+
+	if (!strcasecmp(words[0], "interval") && nwords == 2) {
+		/*
+		 * Note that we could lift the limit of 2s max by
+		 * using strtoull here, but reliable availability of
+		 * strtoull on vendor Unix platforms (e.g. Solaris,
+		 * Illumos) is still spotty.
+		 */
+		errno = 0;
+		newinterval = strtoul(words[1], &s, 0);
+		if (errno || *s != 0) {
+			meter_say(m, "BAD Invalid number\r\n");
+			return;
+		}
+		if (newinterval < MIN_METER_NSECS) {
+			meter_say(m, "BAD Interval too small\r\n");
+			return;
+		}
+		if (newinterval > MAX_METER_NSECS) {
+			meter_say(m, "BAD Interval too large\r\n");
+			return;
+		}
+		m->interval = newinterval;
+	}
+	else {
+		meter_say(m, "BAD Invalid command\r\n");
+		return;
+	}
 }
 
 static
 int
 meter_receive(void *x)
 {
+	static const char overflowmsg[] = "BAD Input overflow\r\n";
+
 	struct meter *m = x;
-	char buf[128];
+	char *s;
 	int r;
 
-	r = read(m->fd, buf, sizeof(buf));
-	if (r<=0) {
+	if (m->bufpos >= sizeof(m->buf)) {
+		/* Input overflow */
+		write(m->fd, overflowmsg, strlen(overflowmsg));
+		m->bufpos = 0;
+	}
+
+	r = read(m->fd, m->buf, sizeof(m->buf) - m->bufpos);
+	if (r <= 0) {
 		/* error/EOF? close connection; m will be freed next update */
 		close(m->fd);
 		m->fd = -1;
 		return -1;
 	}
+	m->bufpos += r;
 
-	/* otherwise, ignore anything sent to us */
+	while ((s = memchr(m->buf, '\n', m->bufpos)) != NULL) {
+		*s = 0;
+		s++;
+		m->bufpos -= (s-m->buf);
+		processline(m, m->buf);
+		memmove(m->buf, s, m->bufpos);
+	}
+
 	return 0;
 }
 
@@ -176,7 +258,9 @@ meter_accept(void *x)
 		return 0;
 	}
 
+	m->interval = DEFAULT_METER_NSECS;
 	m->fd = remotefd;
+	m->bufpos = 0;
 	onselect(remotefd, m, meter_receive, NULL);
 
 	meter_hello(m);
