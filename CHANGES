@@ -1,3 +1,7 @@
+20160117 dholland	System/161 2.0.6 released.
+20160117 dholland	util.c needs sys/types.h; from Nikhil Benesch.
+20160116 dholland	Don't let the dropped input character messages flood.
+
 20160114 dholland	System/161 2.0.5 released.
 20160114 dholland	Fix a bug counting global-idle cycles.
 20160114 dholland	Drop redundant columns in stat161 output.

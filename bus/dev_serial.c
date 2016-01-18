@@ -46,6 +46,7 @@ struct ser_data {
 
 	uint32_t sd_readch;
 	int sd_didread;
+	unsigned sd_droppedreads;
 	char sd_inbuf[INBUF_SIZE];
 	int sd_inbufhead;	/* characters are read from inbufhead */
 	int sd_inbuftail;	/* characters are written to inbuftail */
@@ -112,13 +113,26 @@ serial_pushinput(void *d, uint32_t junk)
 		sd->sd_rbusy = 0;
 	}
 	else if (!sd->sd_didread) {
-		msg("Input character dropped");
+		sd->sd_droppedreads++;
+		if (sd->sd_droppedreads % 1024 == 0) {
+			msg("[.]");
+		}
+		if (sd->sd_droppedreads == 1000000000 / SERIAL_NSECS) {
+			msg("Kernel not responding; console input suspended");
+		}
 		schedule_event(SERIAL_NSECS, sd, 0,
 			       serial_pushinput, "serial read");
 	}
 	else {
 		ch = (uint32_t)(unsigned char)sd->sd_inbuf[sd->sd_inbufhead];
 		sd->sd_inbufhead = (sd->sd_inbufhead+1)%INBUF_SIZE;
+
+		if (sd->sd_droppedreads > 0) {
+			msg("Held up to %u input characters while kernel"
+			    " unresponsive",
+			    sd->sd_droppedreads);
+			sd->sd_droppedreads = 0;
+		}
 
 		sd->sd_readch = ch;
 		sd->sd_didread = 0;
@@ -228,6 +242,7 @@ serial_init(int slot, int argc, char *argv[])
 
 	sd->sd_readch = 0;
 	sd->sd_didread = 1;
+	sd->sd_droppedreads = 0;
 	sd->sd_inbufhead = 0;	/* empty if head==tail */
 	sd->sd_inbuftail = 0;
 
