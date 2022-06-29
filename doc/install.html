@@ -179,15 +179,16 @@ Very old versions of BSD make may also have problems.
 
 
 
-This compiles and installs two versions of the simulator:
-<tt>sys161</tt>, the normal or "fast" simulator, <tt>trace161</tt>,
-which is the same as <tt>sys161</tt> but has lots of debugging and
-diagnostic support built in and thus doesn't run as quickly.
+This compiles and installs the simulator <tt>sys161</tt>.
 It also installs three support programs: <tt>hub161</tt>, a tool for
 connecting multiple copies of System/161 together into a virtual
 network, <tt>stat161</tt>, a tool for printing the internal
 performance counters, and <tt>disk161</tt>, a tool for manipulating
 disk images. See below for more information.
+It also installs a program <tt>trace161</tt>, which is the same as
+<tt>sys161</tt>. In older versions, <tt>trace161</tt> was a separate
+executable with the tracing and profiling code, which was left out of
+the main <tt>sys161</tt> executable as a performance hack.
 
 
 <h3><font face=tahoma,arial,helvetica,sans>What's Installed</font></h3>
@@ -197,9 +198,9 @@ Assuming the default installation directories, and version 2.0,
 System/161 installs the following:
 <dl>
 <dt><tt><font color=#000066>/usr/local/bin/sys161-2.0</font></tt></dt>
-<dd>The fast version of the simulator.</dd>
+<dd>The simulator.</dd>
 <dt><tt><font color=#000066>/usr/local/bin/trace161-2.0</font></tt></dt>
-<dd>A slower version of the simulator with tracing and profiling support.</dd>
+<dd>An additional name for the simulator, installed for compatibility.</dd>
 <dt><tt><font color=#000066>/usr/local/bin/stat161-2.0</font></tt></dt>
 <dd>A tool for monitoring the simulator.</dd>
 <dt><tt><font color=#000066>/usr/local/bin/hub161-2.0</font></tt></dt>

@@ -1,3 +1,18 @@
+20220629 dholland	Fix broken -fno-common build. Oops. Commons are evil.
+20210317 dholland	Fix endianness issues in remote gdb protocol code.
+20210224 dholland	Add preliminary RISC-V code. Still experimental.
+20210224 dholland	Don't assume RAM starts at paddr 0.
+20210224 dholland	Provide (and use) a better byte-swap infrastructure.
+20210224 dholland	Add cpu-endian.h to hold target endianness.
+20210224 dholland	Add configure tests for byte-swap functions.
+20210224 dholland	Improve configure tests for endianness.
+20210219 dholland	Allow for kernel images that aren't 32-bit big-endian.
+20210219 dholland	Minor update to elf machines; add riscv, remove junk.
+20210219 dholland	Fix truncation in console trace output, found by gcc8.
+20171105 dholland	Do both tracing and non-tracing cpus in one build.
+20171105 dholland	Reorganize source tree and build system.
+20170907 dholland	Set t9 on kernel entry in case the kernel image is PIC.
+
 20160301 dholland	System/161 2.0.8 released.
 20160301 dholland	Update copyright years. Noticed by Margo Seltzer.
 20160229 dholland	Fix handling of file creation in emufs, again.

@@ -1,0 +1,1 @@
+#define CPU_ENDIAN	LITTLE_ENDIAN

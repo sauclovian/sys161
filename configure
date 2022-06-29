@@ -11,6 +11,7 @@
 #     7. sized integer types
 #     8. if we need -D_FILE_OFFSET_BITS=64 or similar
 #     9. if we need -D_GNU_SOURCE or similar
+#     10. byte-swapping functions
 #
 
 if [ -f doc/lamebus.html ]; then
@@ -84,7 +85,7 @@ if [ "x$CPU" = x ]; then
     exit 1
 fi
 
-if [ ! -f "${SRCDIR}$CPU/cpuinfo.txt" ]; then
+if [ ! -f "${SRCDIR}sys161/$CPU/cpuinfo.txt" ]; then
     printf "Invalid architecture $CPU (try --help for a list)\n"
     exit 1
 fi
@@ -201,9 +202,48 @@ fi
 
 ############################################################
 
-printf "Checking endianness... "
+printf "Checking host endianness... "
 
-cat >__conftest.c <<EOF
+# Before running a test program, try the libc interface.
+OK=0
+for HEADER in sys/endian.h endian.h; do
+    for ORDER in BIG LITTLE PDP; do
+	cat >__conftest.c <<EOF
+#include <$HEADER>
+#if BYTE_ORDER == ${ORDER}_ENDIAN
+int main(void) { return 0; }
+#else
+choke and die
+#endif
+EOF
+	if $CC __conftest.c -o __conftest >/dev/null 2>&1; then
+	    ENDIAN_HEADER="<$HEADER>"
+	    ENDIAN=$ORDER
+	    OK=1
+	    break
+	fi
+    done
+    if [ $OK = 1 ]; then
+	break
+    fi
+done
+
+if [ $OK = 1 ]; then
+    echo "#define ENDIAN_HEADER $ENDIAN_HEADER" >> __config.h
+else
+    # The libc interface didn't exist or didn't work. Test the hard way.
+    # Note: this can't detect PDP_ENDIAN. If for some reason you care,
+    # fix your OS's includes. And send patches so PDP_ENDIAN actually
+    # works. And convince me I should bother to apply them.
+    # Retrocomputing (and necrocomputing too) is fine, but not where
+    # you should be doing OS teaching or development work.
+
+    echo "#undef ENDIAN_HEADER" >> __config.h
+    echo "#define BIG_ENDIAN 4321" >> __config.h
+    echo "#define LITTLE_ENDIAN 1234" >> __config.h
+    echo "#define PDP_ENDIAN 3412" >> __config.h
+
+    cat >__conftest.c <<EOF
 #include <stdio.h>
 int main() {
     unsigned long x = 1;
@@ -219,20 +259,26 @@ int main() {
 }
 EOF
 
-$CC __conftest.c -o __conftest
+    $CC __conftest.c -o __conftest
 
-ENDIAN=`./__conftest || echo unknown`
+    ENDIAN_HEADER=NONE
+    ENDIAN=`./__conftest || echo unknown`
+fi
 
 case $ENDIAN in
-     little)
+     little|LITTLE)
 	printf 'little-endian\n'
-	echo '#define QUAD_HIGHWORD 1' >> __config.h
-	echo '#define QUAD_LOWWORD  0' >> __config.h
+	echo '#define HOST_ENDIAN LITTLE_ENDIAN' >> __config.h
 	;;
-     big)
+     big|BIG)
 	printf 'big-endian\n'
-	echo '#define QUAD_HIGHWORD 0' >> __config.h
-	echo '#define QUAD_LOWWORD  1' >> __config.h
+	echo '#define HOST_ENDIAN BIG_ENDIAN' >> __config.h
+	;;
+     pdp|PDP)
+	printf 'PDP-endian\n'
+	printf 'Sorry, cannot cope with this.\n'
+	rm -f __conf*
+	exit 1
 	;;
      *) printf 'unknown\n'; 
         printf 'Help!\n'; 
@@ -271,6 +317,11 @@ fi
 ############################################################
 
 printf "Checking number of bits in a char... "
+
+# note: this is not actually used in the sys161 code (which will
+# probably explode all over the place if you try to run it on a
+# 9-bit machine) but the result is used in the next stage if it
+# needs to look for the proper types for uint32_t and such.
 
 cat > __conftest.c <<EOF
 #include <stdio.h>
@@ -606,6 +657,51 @@ fi
 
 ############################################################
 
+printf "Checking for byte-swapping functions... "
+
+#
+# The BSD-style interface is:
+#    #include <sys/endian.h>
+#    bswap16(), bswap32(), bswap64()
+#
+# The Linux-style interface is:
+#    #include <byteswap.h>
+#    bswap_16(), bswap_32(), bswap_64()
+#
+# We prefer one of the system-provided interfaces over handrolled code
+# on the assumption that it's more likely to know about useful special
+# instructions on the host architecture and generally be faster/more
+# efficient.
+#
+
+cat >__conftest.c <<EOF
+#include <sys/types.h>
+#include $ENDIAN_HEADER
+int main(int argc, char *argv[]) {
+    return (int)(bswap32((unsigned)argc));
+}
+EOF
+
+cat >__conftest2.c <<EOF
+#include <byteswap.h>
+int main(int argc, char *argv[]) {
+    return (int)(bswap_32((unsigned)argc));
+}
+EOF
+
+if $CC __conftest.c >/dev/null 2>&1; then
+    printf 'BSD-style\n'
+    echo '#define USE_BSD_BSWAP' >> __config.h
+elif $CC __conftest2.c >/dev/null 2>&1; then
+    printf 'Linux-style\n'
+    echo '#define USE_LINUX_BSWAP' >> __config.h
+else
+    printf 'missing\n'
+    echo '#define USE_OWN_BSWAP' >> __config.h
+fi
+
+############################################################
+
 printf "Install directories:\n"
 
 if [ "x$PREFIX" = x ]; then
@@ -641,11 +737,11 @@ printf "   $MANDIR\n"
 
 printf 'Creating build directories\n'
 
-for d in sys161 trace161 stat161 hub161 disk161 doc man; do
+for d in sys161 stat161 hub161 disk161 doc man; do
     [ -d build-$d ] || mkdir build-$d
 done
 
-if [ -d ${SRCDIR}$CPU/tests ]; then
+if [ -d ${SRCDIR}sys161/$CPU/tests ]; then
     [ -d test-cpu ] || mkdir test-cpu
 fi
 
@@ -655,178 +751,20 @@ printf 'Generating defs.mk\n'
 
 (
     echo '# Automatically generated file; do not edit'
-    case "$SRCDIR" in
-	"") echo "S=.";;
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=$SRCDIR" | sed 's,/$,,';;
-    esac
     echo
-) > defs.mk
-
-########################################
-
-printf 'Generating build-sys161/defs.mk\n'
-
-(
-    echo '# Automatically generated file; do not edit'
     echo "CC=$CC"
     echo "CFLAGS=$CFLAGS $OPT"
     echo "LDFLAGS=$LDFLAGS"
     echo "LIBS=$LIBS"
     echo
-    echo "PROG=sys161"
-    echo
-    echo "DESTDIR=$DESTDIR"
-    echo "BINDIR=$BINDIR"
-    echo
-    case "$SRCDIR" in
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
-    esac
-    echo "CPU=$CPU"
-    echo
-) > build-sys161/defs.mk
-
-########################################
-
-printf 'Generating build-trace161/defs.mk\n'
-
-(
-    echo '# Automatically generated file; do not edit'
-    echo "CC=$CC"
-    echo "CFLAGS=$CFLAGS $OPT -DUSE_TRACE"
-    echo "LDFLAGS=$LDFLAGS"
-    echo "LIBS=$LIBS"
-    echo
-    echo "PROG=trace161"
-    echo
-    echo "DESTDIR=$DESTDIR"
-    echo "BINDIR=$BINDIR"
-    echo
-    case "$SRCDIR" in
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
-    esac
-    echo "CPU=$CPU"
-    echo
-) > build-trace161/defs.mk
-
-########################################
-
-printf 'Generating build-stat161/defs.mk\n'
-
-(
-    echo '# Automatically generated file; do not edit'
-    echo "CC=$CC"
-    echo "CFLAGS=$CFLAGS $OPT"
-    echo "LDFLAGS=$LDFLAGS"
-    echo "LIBS=$LIBS"
-    echo
-    echo "PROG=stat161"
-    echo
-    echo "DESTDIR=$DESTDIR"
-    echo "BINDIR=$BINDIR"
-    echo
-    case "$SRCDIR" in
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
-    esac
-    echo
-) > build-stat161/defs.mk
-
-########################################
-
-printf 'Generating build-hub161/defs.mk\n'
-
-(
-    echo '# Automatically generated file; do not edit'
-    echo "CC=$CC"
-    echo "CFLAGS=$CFLAGS $OPT"
-    echo "LDFLAGS=$LDFLAGS"
-    echo "LIBS=$LIBS"
-    echo
-    echo "PROG=hub161"
-    echo
-    echo "DESTDIR=$DESTDIR"
-    echo "BINDIR=$BINDIR"
-    echo
-    case "$SRCDIR" in
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
-    esac
-    echo
-) > build-hub161/defs.mk
-
-########################################
-
-printf 'Generating build-disk161/defs.mk\n'
-
-(
-    echo '# Automatically generated file; do not edit'
-    echo "CC=$CC"
-    echo "CFLAGS=$CFLAGS $OPT"
-    echo "LDFLAGS=$LDFLAGS"
-    echo "LIBS=$LIBS"
-    echo
-    echo "PROG=disk161"
-    echo
-    echo "DESTDIR=$DESTDIR"
-    echo "BINDIR=$BINDIR"
-    echo
-    case "$SRCDIR" in
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
-    esac
-    echo
-) > build-disk161/defs.mk
-
-########################################
-
-printf 'Generating build-doc/defs.mk\n'
-
-(
     echo "DESTDIR=$DESTDIR"
     echo "BINDIR=$BINDIR"
     echo "EXAMPLEDIR=$EXAMPLEDIR"
     echo "DOCDIR=$DOCDIR"
     echo "MANDIR=$MANDIR"
     echo
-    case "$SRCDIR" in
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
-    esac
-    echo
-) > build-doc/defs.mk
-
-########################################
-
-printf 'Generating build-man/defs.mk\n'
-
-(
-    echo "DESTDIR=$DESTDIR"
-    echo "MANDIR=$MANDIR"
-    echo
-    case "$SRCDIR" in
-	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
-    esac
-    echo
-) > build-man/defs.mk
-
-########################################
-
-if [ -d ${SRCDIR}$CPU/tests ]; then
-    printf 'Generating test-cpu/defs.mk\n'
-
-    (
-	case "$SRCDIR" in
-	    /*) echo "S=$SRCDIR" | sed 's,/$,,';;
-	    *) echo "S=../$SRCDIR" | sed 's,/$,,';;
-	esac
-	echo "CPU=$CPU"
-	echo
-    ) > test-cpu/defs.mk
-fi
+    echo "CPU=$CPU"
+) > defs.mk
 
 ########################################
 
@@ -834,62 +772,86 @@ printf 'Generating Makefiles\n'
 
 (
     echo '# Automatically generated file - do not edit here'
-    echo 'include defs.mk'
-    echo 'include $S/$(CPU)/cpu.mk'
-    echo 'include $S/version.mk'
-    echo 'include $S/mk/sys161.mk'
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo 'BUILDTOP=..'
+    echo 'include $S/sys161/Makefile.real'
 ) > build-sys161/Makefile
-
-cp -f build-sys161/Makefile build-trace161/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    echo 'include defs.mk'
-    echo 'include $S/version.mk'
-    echo 'include $S/mk/stat161.mk'
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo 'BUILDTOP=..'
+    echo 'include $S/stat161/Makefile.real'
 ) > build-stat161/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    echo 'include defs.mk'
-    echo 'include $S/version.mk'
-    echo 'include $S/mk/hub161.mk'
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo 'BUILDTOP=..'
+    echo 'include $S/hub161/Makefile.real'
 ) > build-hub161/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    echo 'include defs.mk'
-    echo 'include $S/version.mk'
-    echo 'include $S/mk/disk161.mk'
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo 'BUILDTOP=..'
+    echo 'include $S/disk161/Makefile.real'
 ) > build-disk161/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    echo 'include defs.mk'
-    echo 'include $S/version.mk'
-    echo 'include $S/mk/doc.mk'
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo 'BUILDTOP=..'
+    echo 'include $S/doc/Makefile.real'
 ) > build-doc/Makefile
 
 (
     echo '# Automatically generated file - do not edit here'
-    echo 'include defs.mk'
-    echo 'include $S/version.mk'
-    echo 'include $S/mk/man.mk'
+    case "$SRCDIR" in
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=../$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo 'BUILDTOP=..'
+    echo 'include $S/man/Makefile.real'
 ) > build-man/Makefile
 
-if [ -d ${SRCDIR}$CPU/tests ]; then
+if [ -d ${SRCDIR}sys161/$CPU/tests ]; then
     (
 	echo '# Automatically generated file - do not edit here'
-	echo 'include defs.mk'
-	echo 'include $S/version.mk'
-	echo 'include $S/$(CPU)/tests/test.mk'
+	case "$SRCDIR" in
+	    /*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	    *) echo "S=../$SRCDIR" | sed 's,/$,,';;
+	esac
+        echo 'BUILDTOP=..'
+	echo 'CPU='"$CPU" # XXX grr
+	echo 'include $S/sys161/$(CPU)/tests/test.mk'
     ) > test-cpu/Makefile
 fi
 
 (
     echo '# Automatically generated file - do not edit here'
-    echo 'include defs.mk'
-    echo 'include $S/mk/top.mk'
+    case "$SRCDIR" in
+	"") echo "S=.";;
+	/*) echo "S=$SRCDIR" | sed 's,/$,,';;
+	*) echo "S=$SRCDIR" | sed 's,/$,,';;
+    esac
+    echo 'BUILDTOP=.'
+    echo 'include $S/Makefile.real'
 ) > Makefile
 
 ########################################
@@ -897,7 +859,6 @@ fi
 printf 'Generating config.h\n'
 
 cp -f __config.h build-sys161/config.h
-cp -f __config.h build-trace161/config.h
 cp -f __config.h build-stat161/config.h
 cp -f __config.h build-hub161/config.h
 cp -f __config.h build-disk161/config.h
@@ -910,10 +871,17 @@ printf 'Generating cpu-elf.h\n'
 
 (
     echo '/* Automatically generated file - do not edit here */'
-    cat ${SRCDIR}$CPU/cpu-elf.h
+    cat ${SRCDIR}sys161/$CPU/cpu-elf.h
 ) > build-sys161/cpu-elf.h
 
-cp -f build-sys161/cpu-elf.h build-trace161/cpu-elf.h
+########################################
+
+printf 'Generating cpu-endian.h\n'
+
+(
+    echo '/* Automatically generated file - do not edit here */'
+    cat ${SRCDIR}sys161/$CPU/cpu-endian.h
+) > build-sys161/cpu-endian.h
 
 ########################################
 
@@ -921,9 +889,6 @@ printf 'Generating make rules\n'
 
 (
     cd build-sys161 && touch depend.mk rules.mk && make rules
-)
-(
-    cd build-trace161 && touch depend.mk rules.mk && make rules
 )
 (
     cd build-stat161 && touch depend.mk rules.mk && make rules

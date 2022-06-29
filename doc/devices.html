@@ -418,17 +418,15 @@ Registers:
 </table>
 </blockquote>
 
-This device controls <tt>trace161</tt>'s trace flags, allowing them to
+This device controls System/161's trace flags, allowing them to
 be set or cleared on the fly. To set a trace flag, write the letter of
 its trace option to the trace-on register; to clear it, use the
 trace-off register. The letters are the same as those used on the
-<tt>trace161</tt> command line. If running <tt>sys161</tt> rather than
-<tt>trace161</tt>, this device may exist and be used, but the trace
-registers have no effect.
+command line.
 <p>
 
-The debugging printout register, if written to, causes <tt>trace161</tt>
-or <tt>sys161</tt> to print a debug message, which includes the value
+The debugging printout register, if written to, causes
+<tt>sys161</tt> to print a debug message, which includes the value
 written to the register.
 <p>
 
@@ -449,7 +447,7 @@ When System/161 is collecting a profile, the profiling enable toggle
 register can be used to turn profile sampling on and off. Writing zero
 disables sampling; writing nonzero enables sampling. This value may be
 read back. Sampling is on by default if profiling was requested on the
-<tt>trace161</tt> command line; otherwise this register always reads
+command line; otherwise this register always reads
 zero and ignores writes.
 <p>
 

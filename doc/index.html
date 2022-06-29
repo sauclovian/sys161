@@ -28,7 +28,7 @@ January 5, 2016
 
 <p align=right><i>
 <font face=tahoma,arial,helvetica,sans>
-<A HREF=copying.txt>Copyright</A> 2000, 2001, 2002, 2009, 2010, 2014-2016
+<A HREF=copying.txt>Copyright</A> 2000, 2001, 2002, 2009, 2010, 2014-2017
 <br>
 The President and Fellows of Harvard College.
 </font>
@@ -71,15 +71,7 @@ The rest of this manual is divided into the following subsections:
 <h3><font face=tahoma,arial,helvetica,sans>Running System/161</font></h3>
 
 <p>
-There are two versions of System/161 that are built and installed: the
-normal one, <tt>sys161</tt>, and one compiled to be able to log
-information about what's happening and generally assist debugging,
-which is called <tt>trace161</tt>.
-</p>
-
-<p>
-The general format for the command line for either of these is like
-this:
+The general format for the System/161 command line is like this:
 <blockquote>
 	<tt>sys161</tt> [ <em>System/161 options</em> ] 
 		<em>kernel</em> [ <em>kernel options</em> ]
@@ -109,6 +101,11 @@ systems.) Individual disks can be marked "nodoom" in the config file,
 in which case writes to those disks do not count. (This is useful for
 your swap disk.)</dd>
 
+<dt>-f <em>tracefile</em></dt>
+<dd>Set the file trace information (if any) is logged to. By default,
+stderr is used. Specifying -f- sends output to stdout instead of
+stderr.</dd>
+
 <dt>-p <em>port</em></dt>
 <dd>Listen for debugger connections on specified TCP port. The default
 is to use the Unix-domain socket <tt>./.sockets/gdb</tt> for debugger
@@ -117,38 +114,18 @@ connections.
 does not support authentication, use this option only with
 caution.</strong></font></dd>
 
+<dt>-P</dt>
+<dd>Collect a kernel profile and leave it in the file
+<tt>gmon.out</tt> for analysis by <tt>gprof</tt>.</dd>
+
 <dt>-s</dt>
 <dd>Pass signal-generating characters (^C, ^Z, etc.) through to the
 running kernel instead of treating them as requests to sys161.</dd>
 
-<dt>-w</dt>
-<dd>Wait for a debugger connection immediately on startup.</dd>
-
-<dt>-X</dt>
-<dd>Do not hang waiting for the debugger; exit instead.</dd>
-
-<dt>-Z secs</dt>
-<dd>Check for progress and first warn, then drop to the debugger if no
-progress occurs in the specified amount of simulator time. Progress is
-defined as successfully retiring an instruction in user mode. Don't
-use this option with in-kernel test workloads.</dd>
-
-</dl>
-</blockquote>
-</p>
-
-<p>
-The following additional options control trace161's tracing and are
-ignored by sys161:
-<blockquote>
-<dl>
-
-<dt>-f <em>tracefile</em></dt>
-<dd>Set the file trace information is logged to. By default, stderr is
-used. Specifying -f- sends output to stdout instead of stderr.</dd>
-
 <dt>-t <em>traceflags</em></dt>
-<dd>Tell System/161 what to trace. The following flags are available:
+<dd>Tell System/161 to trace various things as they happen during
+execution.
+The following flags are available:
    <table>
    <tr><td>d</td>	<td>Trace disk I/O</td></tr>
    <tr><td>e</td>	<td>Trace emufs I/O</td></tr>
@@ -163,18 +140,17 @@ used. Specifying -f- sends output to stdout instead of stderr.</dd>
    that may overwhelm smaller host systems.
 </dd>
 
-</dl>
-</blockquote>
-</p>
+<dt>-w</dt>
+<dd>Wait for a debugger connection immediately on startup.</dd>
 
-<p>
-The following option is also only available in trace161:
-<blockquote>
-<dl>
+<dt>-X</dt>
+<dd>Do not hang waiting for the debugger; exit instead.</dd>
 
-<dt>-P</dt>
-<dd>Collect a kernel profile and leave it in the file
-<tt>gmon.out</tt> for analysis by <tt>gprof</tt>.</dd>
+<dt>-Z secs</dt>
+<dd>Check for progress and first warn, then drop to the debugger if no
+progress occurs in the specified amount of simulator time. Progress is
+defined as successfully retiring an instruction in user mode. Don't
+use this option with in-kernel test workloads.</dd>
 
 </dl>
 </blockquote>

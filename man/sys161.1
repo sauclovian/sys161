@@ -2,26 +2,17 @@
 .Dt SYS161 1
 .Os System/161 2.x
 .Sh NAME
-.Nm sys161, trace161
+.Nm sys161
 .Nd System/161 machine simulator
 .Sh SYNOPSIS
 .Nm sys161
 .Op Fl c Ar config
 .Op Fl D Ar doom
-.Op Fl p Ar port
-.Op Fl swX
-.Op Fl Z Ar timeout
-.Ar kernel
-.Op Ar kernel-arguments ...
-.Nm trace161
-.Op Fl c Ar config
-.Op Fl D Ar doom
-.Op Fl p Ar port
-.Op Fl swX
-.Op Fl Z Ar timeout
 .Op Fl f Ar tracefile
-.Op Fl P
+.Op Fl p Ar port
 .Op Fl t Ar traceflags
+.Op Fl Z Ar timeout
+.Op Fl PswX
 .Ar kernel
 .Op Ar kernel-arguments ...
 .Sh DESCRIPTION
@@ -30,14 +21,6 @@ processors in a simplified hardware environment suitable for teaching
 or low-level experimentation.
 (Please see the full manual for programming and configuration
 information.)
-Use
-.Nm sys161
-for regular operation, including debugging with
-.Xr gdb 1 .
-The
-.Nm trace161
-program should be run instead when accessing certain expensive
-functionality that makes the CPU code run slower.
 .Sh OPTIONS
 The first argument not beginning with a dash is treated as the
 .Ar kernel
@@ -60,9 +43,7 @@ After the selected number of writes to non-exempted disk devices, the
 machine shuts itself off.
 This is useful for testing file systems.
 .It Fl f Ar tracefile
-This option is accepted only when running
-.Nm trace161
-and chooses the destination for trace output.
+This option chooses the destination for trace output.
 Note that when tracing to a file the the trace output is slightly
 different in order to better allow cross-referencing trace output and
 regular machine output.
@@ -80,9 +61,7 @@ instead.
 .Xr gdb 1
 to teach it to talk to local filesystem sockets.)
 .It Fl P
-This option is accepted only when running
-.Nm trace161
-and enables kernel profiling.
+This option enables kernel profiling.
 At shutdown time, a profile dump is written to the file
 .Pa gmon.out
 suitable for use with the
@@ -103,12 +82,10 @@ broken guest kernel than to interrupt a program running on the guest
 kernel, the default is to allow these key combinations to kill
 System/161.
 .It Fl t Ar traceflags
-This option is accepted only when running
-.Nm trace161
-and sets the trace flags to use.
+This option sets the trace flags to use.
 Each flag enables a different set of trace points.
 The trace flags are:
-.Bl -tag -width bla -offset indent
+.Bl -tag -width bla -compact -offset indent
 .It k
 Trace kernel instructions.
 .It u
@@ -189,11 +166,3 @@ where ABCD is the network device's hardware address.
 .Xr disk161 1 ,
 .Xr hub161 1 ,
 .Xr stat161 1
-.Sh BUGS
-The
-.Nm sys161
-and
-.Nm trace161
-programs differ only by compile-time conditionals in the MIPS CPU code.
-It would be better to have one executable that chooses which of two
-compiled copies of that code to run based on the command-line options.

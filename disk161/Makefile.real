@@ -1,0 +1,9 @@
+include $S/mk/setup.mk
+
+PROG=disk161
+SRCLIST=\
+	disk161		disk161.c
+
+CFLAGS+=-I.
+
+include $S/mk/prog.mk

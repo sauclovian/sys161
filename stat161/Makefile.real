@@ -1,0 +1,9 @@
+include $S/mk/setup.mk
+
+PROG=stat161
+SRCLIST=\
+	stat161		stat161.c
+
+CFLAGS+=-I.
+
+include $S/mk/prog.mk

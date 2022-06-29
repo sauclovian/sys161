@@ -1,0 +1,9 @@
+include $S/mk/setup.mk
+
+PROG=hub161
+SRCLIST=\
+	hub161		array.c nethub.c
+
+CFLAGS+=-I.
+
+include $S/mk/prog.mk

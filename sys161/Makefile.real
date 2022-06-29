@@ -1,0 +1,26 @@
+include $S/mk/setup.mk
+
+PROG=sys161
+
+# get the cpu-specific sources
+include $S/sys161/$(CPU)/cpu.mk
+SRCLIST+=\
+	sys161/bus	lamebus.c boot.c \
+			dev_disk.c dev_emufs.c dev_net.c dev_random.c \
+			dev_screen.c dev_serial.c dev_timer.c dev_trace.c \
+	sys161/gdb	gdb_fe.c gdb_be.c \
+	sys161/main	main.c onsel.c clock.c console.c \
+			prof.c meter.c trace.c util.c
+
+CFLAGS+=-I$S/sys161/include -I.
+
+include $S/mk/prog.mk
+
+install: install-trace
+install-trace:
+	(umask 022; \
+		[ -d "$(DESTDIR)$(BINDIR)" ] || mkdir -p $(DESTDIR)$(BINDIR))
+	ln -sf sys161-$(VERSION) "$(DESTDIR)$(BINDIR)/trace161-$(VERSION)"
+	ln -sf trace161-$(VERSION) "$(DESTDIR)$(BINDIR)/trace161"
+
+.PHONY: install install-trace
