@@ -7,7 +7,7 @@ development.
 See [os161.org](http://www.os161.org/index.html#sys161) for further
 information.
 
-Install instructions are in [the doc directory][doc/install.html].
+Install instructions are in [the doc directory](doc/install.html).
 
 Note that this is a downstream mirror tree and not the reference
 repository; it contains releases and occasional snapshots, but will
